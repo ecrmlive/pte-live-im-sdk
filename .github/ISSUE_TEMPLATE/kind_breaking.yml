@@ -1,0 +1,41 @@
+name: 🚧 Kind/Breaking
+about: 无法不向后兼容的变化
+title: '[Breaking changes]:'
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Kind/Breaking
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: textarea
+    id: describe-wanted
+    attributes:
+      label: 描述破坏性更新的
+      description: '清楚简洁地描述破坏性更新的内容'
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加上下文
+      description: 关于这个问题的任何其他上下文或截图。
+
+  - type: checkboxes
+    id: validations
+    attributes:
+      label: 验证
+      description: 在提交问题之前，请确保您执行以下操作
+      options:
+        - label: 阅读 [贡献准则](./src/branch/main/.github/CONTRIBUTING_DOC/CONTRIBUTING.md).
+          required: true
+        - label: 检查是否还没有[报告相同错误的问题](./issues)，以避免重复创建.
+          required: true
+        - label: 检查了该问题是否尚未在 `下一个版本` 中修复
+          required: true

@@ -1,0 +1,55 @@
+name: ⏫ Kind/Enhancement
+about: 改进现有功能
+title: '[Enhancement]:'
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Kind/Enhancement
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: textarea
+    id: enhancement-description
+    attributes:
+      label: 改进功能描述
+      description: 我想要 [目标/愿望]，以便 [受益]。如果您打算为此功能提交PR，请在说明中告诉我们'
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-solution
+    attributes:
+      label: 建议改进的解决方案
+      description: '可以提供以下功能的改进...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternative
+    attributes:
+      label: 替代方案
+      description: 对您考虑的任何替代解决方案或功能的清晰简洁的描述。
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加上下文
+      description: 关于这个问题的任何其他上下文或截图。
+
+  - type: checkboxes
+    id: validations
+    attributes:
+      label: 验证
+      description: 在提交问题之前，请确保您执行以下操作
+      options:
+        - label: 阅读 [贡献准则](./src/branch/main/.github/CONTRIBUTING_DOC/CONTRIBUTING.md).
+          required: true
+        - label: 检查是否还没有[报告相同错误的问题](./issues)，以避免重复创建.
+          required: true
+        - label: 检查了该特性是否尚未在 `下一个版本` 中存在
+          required: true

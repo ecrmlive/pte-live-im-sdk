@@ -1,0 +1,31 @@
+name: 📝 Kind/Documentation
+about: 文档更改
+title: '[Documentation]:'
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Kind/Documentation
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: textarea
+    id: documentation-wanted
+    attributes:
+      label: 对文档的改进或补充
+      description: '对文档的改进或补充的清晰简洁的描述'
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: validations
+    attributes:
+      label: 验证
+      description: 在提交问题之前，请确保您执行以下操作
+      options:
+        - label: 阅读 [贡献准则](./src/branch/main/.github/CONTRIBUTING_DOC/CONTRIBUTING.md).
+          required: true

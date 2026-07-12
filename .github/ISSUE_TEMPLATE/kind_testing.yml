@@ -1,0 +1,57 @@
+name: 🧪 Kind/Testing
+about: 与测试相关的问题或拉取请求
+title: "[Testing]: "
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Kind/Testing
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: textarea
+    id: describe-testing
+    attributes:
+      label: 测试描述
+      description: '清晰简洁地描述你想要的测试的内容'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 组件
+      description: 涉及的组件有那些？
+      multiple: true
+      options:
+        - server
+        - web-ui
+        - client
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 如果适用，请添加屏幕截图以帮助解释您的问题.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加上下文
+      description: 关于这个问题的任何其他上下文或截图。
+
+  - type: checkboxes
+    id: validations
+    attributes:
+      label: 验证
+      description: 在提交问题之前，请确保您执行以下操作
+      options:
+        - label: 阅读 [贡献准则](./src/branch/main/.github/CONTRIBUTING_DOC/CONTRIBUTING.md).
+          required: true

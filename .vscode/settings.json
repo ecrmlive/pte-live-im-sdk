@@ -1,0 +1,7 @@
+{
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "text": "Generate a Conventional Commit Summary and a detailed Description for this repository. Summary format: <type>(<optional-scope>): <subject>. Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Use a concise English subject, keep the header within 100 characters, and use kebab-case only when a scope is needed. For Description, provide 3 to 8 concise English bullet points grouped by feature or module. Include user-visible behavior, API/data/schema changes, deployment/configuration changes, and test results when present. Do not invent changes, list every file, add Markdown headings, or add unrelated commentary."
+    }
+  ]
+}

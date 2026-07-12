@@ -1,0 +1,21 @@
+name: 🆘 Priority/Critical
+about: 优先级至关重要
+title: "[Priority/Critical]: "
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Priority/Critical
+
+body:
+  - type: markdown
+    attributes:
+      value: '- [ ] 加急处理'
+
+  - type: textarea
+    id: describe-issue
+    attributes:
+      label: 工单内容
+      description: '对工单增加项的清晰简洁的描述'
+    validations:
+      required: true

@@ -1,0 +1,76 @@
+name: ❓Question
+title: "[question]: "
+description: 想问这个项目的问题
+#assignees:
+#  - octocat
+labels:
+  - question
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: textarea
+    id: describe-question
+    attributes:
+      label: 想提的问题
+      description: '清晰简洁地描述你想要问的'
+    validations:
+      required: true
+
+  - type: textarea
+    id: system-info
+    attributes:
+      label: 系统信息
+      description: '填入相关系统的信息，或者当前程序的版本信息'
+      render: shell
+      placeholder: |
+        通过命令获取系统信息
+        # UNIX like
+        $ uname -a
+        # linux
+        $ lsb_release -a
+        # macOS
+        $ sw_vers
+        # windows
+        $ systeminfo
+
+        # OS: [e.g. iOS]
+        # Browser [e.g. chrome, safari]
+        # Version [e.g. 22]
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志输出
+      description: 请复制并粘贴任何相关的日志输出。将自动格式化为日志
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 如果适用，请添加屏幕截图以帮助解释您的问题.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加上下文
+      description: 关于这个问题的任何其他上下文或截图。
+
+  - type: checkboxes
+    id: validations
+    attributes:
+      label: 验证
+      description: 在提交问题之前，请确保您执行以下操作
+      options:
+        - label: 阅读 [贡献准则](./src/branch/main/.github/CONTRIBUTING_DOC/CONTRIBUTING.md).
+          required: true
+        - label: 检查是否还没有[报告相同错误的问题](./issues)，以避免重复创建.
+          required: true
+        - label: 检查了该问题是否尚未在 `下一个版本` 中修复
+          required: true

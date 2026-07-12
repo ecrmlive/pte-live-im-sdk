@@ -1,0 +1,23 @@
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer(s)]
+
+# type values:
+# feat     新功能
+# fix      缺陷修复
+# docs     文档变更
+# style    代码风格（不影响运行逻辑）
+# refactor 重构（非修复、非新增）
+# perf     性能优化
+# test     测试变更
+# build    构建系统或依赖变更
+# ci       CI/CD 配置变更
+# chore    其他杂项维护
+# revert   回滚提交
+
+# examples:
+# feat(api): add course comments pagination
+# fix(swimming): handle invalid user_id in follow endpoint
+# docs(readme): add commit format instructions

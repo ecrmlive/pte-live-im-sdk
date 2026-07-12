@@ -1,0 +1,21 @@
+name: ❗ Priority/High
+about: 优先级高
+title: "[Priority/High]: "
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Priority/High
+
+body:
+  - type: markdown
+    attributes:
+      value: '- [ ] 高优先级处理'
+
+  - type: textarea
+    id: describe-issue
+    attributes:
+      label: 工单内容
+      description: '对工单增加项的清晰简洁的描述'
+    validations:
+      required: true

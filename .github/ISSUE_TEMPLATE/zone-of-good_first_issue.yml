@@ -1,0 +1,30 @@
+name: 👍 zone of good first issue
+about: 新人告知
+title: '[good first issue]'
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - good first issue
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对该项目的关注，并花时间填写此文档！
+
+  - type: markdown
+    attributes:
+      value: |
+        * [ ] 已经阅读 [贡献者指南](.github/CONTRIBUTING_DOC/CONTRIBUTING.md)
+        * [ ] 我已阅读并同意 [行为准则](.github/CONTRIBUTING_DOC/CODE_OF_CONDUCT.md)
+        * [ ] 已经阅读 [github basic-writing-and-formatting-syntax](https://docs.github.com/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
+        * [ ] 我添加了对我的更改的描述，以及为什么我希望它们包含在下面的部分中
+
+  - type: textarea
+    id: issue-content
+    attributes:
+      label: 描述内容
+      description: '清晰简洁的描述'
+    validations:
+      required: true

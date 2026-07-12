@@ -1,0 +1,21 @@
+name: ℹ️ Priority/Medium
+about: 优先级中
+title: "[Priority/Medium]: "
+ref: "main"
+#assignees:
+#  - octocat
+labels:
+  - Priority/Medium
+
+body:
+  - type: markdown
+    attributes:
+      value: '- [ ] 需要处理'
+
+  - type: textarea
+    id: describe-issue
+    attributes:
+      label: 工单内容
+      description: '对工单增加项的清晰简洁的描述'
+    validations:
+      required: true
