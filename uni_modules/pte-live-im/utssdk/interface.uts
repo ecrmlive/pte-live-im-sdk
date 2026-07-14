@@ -1,0 +1,90 @@
+export type PteIMBaseConfig = {
+  apiDomain: string
+  imDomain: string
+  cosDomain: string
+  themeMode?: 'system' | 'light' | 'dark'
+  language?: 'system' | 'zh-CN' | 'en-US'
+}
+
+export type PteIMLoginConfig = {
+  sdkAppId: number
+  userId: string
+  userSig: string
+}
+
+export type PteIMAppearance = {
+  themeMode: 'system' | 'light' | 'dark'
+  language: 'system' | 'zh-CN' | 'en-US'
+}
+
+export type PteIMMedia = {
+  url?: string
+  thumbnailUrl?: string
+  coverUrl?: string
+  width?: number
+  height?: number
+  durationMs?: number
+  sizeBytes?: number
+}
+
+export type PteIMVoice = { url: string, durationMs: number, waveform?: string, sizeBytes?: number }
+export type PteIMLocation = { latitude: number, longitude: number, name: string, address?: string }
+export type PteIMBusinessContent = { businessId: string, title: string, subtitle?: string, actionUrl?: string }
+export type PteIMSendState = 'pending' | 'uploading' | 'sent' | 'failed'
+export type PteIMIncomingMessage = {
+  clientMsgId: string
+  serverMsgId?: string
+  conversationId: string
+  type: string
+  createdAt: number
+  serverSeq?: number
+  content: any
+}
+export type PteIMMessageStateChange = { clientMsgId: string, state: PteIMSendState }
+export type PteIMConversation = { conversationId: string, lastMessage: PteIMIncomingMessage, updatedAt: number }
+export type PteIMRemoteConversation = { id: number, type: string, title: string, avatar?: string, lastMessageSeq: number, lastMessageSnapshot?: string, lastMessageAt: number, unreadCount: number }
+export type PteIMConversationPage = { total: number, items: PteIMRemoteConversation[] }
+export type PteIMRemoteMessage = { messageId: number, conversationId: number, senderId: number, clientMsgId: string, type: string, content: string, payload?: string, seq: number, sentAt: number, recalledAt?: number }
+export type PteIMMessagePage = { items: PteIMRemoteMessage[] }
+
+export interface PteLiveIMClient {
+  start(): void
+  stop(): void
+  renewUserSig(userSig: string): void
+  updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance
+  currentAppearance(): PteIMAppearance
+  syncNow(): void
+  localMessages(conversationId: string, limit?: number): PteIMIncomingMessage[]
+  localConversations(limit?: number): PteIMConversation[]
+  fetchConversationPage(page: number, pageSize: number, callback: (result: PteIMConversationPage | null, error: string | null) => void): void
+  openSingleConversation(peerUserId: number, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
+  createGroupConversation(title: string, memberIds: number[], avatar: string | null, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
+  markConversationRead(conversationId: number, seq: number, callback: (error: string | null) => void): void
+  fetchMessageHistory(conversationId: number, beforeSeq: number, limit: number, callback: (result: PteIMMessagePage | null, error: string | null) => void): void
+  sendText(conversationId: string, text: string): string
+  sendEmoji(conversationId: string, packageId: string, emojiId: string): string
+  sendImage(conversationId: string, media: PteIMMedia): string
+  sendVideo(conversationId: string, media: PteIMMedia): string
+  uploadAndSendImage(conversationId: string, filePath: string): string
+  uploadAndSendVideo(conversationId: string, filePath: string): string
+  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform?: string): string
+  sendVoice(conversationId: string, voice: PteIMVoice): string
+  sendLocation(conversationId: string, location: PteIMLocation): string
+  sendGift(conversationId: string, content: PteIMBusinessContent): string
+  sendRedPacket(conversationId: string, content: PteIMBusinessContent): string
+  sendOrder(conversationId: string, content: PteIMBusinessContent): string
+  onConnectionChanged(callback: (connected: boolean) => void): void
+  onMessage(callback: (message: PteIMIncomingMessage) => void): void
+  onMessageStateChanged(callback: (event: PteIMMessageStateChange) => void): void
+  onUserSigWillExpire(callback: () => void): void
+  onUserSigExpired(callback: () => void): void
+  onThemeModeChanged(callback: (themeMode: 'system' | 'light' | 'dark') => void): void
+  onLanguageChanged(callback: (language: 'system' | 'zh-CN' | 'en-US') => void): void
+  onError(callback: (message: string) => void): void
+}
+
+export interface PteLiveIMBootstrap {
+  login(config: PteIMLoginConfig): PteLiveIMClient
+}
+
+export function createPteLiveIM(config: PteIMBaseConfig): PteLiveIMBootstrap

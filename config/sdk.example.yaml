@@ -1,0 +1,16 @@
+protocolVersion: 1
+base:
+  apiDomain: https://api-im.example.com
+  imDomain: wss://im.example.com/ws
+  cosDomain: https://cos.example.com
+login:
+  sdkAppId: 1400000001
+  userId: "10001"
+  userSig: server-issued-usersig
+sync:
+  pageSize: 200
+  reconnectMaxDelaySeconds: 30
+media:
+  maxImageBytes: 10485760
+  maxVideoBytes: 104857600
+  maxVideoDurationSeconds: 120

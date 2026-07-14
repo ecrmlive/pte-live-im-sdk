@@ -1,0 +1,504 @@
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteLiveIMBootstrap, PteLiveIMClient } from './interface.uts'
+
+type PteIMOutboxMessage = {
+  clientMsgId: string
+  conversationId: string
+  type: string
+  createdAt: number
+  content: any
+  retryCount: number
+  nextRetryAt: number
+}
+
+/** UTS runtime for H5/Web and WeChat mini-program targets. */
+export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
+  private base: PteIMBaseConfig
+  private loginConfig: PteIMLoginConfig
+  private socket: any | null = null
+  private stopped: boolean = true
+  private connected: boolean = false
+  private reconnectAttempt: number = 0
+  private reconnectTimer: number | null = null
+  private outboxRetryTimer: number | null = null
+  private outbox: PteIMOutboxMessage[] = []
+  private messages: PteIMIncomingMessage[] = []
+  private syncCursor: string = ''
+  private syncInFlight: boolean = false
+  private connectionCallback: ((connected: boolean) => void) | null = null
+  private messageCallback: ((message: PteIMIncomingMessage) => void) | null = null
+  private messageStateCallback: ((event: PteIMMessageStateChange) => void) | null = null
+  private userSigWillExpireCallback: (() => void) | null = null
+  private userSigExpiredCallback: (() => void) | null = null
+  private themeModeCallback: ((themeMode: 'system' | 'light' | 'dark') => void) | null = null
+  private languageCallback: ((language: 'system' | 'zh-CN' | 'en-US') => void) | null = null
+  private errorCallback: ((message: string) => void) | null = null
+
+  constructor(base: PteIMBaseConfig, loginConfig: PteIMLoginConfig) {
+    this.base = base
+    this.loginConfig = loginConfig
+    this.loadOutbox()
+    this.loadSyncCursor()
+    this.loadMessages()
+  }
+
+  start(): void {
+    this.stopped = false
+    if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
+    if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+    if (this.socket == null) this.connect()
+  }
+
+  stop(): void {
+    this.stopped = true
+    if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
+    if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+    const wasConnected = this.connected
+    this.connected = false
+    if (this.socket != null) this.socket.close()
+    this.socket = null
+    if (wasConnected) this.connectionCallback?.(false)
+  }
+  renewUserSig(userSig: string): void {
+    if (userSig.length == 0) throw new Error('userSig is required')
+    this.loginConfig.userSig = userSig
+    if (this.connected) this.sendEnvelope('renew_user_sig', { userSig })
+  }
+  updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance {
+    const previousTheme = this.base.themeMode ?? 'system'
+    const previousLanguage = this.base.language ?? 'system'
+    if (themeMode != null) this.base.themeMode = themeMode
+    if (language != null) this.base.language = language
+    const result: PteIMAppearance = { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' }
+    if (result.themeMode != previousTheme) this.themeModeCallback?.(result.themeMode)
+    if (result.language != previousLanguage) this.languageCallback?.(result.language)
+    return result
+  }
+  currentAppearance(): PteIMAppearance { return { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' } }
+  syncNow(): void {
+    if (this.syncInFlight) return
+    this.syncInFlight = true
+    this.sdkRequest('/v1/im/sync', { syncCursor: this.syncCursor, pageSize: 200 }, (payload, error) => {
+      this.syncInFlight = false
+      if (payload == null || error != null) { this.emitError(new Error(error ?? 'sync failed')); return }
+      try {
+        const rawMessages = payload['messages'] as UTSJSONObject[]
+        if (rawMessages != null) for (let index = 0; index < rawMessages.length; index++) this.recordMessage(rawMessages[index] as PteIMIncomingMessage, true)
+        const nextCursor = payload['nextCursor'] as string
+        if (nextCursor != null) { this.syncCursor = nextCursor; this.persistSyncCursor() }
+        if ((payload['hasMore'] as boolean) == true) this.syncNow()
+      } catch (syncError) { this.emitError(syncError) }
+    })
+  }
+  localMessages(conversationId: string, limit: number = 50): PteIMIncomingMessage[] {
+    const values: PteIMIncomingMessage[] = []
+    for (let index = this.messages.length - 1; index >= 0 && values.length < limit; index--) {
+      const message = this.messages[index]
+      if (message.conversationId == conversationId) values.push(message)
+    }
+    return values
+  }
+  localConversations(limit: number = 100): PteIMConversation[] {
+    const values: PteIMConversation[] = []
+    const seen: string[] = []
+    for (let index = this.messages.length - 1; index >= 0 && values.length < limit; index--) {
+      const message = this.messages[index]
+      if (seen.indexOf(message.conversationId) >= 0) continue
+      seen.push(message.conversationId)
+      values.push({ conversationId: message.conversationId, lastMessage: message, updatedAt: message.createdAt })
+    }
+    return values
+  }
+  fetchConversationPage(page: number, pageSize: number, callback: (result: PteIMConversationPage | null, error: string | null) => void): void {
+    if (page <= 0 || pageSize <= 0 || pageSize > 200) { callback(null, 'invalid conversation page'); return }
+    this.sdkRequest('/v1/im/conversations', { page, pageSize }, (data, error) => {
+      if (error != null || data == null) { callback(null, error); return }
+      const raw = data['list'] as any[]
+      const items = raw == null ? [] : raw.map((item: any) => ({ id: Number(item.id), type: String(item.type), title: String(item.title), avatar: item.avatar, lastMessageSeq: Number(item.last_message_seq), lastMessageSnapshot: item.last_message_snapshot, lastMessageAt: Number(item.last_message_at), unreadCount: Number(item.unread_count) }))
+      callback({ total: Number(data['total']), items }, null)
+    })
+  }
+  openSingleConversation(peerUserId: number, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void {
+    if (peerUserId <= 0) { callback(null, 'peerUserId must be positive'); return }
+    this.sdkRequest('/v1/im/conversations/open-single', { peerUserId }, (data, error) => {
+      if (data == null || error != null) { callback(null, error ?? 'open single conversation failed'); return }
+      callback(remoteConversationFromWire(data), null)
+    })
+  }
+  createGroupConversation(title: string, memberIds: number[] = [], avatar: string | null = null, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void {
+    if (title.length == 0 || memberIds.some((memberId: number): boolean => memberId <= 0)) { callback(null, 'invalid group parameters'); return }
+    this.sdkRequest('/v1/im/conversations/create-group', { title, memberIds, avatar }, (data, error) => {
+      if (data == null || error != null) { callback(null, error ?? 'create group conversation failed'); return }
+      callback(remoteConversationFromWire(data), null)
+    })
+  }
+  markConversationRead(conversationId: number, seq: number = 0, callback: (error: string | null) => void): void {
+    if (conversationId <= 0 || seq < 0) { callback('invalid read cursor'); return }
+    this.sdkRequest('/v1/im/conversations/read', { conversationId, seq }, (_data, error) => callback(error))
+  }
+  fetchMessageHistory(conversationId: number, beforeSeq: number, limit: number, callback: (result: PteIMMessagePage | null, error: string | null) => void): void {
+    if (conversationId <= 0 || beforeSeq < 0 || limit <= 0 || limit > 200) { callback(null, 'invalid message history page'); return }
+    this.sdkRequest('/v1/im/conversations/messages', { conversationId, beforeSeq, limit }, (data, error) => {
+      if (error != null || data == null) { callback(null, error); return }
+      const raw = data['list'] as any[]
+      const items = raw == null ? [] : raw.map((item: any) => ({ messageId: Number(item.message_id), conversationId: Number(item.conversation_id), senderId: Number(item.sender_id), clientMsgId: String(item.client_msg_id), type: String(item.msg_type), content: String(item.content), payload: item.payload, seq: Number(item.seq), sentAt: Number(item.sent_at), recalledAt: item.recalled_at }))
+      callback({ items }, null)
+    })
+  }
+  sendText(conversationId: string, text: string): string { return this.sendMessage(conversationId, 'text', { text }) }
+  sendEmoji(conversationId: string, packageId: string, emojiId: string): string { return this.sendMessage(conversationId, 'emoji', { packageId, emojiId }) }
+  sendImage(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'image', mediaContent(media)) }
+  sendVideo(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'video', mediaContent(media)) }
+  uploadAndSendImage(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'image') }
+  uploadAndSendVideo(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'video') }
+  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform: string = ''): string {
+    if (durationMs <= 0) throw new Error('durationMs must be positive')
+    return this.uploadAndSendMedia(conversationId, filePath, 'voice', durationMs, waveform)
+  }
+  sendVoice(conversationId: string, voice: PteIMVoice): string { return this.sendMessage(conversationId, 'voice', { url: voice.url, durationMs: voice.durationMs, waveform: voice.waveform, sizeBytes: voice.sizeBytes }) }
+  sendLocation(conversationId: string, location: PteIMLocation): string { return this.sendMessage(conversationId, 'location', location) }
+  sendGift(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'gift', content) }
+  sendRedPacket(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'red_packet', content) }
+  sendOrder(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'order', content) }
+  onConnectionChanged(callback: (connected: boolean) => void): void { this.connectionCallback = callback }
+  onMessage(callback: (message: PteIMIncomingMessage) => void): void { this.messageCallback = callback }
+  onMessageStateChanged(callback: (event: PteIMMessageStateChange) => void): void { this.messageStateCallback = callback }
+  onUserSigWillExpire(callback: () => void): void { this.userSigWillExpireCallback = callback }
+  onUserSigExpired(callback: () => void): void { this.userSigExpiredCallback = callback }
+  onThemeModeChanged(callback: (themeMode: 'system' | 'light' | 'dark') => void): void { this.themeModeCallback = callback }
+  onLanguageChanged(callback: (language: 'system' | 'zh-CN' | 'en-US') => void): void { this.languageCallback = callback }
+  onError(callback: (message: string) => void): void { this.errorCallback = callback }
+
+  private sendMessage(conversationId: string, type: string, content: any): string {
+    if (conversationId.length == 0) throw new Error('conversationId is required')
+    if (this.outbox.length >= 200) throw new Error('IM outbox limit reached')
+    const clientMsgId = requestId()
+    this.outbox.push({ clientMsgId, conversationId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
+    this.persistOutbox()
+    this.messageStateCallback?.({ clientMsgId, state: 'pending' })
+    this.flushOutbox()
+    return clientMsgId
+  }
+  private sdkRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
+    uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
+      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'IM API request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
+      fail: (error) => callback(null, error.message as string ?? String(error)),
+    })
+  }
+
+  /**
+   * Reads the selected file and PUTs it to the one-object COS URL issued by
+   * api-im. `uni.uploadFile` is intentionally not used: it always sends a
+   * multipart POST, whereas COS credentials are scoped to an HTTP PUT.
+   */
+  private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice', durationMs: number = 0, waveform: string = ''): string {
+    if (conversationId.length == 0) throw new Error('conversationId is required')
+    if (filePath.length == 0) throw new Error('filePath is required')
+    const clientMsgId = requestId()
+    this.messageStateCallback?.({ clientMsgId, state: 'uploading' })
+    this.readFileBytes(filePath, (bytes) => {
+      const contentType = mediaContentType(filePath, type)
+      this.apiImRequest('/v1/im/media/put-url', { mediaType: type, contentType, contentLength: bytes.byteLength }, (credential, credentialError) => {
+        if (credential == null || credentialError != null) { this.failUpload(clientMsgId, credentialError ?? 'could not request COS upload credential'); return }
+        const uploadUrl = String(credential['uploadUrl'] ?? '')
+        const key = String(credential['key'] ?? '')
+        const headers = credential['headers'] as UTSJSONObject
+        if (uploadUrl.length == 0 || key.length == 0 || headers == null) { this.failUpload(clientMsgId, 'api-im returned an invalid COS upload credential'); return }
+        uni.request({
+          url: uploadUrl,
+          method: 'PUT',
+          data: bytes,
+          dataType: 'text',
+          header: headers,
+          success: (response) => {
+            if (response.statusCode < 200 || response.statusCode >= 300) { this.failUpload(clientMsgId, 'COS upload failed with HTTP ' + response.statusCode.toString()); return }
+            const content = type == 'voice' ? { url: key, durationMs, waveform, sizeBytes: bytes.byteLength } : { url: key, sizeBytes: bytes.byteLength }
+            this.queueMessage(clientMsgId, conversationId, type, content)
+          },
+          fail: (error) => this.failUpload(clientMsgId, error.message as string ?? String(error)),
+        })
+      })
+    }, (error) => this.failUpload(clientMsgId, error))
+    return clientMsgId
+  }
+
+  private apiImRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
+    uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
+      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 0) { callback(null, root['msg'] as string ?? 'api-im request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
+      fail: (error) => callback(null, error.message as string ?? String(error)),
+    })
+  }
+
+  private readFileBytes(filePath: string, success: (data: ArrayBuffer) => void, fail: (error: string) => void): void {
+    const platform = uni.getSystemInfoSync().uniPlatform
+    if (platform == 'web') {
+      uni.request({ url: filePath, method: 'GET', responseType: 'arraybuffer', success: (response) => {
+        if (response.statusCode < 200 || response.statusCode >= 300 || !(response.data instanceof ArrayBuffer)) { fail('could not read the H5 media file'); return }
+        success(response.data as ArrayBuffer)
+      }, fail: (error) => fail(error.message as string ?? String(error)) })
+      return
+    }
+    try {
+      const data = uni.getFileSystemManager().readFileSync(filePath)
+      if (!(data instanceof ArrayBuffer) || data.byteLength == 0) { fail('media file is empty'); return }
+      success(data as ArrayBuffer)
+    } catch (error) { fail(error instanceof Error ? error.message : String(error)) }
+  }
+
+  private failUpload(clientMsgId: string, message: string): void {
+    this.messageStateCallback?.({ clientMsgId, state: 'failed' })
+    this.emitError(new Error(message))
+  }
+
+  private queueMessage(clientMsgId: string, conversationId: string, type: string, content: any): void {
+    if (this.outbox.length >= 200) {
+      this.messageStateCallback?.({ clientMsgId, state: 'failed' })
+      this.emitError(new Error('IM outbox limit reached'))
+      return
+    }
+    this.outbox.push({ clientMsgId, conversationId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
+    this.persistOutbox()
+    this.messageStateCallback?.({ clientMsgId, state: 'pending' })
+    this.flushOutbox()
+  }
+
+  private sendEnvelope(action: string, payload: any): void {
+    if (!this.connected || this.socket == null) throw new Error('IM socket is not connected')
+    this.socket.send({ data: JSON.stringify({ protocolVersion: 1, action, requestId: requestId(), sdkAppId: this.loginConfig.sdkAppId, userId: this.loginConfig.userId, userSig: this.loginConfig.userSig, payload }) })
+  }
+
+  private connect(): void {
+    if (this.stopped || this.socket != null) return
+    const socket = uni.connectSocket({ url: this.webSocketURL() })
+    this.socket = socket
+    socket.onOpen(() => {
+      if (this.socket != socket || this.stopped) return
+      this.connected = true
+      this.reconnectAttempt = 0
+      this.connectionCallback?.(true)
+      try { this.sendEnvelope('login', {}) } catch (error) { this.emitError(error) }
+      this.flushOutbox()
+      this.syncNow()
+    })
+    socket.onMessage((event: any) => this.handleInbound(event))
+    socket.onError((error: any) => {
+      this.emitError(error)
+      if (this.socket == socket) socket.close()
+    })
+    socket.onClose(() => {
+      if (this.socket != socket) return
+      const wasConnected = this.connected
+      this.socket = null
+      this.connected = false
+      if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+      if (wasConnected) this.connectionCallback?.(false)
+      this.scheduleReconnect()
+    })
+  }
+
+  // api-im validates UserSig during WSS upgrade. This short-lived query contract is
+  // intentionally shared with H5 because WebSocket upgrade headers are not portable.
+  private webSocketURL(): string {
+    const separator = this.base.imDomain.indexOf('?') >= 0 ? '&' : '?'
+    return this.base.imDomain + separator + 'sdkAppID=' + encodeURIComponent(this.loginConfig.sdkAppId.toString()) +
+      '&identifier=' + encodeURIComponent(this.loginConfig.userId) + '&userSig=' + encodeURIComponent(this.loginConfig.userSig)
+  }
+
+  private handleInbound(event: any): void {
+    try {
+      const text = event.data as string
+      const envelope = JSON.parse(text) as any
+      const action = envelope.action as string
+      const payload = envelope.payload as any
+      if (action == 'message') {
+        this.recordMessage(payload as PteIMIncomingMessage, true)
+        const cursor = envelope.syncCursor as string
+        if (cursor != null && cursor.length > 0) { this.syncCursor = cursor; this.persistSyncCursor() }
+        const serverMsgId = payload.serverMsgId as string
+        if (serverMsgId != null && serverMsgId.length > 0) this.sendEnvelope('ack', { serverMsgId })
+      } else if (action == 'ack') {
+        const clientMsgId = payload.clientMsgId as string
+        this.removeOutbox(clientMsgId)
+        this.messageStateCallback?.({ clientMsgId, state: 'sent' })
+      } else if (action == 'user_sig_will_expire') {
+        this.userSigWillExpireCallback?.()
+      } else if (action == 'user_sig_expired') {
+        this.userSigExpiredCallback?.()
+      } else if (action == 'sync_required') {
+        this.syncNow()
+      }
+    } catch (error) { this.emitError(error) }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer != null) return
+    const attempt = Math.min(this.reconnectAttempt, 5)
+    this.reconnectAttempt = attempt + 1
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000)
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect() }, delay)
+  }
+
+  private flushOutbox(): void {
+    if (!this.connected || this.stopped) return
+    const now = Date.now()
+    let changed = false
+    for (let index = 0; index < this.outbox.length; index++) {
+      const message = this.outbox[index]
+      if (message.nextRetryAt > now) continue
+      message.retryCount = message.retryCount + 1
+      message.nextRetryAt = now + retryDelayMs(message.retryCount - 1)
+      changed = true
+      try {
+        this.sendEnvelope('send_message', {
+          clientMsgId: message.clientMsgId,
+          conversationId: message.conversationId,
+          type: message.type,
+          createdAt: message.createdAt,
+          content: message.content,
+        })
+      } catch (error) {
+        this.emitError(error)
+        break
+      }
+    }
+    if (changed) this.persistOutbox()
+    this.scheduleOutboxRetry()
+  }
+
+  private scheduleOutboxRetry(): void {
+    if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+    if (!this.connected || this.stopped || this.outbox.length == 0) return
+    let nextRetryAt = this.outbox[0].nextRetryAt
+    for (let index = 1; index < this.outbox.length; index++) nextRetryAt = Math.min(nextRetryAt, this.outbox[index].nextRetryAt)
+    const delay = Math.min(Math.max(nextRetryAt - Date.now(), 100), 30000)
+    this.outboxRetryTimer = setTimeout(() => { this.outboxRetryTimer = null; this.flushOutbox() }, delay)
+  }
+
+  private loadOutbox(): void {
+    try {
+      const raw = uni.getStorageSync(this.outboxStorageKey()) as string
+      if (typeof raw == 'string' && raw.length > 0) {
+        const parsed = JSON.parse(raw) as any
+        if (Array.isArray(parsed)) this.outbox = parsed as PteIMOutboxMessage[]
+      }
+    } catch (_) { this.outbox = [] }
+  }
+
+  private persistOutbox(): void {
+    try { uni.setStorageSync(this.outboxStorageKey(), JSON.stringify(this.outbox)) }
+    catch (error) { this.emitError(error) }
+  }
+
+  private removeOutbox(clientMsgId: string): void {
+    const index = this.outbox.findIndex((message: PteIMOutboxMessage): boolean => message.clientMsgId == clientMsgId)
+    if (index >= 0) { this.outbox.splice(index, 1); this.persistOutbox(); this.scheduleOutboxRetry() }
+  }
+
+  private recordMessage(message: PteIMIncomingMessage, emit: boolean): void {
+    const existing = this.messages.findIndex((value: PteIMIncomingMessage): boolean =>
+      (message.serverMsgId != null && value.serverMsgId == message.serverMsgId) || value.clientMsgId == message.clientMsgId,
+    )
+    if (existing >= 0) this.messages[existing] = message
+    else {
+      this.messages.push(message)
+      if (this.messages.length > 1000) this.messages.splice(0, this.messages.length - 1000)
+    }
+    this.persistMessages()
+    if (emit) this.messageCallback?.(message)
+  }
+
+  private outboxStorageKey(): string {
+    return 'pte_live_im_outbox:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
+  }
+
+  private loadSyncCursor(): void {
+    try {
+      const value = uni.getStorageSync(this.syncCursorStorageKey()) as string
+      if (typeof value == 'string') this.syncCursor = value
+    } catch (_) { this.syncCursor = '' }
+  }
+
+  private persistSyncCursor(): void {
+    try { uni.setStorageSync(this.syncCursorStorageKey(), this.syncCursor) }
+    catch (error) { this.emitError(error) }
+  }
+
+  private syncCursorStorageKey(): string {
+    return 'pte_live_im_cursor:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
+  }
+
+  private loadMessages(): void {
+    try {
+      const raw = uni.getStorageSync(this.messageStorageKey()) as string
+      if (typeof raw == 'string' && raw.length > 0) {
+        const parsed = JSON.parse(raw) as any
+        if (Array.isArray(parsed)) this.messages = parsed as PteIMIncomingMessage[]
+      }
+    } catch (_) { this.messages = [] }
+  }
+
+  private persistMessages(): void {
+    try { uni.setStorageSync(this.messageStorageKey(), JSON.stringify(this.messages)) }
+    catch (error) { this.emitError(error) }
+  }
+
+  private messageStorageKey(): string {
+    return 'pte_live_im_messages:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
+  }
+
+  private emitError(error: any): void {
+    const message = error != null && error.message != null ? error.message as string : String(error)
+    this.errorCallback?.(message)
+  }
+}
+
+function mediaContent(media: PteIMMedia): any {
+  return {
+    url: media.url, thumbnailUrl: media.thumbnailUrl, coverUrl: media.coverUrl,
+    width: media.width, height: media.height, durationMs: media.durationMs, sizeBytes: media.sizeBytes,
+  }
+}
+
+function remoteConversationFromWire(value: any): PteIMRemoteConversation {
+  return { id: Number(value.id), type: String(value.type), title: String(value.title), avatar: value.avatar == null ? undefined : String(value.avatar), lastMessageSeq: Number(value.last_message_seq), lastMessageSnapshot: value.last_message_snapshot == null ? undefined : String(value.last_message_snapshot), lastMessageAt: Number(value.last_message_at), unreadCount: Number(value.unread_count) }
+}
+
+function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice'): string {
+  const suffix = filePath.toLowerCase().split('.').pop() ?? ''
+  if (suffix == 'jpg' || suffix == 'jpeg') return 'image/jpeg'
+  if (suffix == 'png') return 'image/png'
+  if (suffix == 'webp') return 'image/webp'
+  if (suffix == 'gif') return 'image/gif'
+  if (suffix == 'webm') return 'video/webm'
+  if (suffix == 'mov') return 'video/quicktime'
+  if (suffix == 'aac') return 'audio/aac'
+  if (suffix == 'mp3') return 'audio/mpeg'
+  if (suffix == 'm4a') return 'audio/mp4'
+  if (suffix == 'ogg') return 'audio/ogg'
+  if (suffix == 'wav') return 'audio/wav'
+  if (type == 'image') return 'image/jpeg'
+  return type == 'voice' ? 'audio/mpeg' : 'video/mp4'
+}
+
+function resolveCosUrl(cosDomain: string, value?: string): string | null {
+  if (value == null) return null
+  if (value.startsWith('https://') || value.startsWith('http://')) return value
+  return cosDomain.trimEnd('/') + '/' + value.trimStart('/')
+}
+
+class CrossPlatformPteLiveIMBootstrap implements PteLiveIMBootstrap {
+  private base: PteIMBaseConfig
+  constructor(base: PteIMBaseConfig) { this.base = base }
+  login(config: PteIMLoginConfig): PteLiveIMClient {
+    if (config.sdkAppId <= 0) throw new Error('sdkAppId must be positive')
+    if (!/^[1-9][0-9]*$/.test(config.userId)) throw new Error('userId must be a positive numeric string')
+    if (config.userSig.length == 0) throw new Error('userSig is required')
+    return new CrossPlatformPteLiveIMClient(this.base, config)
+  }
+}
+
+export function createCrossPlatformPteLiveIM(config: PteIMBaseConfig): PteLiveIMBootstrap {
+  return new CrossPlatformPteLiveIMBootstrap(config)
+}
+
+function requestId(): string { return Date.now().toString() + '-' + Math.random().toString().substring(2) }
+function retryDelayMs(retryCount: number): number { return Math.min(1000 * Math.pow(2, Math.min(Math.max(retryCount, 0), 5)), 32000) }
