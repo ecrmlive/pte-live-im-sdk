@@ -1,9 +1,9 @@
 {
-  "name": "@ptelive/im-ui-kit",
+  "name": "@ptelive/pte-im-uikit",
   "version": "1.0.0",
-  "description": "PteIMUIKit native ArkUI components for HarmonyOS",
+  "description": "PteIMUIkit native ArkUI components for HarmonyOS",
   "main": "src/main/ets/index.ets",
   "author": "PteLive",
   "license": "Apache-2.0",
-  "dependencies": { "@ptelive/im": "file:../PteLiveIM" }
+  "dependencies": { "@ptelive/pte-im-sdk": "file:../PteIMSDK" }
 }

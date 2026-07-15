@@ -1,4 +1,0 @@
-{
-  "deploymentTarget": "15.0",
-  "frameworks": ["Foundation.framework", "Security.framework"]
-}

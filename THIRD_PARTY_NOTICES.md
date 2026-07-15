@@ -1,6 +1,6 @@
 # Third-party notices
 
-The uni-app x UTS E2EE implementation uses the following build-time dependencies. They are pinned to exact versions in `uni_modules/pte-live-im/package.json`; the SDK does not fetch code at runtime.
+The uni-app x UTS E2EE implementation uses the following build-time dependencies. They are pinned to exact versions in `uni_modules/pte-im-sdk/package.json`; the SDK does not fetch code at runtime.
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |

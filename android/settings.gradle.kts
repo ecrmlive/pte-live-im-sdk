@@ -5,7 +5,7 @@ dependencyResolutionManagement {
   repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories { google(); mavenCentral() }
 }
-rootProject.name = "pte-live-im-android"
-include(":im-sdk")
-include(":im-ui-kit")
-include(":demo")
+rootProject.name = "PteIMSDK-Android"
+include(":pte-im-sdk")
+include(":pte-im-uikit")
+include(":pte-im-ui-demo")

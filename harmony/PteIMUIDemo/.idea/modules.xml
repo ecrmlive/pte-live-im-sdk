@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/PteIMUIDemo.iml" filepath="$PROJECT_DIR$/.idea/modules/PteIMUIDemo.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/PteIMUIDemo.entry.iml" filepath="$PROJECT_DIR$/.idea/modules/PteIMUIDemo.entry.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/PteIMUIDemo.pte_im_sdk.iml" filepath="$PROJECT_DIR$/.idea/modules/PteIMUIDemo.pte_im_sdk.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/PteIMUIDemo.pte_im_uikit.iml" filepath="$PROJECT_DIR$/.idea/modules/PteIMUIDemo.pte_im_uikit.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/entry.iml" filepath="$PROJECT_DIR$/.idea/modules/entry.iml" />
+    </modules>
+  </component>
+</project>

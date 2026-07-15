@@ -1,0 +1,52 @@
+<template>
+  <view class="pte-im-ui-chat" :class="themeClass" :style="themeStyle">
+    <text class="pte-im-ui-title">{{ title || conversationId }}</text>
+    <scroll-view class="pte-im-ui-messages" scroll-y="true" :scroll-into-view="latestMessageId">
+      <view v-for="message in messages" :id="message.clientMsgId" :key="message.clientMsgId" class="pte-im-ui-message-row" :class="message.senderId === currentUserId ? 'pte-im-ui-outgoing-row' : 'pte-im-ui-incoming-row'">
+        <view class="pte-im-ui-message" :class="message.senderId === currentUserId ? 'pte-im-ui-outgoing' : 'pte-im-ui-incoming'"><text>{{ label(message) }}</text></view>
+      </view>
+    </scroll-view>
+    <PteIMUIInputBar v-model="draft" :language="language" @send="sendText" @emoji="sendEmoji" @action="action" @voice="voice" />
+  </view>
+</template>
+
+<script lang="uts">
+import { PteIMIncomingMessage, PteIMSDKClient } from '../../utssdk/interface.uts'
+import { PteIMUIAction, PteIMUIChatController, PteIMUIkit, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIkit.uts'
+
+export default {
+  props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, theme: { type: Object, default: null } },
+  emits: ['action', 'voice-recording'],
+  data() { return { messages: [] as PteIMIncomingMessage[], draft: '', language: 'zh-CN', currentUserId: '', themeClass: '', themeStyle: {} as any, latestMessageId: '', controller: null as PteIMUIChatController | null } },
+  mounted() {
+    const client = this.client as PteIMSDKClient
+    this.currentUserId = client.currentUserId()
+    const controller = PteIMUIkit.createChatController(client, this.conversationId)
+    controller.onChanged = () => { this.messages = controller.messages; this.latestMessageId = this.messages.length > 0 ? this.messages[this.messages.length - 1].clientMsgId : ''; const appearance = client.currentAppearance(); this.language = appearance.language === 'en-US' ? 'en-US' : 'zh-CN'; this.applyTheme() }
+    controller.onActionRequested = (action: PteIMUIAction) => this.$emit('action', action)
+    this.controller = controller; controller.refresh(); this.applyTheme()
+  },
+  beforeUnmount() { this.controller?.dispose() },
+  methods: {
+    sendText(value: string) { this.controller?.sendText(value) },
+    sendEmoji(payload: any) { this.controller?.sendEmoji(String(payload.packageId ?? 'default'), String(payload.emojiId ?? 'smile_001')) },
+    action(action: PteIMUIAction) { this.controller?.requestAction(action) },
+    voice(recording: boolean) { this.$emit('voice-recording', recording) },
+    applyTheme() { const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const mode = (this.client as PteIMSDKClient).currentAppearance().themeMode; const dark = mode === 'dark' || (mode === 'system' && uni.getSystemInfoSync().theme === 'dark'); const palette = dark ? theme.dark : theme.light; this.themeClass = dark ? 'pte-im-ui-dark' : 'pte-im-ui-light'; this.themeStyle = this.cssVariables(palette) },
+    cssVariables(palette: PteIMUIThemePalette): any { return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem } },
+    label(message: PteIMIncomingMessage): string { const content = message.content as any; if (message.type === 'text') return String(content.text ?? ''); if (message.type === 'emoji') return String(content.packageId ?? 'emoji') + ':' + String(content.emojiId ?? ''); if (message.type === 'location') return '[Location] ' + String(content.name ?? ''); if (message.type === 'gift') return '[Gift] ' + String(content.title ?? ''); if (message.type === 'red_packet') return '[Red packet] ' + String(content.title ?? ''); if (message.type === 'order') return '[Order] ' + String(content.title ?? ''); return '[' + message.type + ']' },
+  },
+}
+</script>
+
+<style>
+.pte-im-ui-chat { display: flex; flex-direction: column; height: 100%; background-color: var(--pte-im-ui-background); color: var(--pte-im-ui-text); }
+.pte-im-ui-title { padding: 28rpx; color: var(--pte-im-ui-text); font-size: 32rpx; font-weight: 600; }
+.pte-im-ui-messages { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
+.pte-im-ui-message-row { display: flex; width: 100%; margin: 10rpx 0; }
+.pte-im-ui-incoming-row { justify-content: flex-start; }
+.pte-im-ui-outgoing-row { justify-content: flex-end; }
+.pte-im-ui-message { max-width: 78%; padding: 18rpx 22rpx; border-radius: 24rpx; color: var(--pte-im-ui-incoming-text); font-size: 28rpx; line-height: 40rpx; }
+.pte-im-ui-incoming { background-color: var(--pte-im-ui-incoming); }
+.pte-im-ui-outgoing { color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); }
+</style>

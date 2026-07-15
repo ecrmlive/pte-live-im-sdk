@@ -1,8 +1,0 @@
-{
-  "modelVersion": "5.0.0",
-  "name": "pte-live-im-harmony-demo",
-  "version": "1.0.0",
-  "description": "Native ArkUI demo for PteLive IM",
-  "license": "Apache-2.0",
-  "dependencies": {}
-}

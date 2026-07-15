@@ -1,0 +1,10 @@
+{
+  "id": "pte-im-ui-demo",
+  "name": "pte-im-ui-demo",
+  "displayName": "PteIMUIDemo",
+  "version": "0.1.0-alpha",
+  "description": "PteIMSDK and PteIMUIkit uni-app x UTS business demo",
+  "keywords": ["uni-app-x", "uts", "im"],
+  "engines": { "HBuilderX": "^5.0" },
+  "dcloudext": { "type": "uniapp-template-project" }
+}

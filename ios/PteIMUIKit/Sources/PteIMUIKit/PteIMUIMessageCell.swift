@@ -1,46 +1,116 @@
 import UIKit
-import PteLiveIM
+import PteIMSDK
 
+/**
+ A compact, UIKit-only message bubble. It deliberately renders every Core
+ message type without reaching out to a remote image loader, so the host can
+ attach its own media cache without making PteIMUIkit depend on a third party.
+ */
 public final class PteIMUIMessageCell: UITableViewCell {
   public static let reuseIdentifier = "PteIMUIMessageCell"
+  private let avatar = UILabel()
   private let bubble = UIView()
   private let typeLabel = UILabel()
   private let bodyLabel = UILabel()
   private let stateLabel = UILabel()
-  private var leading: NSLayoutConstraint!
-  private var trailing: NSLayoutConstraint!
+  private let outgoingGradient = CAGradientLayer()
+  private var avatarLeading: NSLayoutConstraint!
+  private var avatarTrailing: NSLayoutConstraint!
+  private var bubbleLeading: NSLayoutConstraint!
+  private var bubbleTrailing: NSLayoutConstraint!
 
   public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier)
     selectionStyle = .none
     backgroundColor = .clear
-    contentView.addSubview(bubble)
-    bubble.layer.cornerRadius = 14
+
+    avatar.textAlignment = .center
+    avatar.font = .systemFont(ofSize: 12, weight: .bold)
+    avatar.layer.cornerRadius = 17
+    avatar.clipsToBounds = true
+    avatar.translatesAutoresizingMaskIntoConstraints = false
+    contentView.addSubview(avatar)
+
+    bubble.layer.cornerRadius = 19
+    bubble.clipsToBounds = true
     bubble.translatesAutoresizingMaskIntoConstraints = false
-    leading = bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-    trailing = bubble.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -72)
-    NSLayoutConstraint.activate([bubble.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5), bubble.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5), leading, trailing])
+    outgoingGradient.startPoint = CGPoint(x: 0, y: 0)
+    outgoingGradient.endPoint = CGPoint(x: 1, y: 1)
+    bubble.layer.insertSublayer(outgoingGradient, at: 0)
+    contentView.addSubview(bubble)
+
     let stack = UIStackView(arrangedSubviews: [typeLabel, bodyLabel, stateLabel])
-    stack.axis = .vertical; stack.spacing = 4
-    bubble.addSubview(stack); stack.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 12), stack.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -12), stack.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 9), stack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -9)])
-    typeLabel.font = .preferredFont(forTextStyle: .caption1); typeLabel.adjustsFontForContentSizeCategory = true
-    bodyLabel.font = .preferredFont(forTextStyle: .body); bodyLabel.numberOfLines = 0; bodyLabel.adjustsFontForContentSizeCategory = true
-    stateLabel.font = .preferredFont(forTextStyle: .caption2); stateLabel.adjustsFontForContentSizeCategory = true
+    stack.axis = .vertical
+    stack.spacing = 4
+    bubble.addSubview(stack)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 13),
+      stack.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -13),
+      stack.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 8),
+      stack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -7),
+      avatar.widthAnchor.constraint(equalToConstant: 34),
+      avatar.heightAnchor.constraint(equalToConstant: 34),
+      avatar.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 1),
+      bubble.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5),
+      bubble.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5)
+    ])
+
+    typeLabel.font = .preferredFont(forTextStyle: .caption1)
+    typeLabel.adjustsFontForContentSizeCategory = true
+    bodyLabel.font = .preferredFont(forTextStyle: .body)
+    bodyLabel.numberOfLines = 0
+    bodyLabel.adjustsFontForContentSizeCategory = true
+    stateLabel.font = .preferredFont(forTextStyle: .caption2)
+    stateLabel.adjustsFontForContentSizeCategory = true
   }
   required init?(coder: NSCoder) { nil }
 
+  public override func prepareForReuse() {
+    super.prepareForReuse()
+    typeLabel.isHidden = false
+    bodyLabel.font = .preferredFont(forTextStyle: .body)
+  }
+
+  public override func layoutSubviews() {
+    super.layoutSubviews()
+    outgoingGradient.frame = bubble.bounds
+  }
+
   public func configure(message: PteIMMessage, outgoing: Bool, theme: PteIMUITheme, language: PteIMLanguage) {
-    let content = PteIMUIMessageText.render(message)
-    typeLabel.text = PteIMUIMessageText.typeName(message.type, language: language)
-    bodyLabel.text = content
-    stateLabel.text = message.state.rawValue
-    typeLabel.textColor = theme.secondaryTextColor; bodyLabel.textColor = theme.primaryTextColor; stateLabel.textColor = theme.secondaryTextColor
-    bubble.backgroundColor = outgoing ? theme.outgoingBubbleColor : theme.incomingBubbleColor
-    leading.isActive = false; trailing.isActive = false
-    if outgoing { trailing = bubble.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16); leading = bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 72) }
-    else { leading = bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16); trailing = bubble.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -72) }
-    leading.isActive = true; trailing.isActive = true
+    let palette = theme.palette(for: traitCollection)
+    let isEmoji = message.type == .emoji
+    let isPlainText = message.type == .text
+
+    typeLabel.text = isPlainText || isEmoji ? nil : PteIMUIMessageText.typeTitle(message.type, language: language)
+    typeLabel.isHidden = typeLabel.text == nil
+    bodyLabel.text = PteIMUIMessageText.render(message, language: language)
+    bodyLabel.font = isEmoji ? .systemFont(ofSize: 31) : .preferredFont(forTextStyle: .body)
+    stateLabel.text = PteIMUIMessageText.deliveryLine(for: message, outgoing: outgoing, language: language)
+
+    typeLabel.textColor = outgoing ? palette.outgoingTextColor.withAlphaComponent(0.82) : palette.secondaryTextColor
+    bodyLabel.textColor = outgoing ? palette.outgoingTextColor : palette.incomingTextColor
+    stateLabel.textColor = outgoing ? palette.outgoingTextColor.withAlphaComponent(0.70) : palette.secondaryTextColor
+    bubble.backgroundColor = outgoing ? .clear : palette.incomingBubbleColor
+    outgoingGradient.isHidden = !outgoing
+    outgoingGradient.colors = [palette.outgoingGradientStartColor.cgColor, palette.outgoingGradientEndColor.cgColor]
+
+    let avatarSeed = message.senderId ?? "?"
+    avatar.text = PteIMUIMessageText.avatarText(for: avatarSeed)
+    avatar.textColor = outgoing ? .white : palette.outgoingGradientStartColor
+    avatar.backgroundColor = outgoing ? palette.outgoingGradientEndColor : palette.surfaceColor
+
+    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing].forEach { $0?.isActive = false }
+    if outgoing {
+      avatarTrailing = avatar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+      bubbleLeading = bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 76)
+      bubbleTrailing = bubble.trailingAnchor.constraint(equalTo: avatar.leadingAnchor, constant: -9)
+    } else {
+      avatarLeading = avatar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+      bubbleLeading = bubble.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 9)
+      bubbleTrailing = bubble.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -76)
+    }
+    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing].forEach { $0?.isActive = true }
   }
 }
 
@@ -58,13 +128,59 @@ public enum PteIMUIMessageText {
     case .order: return PteIMUILocalization.value("订单", "Order", language: language)
     }
   }
-  public static func render(_ message: PteIMMessage) -> String {
+
+  static func typeTitle(_ type: PteIMMessageType, language: PteIMLanguage) -> String {
+    let symbol: String
+    switch type {
+    case .image: symbol = "▧"
+    case .video: symbol = "▶"
+    case .voice: symbol = "⌁"
+    case .location: symbol = "⌖"
+    case .gift: symbol = "✦"
+    case .red_packet: symbol = "¥"
+    case .order: symbol = "□"
+    case .text, .emoji: symbol = ""
+    }
+    return "\(symbol)  \(typeName(type, language: language))"
+  }
+
+  public static func render(_ message: PteIMMessage, language: PteIMLanguage = .zhCN) -> String {
     if let text = message.text, !text.isEmpty { return text }
-    if let emoji = message.emojiId { return "\(message.packageId ?? "default")/\(emoji)" }
-    if let media = message.media { return media.url ?? "媒体" }
-    if let voice = message.voice { return "\(voice.durationMs) ms" }
-    if let location = message.location { return [location.name, location.address].compactMap { $0 }.joined(separator: " · ") }
-    if let business = message.business { return [business.title, business.subtitle].compactMap { $0 }.joined(separator: " · ") }
+    if message.type == .emoji, let emoji = message.emojiId { return emojiGlyph(for: emoji) }
+    if message.type == .image { return PteIMUILocalization.value("轻触查看图片", "Tap to view image", language: language) }
+    if message.type == .video { return PteIMUILocalization.value("轻触播放视频", "Tap to play video", language: language) }
+    if let voice = message.voice { return "▁▃▆▃▁  \(max(1, voice.durationMs / 1000))\"" }
+    if let location = message.location { return [location.name, location.address].compactMap { $0 }.joined(separator: "\n") }
+    if let business = message.business { return [business.title, business.subtitle].compactMap { $0 }.joined(separator: "\n") }
     return message.contentJSON()
   }
+
+  static func deliveryLine(for message: PteIMMessage, outgoing: Bool, language: PteIMLanguage) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(message.createdAt) / 1000)
+    let time = timeFormatter.string(from: date)
+    guard outgoing else { return time }
+    switch message.state {
+    case .sent: return time
+    case .pending, .uploading: return "\(time) · \(PteIMUILocalization.value("发送中", "Sending", language: language))"
+    case .failed: return "\(time) · \(PteIMUILocalization.value("发送失败", "Failed", language: language))"
+    }
+  }
+
+  static func avatarText(for seed: String) -> String { String(seed.suffix(2)).uppercased() }
+  static func emojiGlyph(for id: String) -> String {
+    switch id {
+    case "smile_001": return "☺︎"
+    case "smile_002": return "✦"
+    case "wave_001": return "◌"
+    case "heart_001": return "♥"
+    case "thumb_001": return "✓"
+    default: return "✺"
+    }
+  }
+
+  private static let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm"
+    return formatter
+  }()
 }

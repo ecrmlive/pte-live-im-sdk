@@ -1,0 +1,52 @@
+<template>
+  <view class="pte-im-ui-input-root">
+    <view class="pte-im-ui-input-shell">
+      <button class="pte-im-ui-input-icon" @click="voiceMode = !voiceMode">{{ voiceMode ? copy('keyboard') : copy('voice') }}</button>
+      <button v-if="voiceMode" class="pte-im-ui-hold" @touchstart="voice(true)" @touchend="voice(false)" @touchcancel="voice(false)">{{ copy('hold') }}</button>
+      <input v-else v-model="draftValue" class="pte-im-ui-input-field" :placeholder="copy('message')" @confirm="sendText" />
+      <button class="pte-im-ui-input-icon pte-im-ui-plus" @click="toggle('more')">＋</button>
+      <button class="pte-im-ui-input-icon" @click="toggle('emoji')">{{ copy('emoji') }}</button>
+      <button class="pte-im-ui-send" @click="sendText">{{ copy('send') }}</button>
+    </view>
+    <view v-if="panel === 'emoji'" class="pte-im-ui-input-panel">
+      <button v-for="item in emojis" :key="item.id" class="pte-im-ui-panel-item pte-im-ui-emoji-item" @click="pickEmoji(item.id)">{{ item.label }}</button>
+    </view>
+    <view v-if="panel === 'more'" class="pte-im-ui-input-panel">
+      <button v-for="action in moreActions" :key="action" class="pte-im-ui-panel-item" @click="pickAction(action)">{{ copy(action) }}</button>
+    </view>
+  </view>
+</template>
+
+<script lang="uts">
+import { PteIMUIAction } from '../../utssdk/PteIMUIkit.uts'
+
+export default {
+  props: { modelValue: { type: String, default: '' }, language: { type: String, default: 'zh-CN' } },
+  emits: ['update:modelValue', 'send', 'emoji', 'action', 'voice'],
+  data() {
+    return { draftValue: this.modelValue as string, voiceMode: false, panel: '', emojis: [{ id: 'smile_001', label: '☺' }, { id: 'smile_002', label: '✦' }, { id: 'wave_001', label: '◌' }, { id: 'heart_001', label: '♥' }, { id: 'thumb_001', label: '✓' }, { id: 'party_001', label: '✺' }], moreActions: ['image', 'video', 'location', 'gift', 'red_packet', 'order'] as PteIMUIAction[] }
+  },
+  watch: { modelValue(value: string) { if (value !== this.draftValue) this.draftValue = value }, draftValue(value: string) { this.$emit('update:modelValue', value) } },
+  methods: {
+    toggle(value: string) { this.panel = this.panel === value ? '' : value },
+    sendText() { const value = this.draftValue.trim(); if (value.length > 0) { this.$emit('send', value); this.draftValue = ''; this.panel = '' } },
+    pickEmoji(emojiId: string) { this.$emit('emoji', { packageId: 'default', emojiId }); this.panel = '' },
+    pickAction(action: PteIMUIAction) { this.$emit('action', action); this.panel = '' },
+    voice(recording: boolean) { this.$emit('voice', recording) },
+    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Message' : '输入消息'; if (key === 'send') return en ? 'Send' : '发送'; if (key === 'hold') return en ? 'Hold to talk' : '按住说话'; if (key === 'voice') return en ? 'Voice' : '语音'; if (key === 'keyboard') return en ? 'Keyboard' : '键盘'; if (key === 'emoji') return en ? 'Emoji' : '表情'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'red_packet') return en ? 'Red packet' : '红包'; return en ? 'Order' : '订单' },
+  },
+}
+</script>
+
+<style>
+.pte-im-ui-input-root { padding: 16rpx 20rpx; background-color: var(--pte-im-ui-composer); }
+.pte-im-ui-input-shell { display: flex; align-items: center; min-height: 80rpx; padding: 0 10rpx; border: 1px solid var(--pte-im-ui-divider); border-radius: 42rpx; background-color: var(--pte-im-ui-surface); }
+.pte-im-ui-input-icon { min-width: 68rpx; padding: 0 8rpx; color: var(--pte-im-ui-icon); background-color: transparent; border: 0; font-size: 22rpx; }
+.pte-im-ui-plus { font-size: 40rpx; line-height: 1; }
+.pte-im-ui-input-field { flex: 1; min-width: 0; height: 72rpx; padding: 0 10rpx; color: var(--pte-im-ui-text); background-color: transparent; font-size: 28rpx; }
+.pte-im-ui-hold { flex: 1; height: 60rpx; color: var(--pte-im-ui-text); background-color: var(--pte-im-ui-panel-item); border-radius: 28rpx; font-size: 26rpx; }
+.pte-im-ui-send { min-width: 88rpx; height: 60rpx; margin-left: 4rpx; color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); border-radius: 30rpx; font-size: 24rpx; }
+.pte-im-ui-input-panel { display: flex; padding-top: 14rpx; background-color: var(--pte-im-ui-panel); }
+.pte-im-ui-panel-item { flex: 1; min-width: 0; height: 104rpx; margin: 0 4rpx; color: var(--pte-im-ui-icon); background-color: var(--pte-im-ui-panel-item); border: 0; border-radius: 18rpx; font-size: 20rpx; }
+.pte-im-ui-emoji-item { font-size: 36rpx; }
+</style>

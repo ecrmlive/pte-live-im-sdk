@@ -1,0 +1,21 @@
+<template>
+  <scroll-view class="pte-im-ui-list" scroll-y="true"><view v-for="conversation in conversations" :key="conversation.conversationId" class="pte-im-ui-row" @click="$emit('select', conversation.conversationId)"><text class="pte-im-ui-name">{{ conversation.conversationId }}</text><text class="pte-im-ui-preview">{{ preview(conversation.lastMessage) }}</text></view></scroll-view>
+</template>
+
+<script lang="uts">
+import { PteIMConversation, PteIMIncomingMessage, PteIMSDKClient } from '../../utssdk/interface.uts'
+import { PteIMUIConversationListController, PteIMUIkit } from '../../utssdk/PteIMUIkit.uts'
+export default {
+  props: { client: { type: Object, required: true } }, emits: ['select'],
+  data() { return { conversations: [] as PteIMConversation[], controller: null as PteIMUIConversationListController | null } },
+  mounted() { const controller = PteIMUIkit.createConversationListController(this.client as PteIMSDKClient); controller.onChanged = () => this.conversations = controller.conversations; this.controller = controller; controller.refresh() },
+  beforeUnmount() { this.controller?.dispose() },
+  methods: { preview(message: PteIMIncomingMessage): string { const value = message.content as any; return message.type === 'text' ? String(value.text ?? '') : '[' + message.type + ']' } },
+}
+</script>
+
+<style>
+.pte-im-ui-list { height: 100%; background-color: #FFFFFF; }
+.pte-im-ui-row { display: flex; flex-direction: column; padding: 26rpx; border-bottom: 1px solid #EEF0F4; }
+.pte-im-ui-name { font-size: 30rpx; color: #191C21; }.pte-im-ui-preview { margin-top: 8rpx; font-size: 25rpx; color: #687385; }
+</style>

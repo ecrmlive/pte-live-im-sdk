@@ -1,0 +1,7 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "PteIMUIDemo entry",
+  "main": "",
+  "dependencies": { "@ptelive/pte-im-sdk": "file:../../PteIMSDK", "@ptelive/pte-im-uikit": "file:../../PteIMUIkit" }
+}

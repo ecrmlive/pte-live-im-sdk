@@ -1,5 +1,5 @@
-import { PteIMConversation, PteIMListener, PteIMMessage, PteIMSendState, PteLiveIM } from '@ptelive/im'
-import { PteIMUIConversationHandler } from './PteIMUIKit'
+import { PteIMConversation, PteIMListener, PteIMMessage, PteIMSendState, PteIMSDK } from '@ptelive/pte-im-sdk'
+import { PteIMUIConversationHandler } from './PteIMUIkit'
 
 class PteIMUIConversationListener extends PteIMListener {
   private changed: () => void
@@ -11,7 +11,7 @@ class PteIMUIConversationListener extends PteIMListener {
 /** Cache-first ArkUI conversation list. Server sync remains an explicit Core SDK operation. */
 @Component
 export struct PteIMUIConversationList {
-  @Prop client: PteLiveIM
+  @Prop client: PteIMSDK
   @Prop conversationHandler: PteIMUIConversationHandler = new PteIMUIConversationHandler()
   @State conversations: PteIMConversation[] = []
   private listener: PteIMUIConversationListener | null = null

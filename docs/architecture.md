@@ -1,35 +1,18 @@
-# Architecture
+# PteIMSDK architecture
 
-## Product boundary
+`PteIMSDK` is the transport and state layer: business/API calls, WSS, message envelopes, E2EE, durable Outbox, synchronization, COS upload and local SQLite storage. It receives `PteIMBaseConfig` once at startup and `PteIMLoginConfig` only after the host business service authenticates the user.
 
-Android (Kotlin), iOS (Swift), and HarmonyOS (ArkTS) each have an independent native Core SDK. `uni_modules/pte-live-im` is a separate uni-app x UTS SDK for H5/Web and WeChat mini-programs only. It does not wrap, bundle, or replace a native SDK.
+`PteIMUIkit` receives an already-logged-in Core client. It contains conversation lists and one-to-one/group chats, tracks Core message and appearance callbacks, and asks the host to supply permission-sensitive media, location and business workflows. It never generates a UserSig or stores credentials.
 
-The Core SDK owns authentication, WSS, REST synchronization, a durable outbox, media upload, and message state. Every target has a separate `PteIMUIKit`: `android/im-ui-kit` (native View), `ios/PteIMUIKit` (UIKit), `harmony/PteIMUIKit` (ArkUI), and UTS `PteIMUIChat` / `PteIMUIConversationList` components. Each receives an already-logged-in Core client, follows Core theme/language callbacks, and delegates permission-sensitive media, location, gift, red-packet, and order flows back to the host.
+`PteIMUIDemo` is not a UI kit alias. It is a separate application-level example: business login → backend response (`userId`, short-lived `userSig`) → PteIMSDK login → business friend/profile pages and embedded PteIMUIkit conversation, chat and group screens.
 
-## Local storage
+| Platform | PteIMSDK | PteIMUIkit | PteIMUIDemo |
+| --- | --- | --- | --- |
+| Android | `android/pte-im-sdk` | `android/pte-im-uikit` | `android/pte-im-ui-demo` |
+| iOS | `ios/PteIMSDK` | `ios/PteIMUIkit` | `ios/PteIMUIDemo` |
+| HarmonyOS | `harmony/PteIMSDK` | `harmony/PteIMUIkit` | `harmony/PteIMUIDemo` |
+| uni-app x | `uni_modules/pte-im-sdk` for H5/Web and WeChat | uvue components and UTS controllers | `uniapp-x/PteIMUIDemo` |
 
-Android, iOS, and HarmonyOS use SQLite/relational-store with these logical tables:
+`PteIMBaseConfig` carries `apiDomain`, `imDomain`, `cosDomain`, `themeMode` and `language`. `updateAppearance(themeMode, language)` updates light/dark/system and Chinese/English/system without reconnecting or changing UserSig. `PteIMUIkit` consumes the corresponding Core callbacks to redraw immediately.
 
-| Table | Role |
-| --- | --- |
-| `meta` | schema version and account identity |
-| `sync_state` | last committed `syncCursor` |
-| `conversations` | summaries, unread counts, version |
-| `messages` | message bodies and `serverSeq` |
-| `outbox` | pending / uploading / sent / failed messages |
-
-The local-store identity is the normalized `apiDomain`, normalized `imDomain`, normalized `cosDomain`, `sdkAppId`, and `userId`. Switching any of these opens a different store and never erases an old one.
-
-The native Cores expose `localConversations()` and `localMessages()` for cache-first rendering. They never manufacture group metadata: the server remains authoritative for C2C/group membership, unread counts, read receipts, and conversation attributes.
-
-## Outbox retry
-
-Each outgoing metadata message receives a stable `clientMsgId` before it is stored. While connected, the Core records every send attempt and retries unacknowledged outbox rows after a persisted exponential backoff (1, 2, 4, 8, 16, then 32 seconds). Reconnecting or restarting the app resumes due rows. The server must treat `clientMsgId` as an idempotency key. Upload failures are terminal because a local upload source is not retained; the host should begin a new upload.
-
-The three native SDKs retain SQLite account isolation and synchronization. H5/Web and WeChat mini-program UTS only persist the account-isolated outgoing metadata outbox, `syncCursor`, and latest 1,000 confirmed messages when the host provides `localStorageCipher`; otherwise these values stay in memory to avoid a plaintext cache. `localMessages()` and `localConversations()` are cache-first helpers, not a replacement for remote history pagination.
-
-The UTS WSS core for H5/Web and WeChat mini-program has connection, message, ACK, UserSig, send-state, error events, a 1–32 second outgoing retry backoff, and 1–30 second reconnect backoff. It calls the host-provided `POST /v1/im/sync` contract on connection and `sync_required`; synced messages are emitted through `onMessage`. `uploadAndSendImage` and `uploadAndSendVideo` read the selected bytes, request a COS PUT credential, PUT the bytes, then persist an outbox row containing only the returned key when encrypted persistence is configured. It intentionally does not claim native SQLite or remote-history pagination.
-
-## Themes and language
-
-`PteIMBaseConfig` carries the initial `themeMode` and `language` (`system`, light/dark, and `zh-CN`/`en-US`). The Core remains UI-free; `PteIMUIKit` reads these values and follows the OS when `system` is selected. Android, iOS, and HarmonyOS Cores expose `updateAppearance(themeMode, language)` and callbacks so the UI Kit can refresh immediately without reconnecting or replacing `userSig`.
+The COS flow is: API returns a signed PUT target and object key → client uploads bytes to COS → client stores/sends only the key → host resolves file access under `cosDomain`. The backend, not the client, owns COS secrets and UserSig generation.

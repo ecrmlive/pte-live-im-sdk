@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "pte-im-ui-demo",
+  "version": "1.0.0",
+  "description": "Native ArkUI business demo for PteIMSDK and PteIMUIkit",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

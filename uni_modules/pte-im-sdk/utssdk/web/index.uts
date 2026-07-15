@@ -1,0 +1,15 @@
+import { PteIMBaseConfig, PteIMSDKBootstrap } from '../interface.uts'
+import { createCrossPlatformPteIMSDK } from '../cross-platform.uts'
+
+export function createPteIMSDK(config: PteIMBaseConfig): PteIMSDKBootstrap {
+  if (config.cryptoRandomSource == null) config.cryptoRandomSource = {
+    getBytes: (length, callback) => {
+      try {
+        const value = new Uint8Array(length)
+        globalThis.crypto.getRandomValues(value)
+        callback(value, null)
+      } catch (error) { callback(null, error instanceof Error ? error.message : String(error)) }
+    },
+  }
+  return createCrossPlatformPteIMSDK(config)
+}

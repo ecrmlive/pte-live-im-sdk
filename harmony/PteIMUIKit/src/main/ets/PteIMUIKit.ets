@@ -1,7 +1,19 @@
-import { PteLiveIM } from '@ptelive/im'
+import { PteIMLanguage, PteIMSDK } from '@ptelive/pte-im-sdk'
+import { PteIMUITheme } from './PteIMUITheme'
 
 /** Host-owned operations requested by the built-in chat controls. */
 export enum PteIMUIAction { IMAGE = 'image', VIDEO = 'video', VOICE = 'voice', LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order' }
+
+export function PteIMUIActionTitle(action: PteIMUIAction, language: PteIMLanguage): string {
+  const english = language === PteIMLanguage.EN_US
+  if (action === PteIMUIAction.IMAGE) return english ? 'Image' : '图片'
+  if (action === PteIMUIAction.VIDEO) return english ? 'Video' : '视频'
+  if (action === PteIMUIAction.LOCATION) return english ? 'Location' : '位置'
+  if (action === PteIMUIAction.GIFT) return english ? 'Gift' : '礼物'
+  if (action === PteIMUIAction.RED_PACKET) return english ? 'Red packet' : '红包'
+  if (action === PteIMUIAction.ORDER) return english ? 'Order' : '订单'
+  return english ? 'Voice' : '语音'
+}
 
 /** A host-owned action delegate. It keeps UIKit independent of media pickers and business pages. */
 export class PteIMUIActionHandler {
@@ -25,22 +37,24 @@ export class PteIMUIConversationHandler {
   select(conversationId: string): void { this.callback(conversationId) }
 }
 
-/** Lightweight factory namespace for the HarmonyOS PteIMUIKit package. */
-export class PteIMUIKit {
-  static chat(client: PteLiveIM, conversationId: string, title: string = ''): PteIMUIChatConfig {
-    return new PteIMUIChatConfig(client, conversationId, title)
+/** Lightweight factory namespace for the HarmonyOS PteIMUIkit package. */
+export class PteIMUIkit {
+  static chat(client: PteIMSDK, conversationId: string, title: string = '', theme: PteIMUITheme = new PteIMUITheme()): PteIMUIChatConfig {
+    return new PteIMUIChatConfig(client, conversationId, title, theme)
   }
 }
 
 /** Pass this configuration to [PteIMUIChat] in an ArkUI page. */
 export class PteIMUIChatConfig {
-  client: PteLiveIM
+  client: PteIMSDK
   conversationId: string
   title: string
+  theme: PteIMUITheme
 
-  constructor(client: PteLiveIM, conversationId: string, title: string = '') {
+  constructor(client: PteIMSDK, conversationId: string, title: string = '', theme: PteIMUITheme = new PteIMUITheme()) {
     this.client = client
     this.conversationId = conversationId
     this.title = title
+    this.theme = theme
   }
 }

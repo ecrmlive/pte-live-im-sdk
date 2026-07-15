@@ -1,6 +1,6 @@
 {
   "module": {
-    "name": "pte_im_ui_kit",
+    "name": "pte_im_uikit",
     "type": "har",
     "deviceTypes": ["default"]
   }

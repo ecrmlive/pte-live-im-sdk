@@ -1,0 +1,15 @@
+{
+  "id": "pte-im-sdk",
+  "displayName": "PteIMSDK UTS",
+  "version": "0.1.0-alpha.1",
+  "description": "PteIMSDK UTS for H5/Web and WeChat mini-program applications",
+  "main": "utssdk/PteIMUIkit.uts",
+  "dependencies": {
+    "@noble/ciphers": "2.0.1",
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1"
+  },
+  "uni_modules": {
+    "platforms": ["web", "mp-weixin"]
+  }
+}

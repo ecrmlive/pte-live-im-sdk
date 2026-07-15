@@ -37,7 +37,7 @@ For the UTS E2EE implementation, H5 uses browser cryptographic randomness and We
 To opt in to durable UTS storage, set `localStorageCipher` in `PteIMBaseConfig`. It must synchronously encrypt and decrypt strings, and its key must be supplied at runtime rather than saved in `uni` storage or bundled source. The SDK prefixes stored values with `pte1:` and rejects legacy plaintext cache values.
 
 ```uts
-const im = createPteLiveIM({
+const im = createPteIMSDK({
   apiDomain: 'https://api.example.com',
   imDomain: 'wss://im.example.com/ws',
   cosDomain: 'https://cdn.example.com',

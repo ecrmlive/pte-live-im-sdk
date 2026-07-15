@@ -5,6 +5,8 @@ build/
 **/.gradle/
 **/.kotlin/
 **/.build/
+**/.hvigor/
+**/oh_modules/
 **/BuildProfile.ets
 *.log
 *.lock

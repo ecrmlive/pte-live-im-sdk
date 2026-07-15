@@ -1,0 +1,9 @@
+<script lang="uts">
+export default {
+  onLaunch() { console.log('PteIMUIDemo uni-app x launched') }
+}
+</script>
+
+<style>
+page { background-color: #F6F8FB; }
+</style>

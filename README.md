@@ -1,253 +1,164 @@
-# PteLive IM SDK
+# PteIMSDK
 
-PteLive IM 的客户端 SDK：提供原生 Android、iOS、HarmonyOS，以及 uni-app x UTS（H5/Web、微信小程序）接入能力。每端均提供可直接集成的 `PteIMUIKit`；Core SDK 负责连接、消息、同步、上传和本地缓存，宿主负责签发 UserSig 与处理系统权限、业务流程。
+PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`PteIMUIkit` 是可复用的会话、聊天和群组 UI，`PteIMUIDemo` 是包含业务登录、好友关系和“我的”入口的示例应用。旧名称不再提供兼容入口。
 
-> 当前为 `0.1.0-alpha`。所有接口均使用 `Pte` 前缀，避免与宿主或其他 SDK 冲突。
+| 产品 | 职责 | 不负责的内容 |
+| --- | --- | --- |
+| `PteIMSDK` | 配置、UserSig 登录、WSS、消息、同步、SQLite、COS 上传、E2EE、主题/语言状态 | 业务登录、好友关系、支付、系统选择器 |
+| `PteIMUIkit` | 会话列表、一对一/群组聊天、文本/表情、发送状态、亮暗/中英文、业务动作回调 | 签发 UserSig、保存密钥、替宿主完成支付/定位/选文件 |
+| `PteIMUIDemo` | 业务登录 → 取得 `userId`/短期 `userSig` → IM 登录 → 好友、会话、群组、我的 | 生产业务后端实现 |
 
-## 项目入口
+## 仓库
 
-| 项目 | 用途 |
+| 项目 | 说明 |
 | --- | --- |
-| [PteLive 官网](https://www.ptelive.com) | 产品与应用入口 |
-| [IM 服务端仓库](https://github.com/ptedom/pte-live-im) | IM 服务、部署与服务端接口实现 |
-| [本 SDK 仓库](https://github.com/ptedom/pte-live-im-sdk) | Android、iOS、HarmonyOS、UTS 客户端 SDK |
-| [协议约定](docs/protocol.md) | WSS、同步、会话和 COS 上传的客户端契约 |
-| [安全说明](docs/security.md) | 本地缓存加密、密钥和 E2EE 边界 |
-| [示例配置](config/sdk.example.yaml) | 不含任何真实密钥的 YAML 配置模板 |
+| [Pte IM 服务端](https://github.com/ptedom/pte-live-im) | IM 服务、部署、服务端接口实现 |
+| [本仓库](https://github.com/ptedom/pte-live-im-sdk) | 四端 PteIMSDK / PteIMUIkit / PteIMUIDemo |
+| 项目官网 | 由业务项目配置；客户端不硬编码官网或密钥 |
 
-## 可运行 Demo
+## 平台与目录
 
-每个 Demo 都是 SDK 目录外的独立应用层，运行时输入域名和短期 `userSig`；仓库中没有生产环境参数、COS 密钥或用户凭证。
+| 平台 | Core | UI | 业务示例 | 最低版本 |
+| --- | --- | --- | --- | --- |
+| Android 原生 | [android/pte-im-sdk](android/pte-im-sdk) | [android/pte-im-uikit](android/pte-im-uikit) | [android/pte-im-ui-demo](android/pte-im-ui-demo) | Android 12 / API 31 |
+| iOS 原生 | [ios/PteIMSDK](ios/PteIMSDK) | [ios/PteIMUIkit](ios/PteIMUIkit) | [ios/PteIMUIDemo](ios/PteIMUIDemo) | iOS 16.0 |
+| HarmonyOS 原生 | [harmony/PteIMSDK](harmony/PteIMSDK) | [harmony/PteIMUIkit](harmony/PteIMUIkit) | [harmony/PteIMUIDemo](harmony/PteIMUIDemo) | OpenHarmony API 23 |
+| uni-app x UTS | [uni_modules/pte-im-sdk](uni_modules/pte-im-sdk) | `PteIMUIChat`、`PteIMUIConversationList` | [uniapp-x/PteIMUIDemo](uniapp-x/PteIMUIDemo) | H5/Web、微信小程序 |
 
-| 平台 | 工程 | 运行方式 | 演示内容 |
-| --- | --- | --- | --- |
-| Android 原生 | [android/demo](android/demo) | `cd android && ./gradlew :demo:installDebug` | 运行时登录后直接加载 `android/im-ui-kit` 的原生聊天 View |
-| iOS 原生 | [ios/PteIMUIKit](ios/PteIMUIKit) + [ios/demo](ios/demo) | Xcode 打开 `PteLiveIMDemo.xcodeproj` | `PteIMUIKit` UIKit 会话列表/聊天页、消息状态、系统亮暗与业务动作回调 |
-| HarmonyOS 原生 | [harmony/demo](harmony/demo) | DevEco Studio 打开后运行 `entry` | 运行时登录后直接加载 `harmony/PteIMUIKit` 的 ArkUI 聊天组件 |
-| uni-app x UTS | [uniapp-x/demo](uniapp-x/demo) | HBuilderX 运行 H5 或微信小程序 | 运行时登录后直接加载 UTS/uvue `PteIMUIChat` |
+Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 版本面向 H5/Web 和微信小程序，不包装原生 SDK。所有 UI 源文件以 `PteIMUI` 开头。
 
-Demo 仅用于验证 SDK 与 UI Kit 接入效果，实际聊天界面均来自 `PteIMUIKit`。请由已认证的业务后端签发短期 `userSig`，不要把它、COS 临时凭证或任何长期密钥填进源码、Git 或打包配置。
+## 支持范围
 
-## SDK 与平台范围
-
-| SDK | 路径 | 运行环境 | 本地存储 |
-| --- | --- | --- | --- |
-| Android 原生 | `android/im-sdk` + `android/im-ui-kit` | Android 12+（API 31）/ Kotlin View | SQLite + Android Keystore 加密 |
-| iOS 原生 | `ios/PteLiveIM` + `ios/PteIMUIKit` | iOS 16.0+ / UIKit | SQLite + Keychain 加密 |
-| HarmonyOS 原生 | `harmony/PteLiveIM` + `harmony/PteIMUIKit` | OpenHarmony API 23 / ArkTS | 加密 relational-store |
-| uni-app x UTS | `uni_modules/pte-live-im` | H5/Web、微信小程序 / UTS + uvue | 默认仅内存；配置加密器后才持久化 |
-
-Android、iOS、HarmonyOS 是独立原生 SDK；UTS 插件不包装或替代原生 SDK。四端均提供 `PteIMUIKit`：Android 使用原生 View，iOS 使用 UIKit（不使用 SwiftUI），HarmonyOS 使用 ArkUI，UTS 使用 uvue 组件与 UTS 控制器。所有新增 UI 源文件均以 `PteIMUI` 前缀命名。
-
-## 已提供能力
-
-| 模块 | 能力 |
+| 场景 | 内容 |
 | --- | --- |
-| 连接与登录 | `PteIMBaseConfig`/`PteIMLoginConfig` 分离、WSS 连接、断线重连、UserSig 续期事件 |
-| 会话与同步 | 增量同步、会话/历史分页、已读游标、离线 Outbox、幂等 `clientMsgId`、本地缓存读取 |
-| 单聊消息 | 文本、表情、图片、视频、语音、定位、礼物、红包、订单 |
-| 群聊消息 | 文本、表情、图片、视频、语音、定位、红包 |
-| 文件上传 | API 获取一次性腾讯云 COS PUT URL，客户端直传，仅保存 object key |
-| 端到端加密 | Android、iOS：P-256 ECDH + AES-256-GCM、设备注册、审计密钥策略与加密 API 响应 |
-| 外观与语言 | `system` / `light` / `dark`，`system` / `zh-CN` / `en-US`，可在登录后即时更新 |
-| PteIMUIKit | 聊天页、会话列表、消息状态、表情、主题/语言联动；图片/视频/语音、位置、礼物、红包、订单通过宿主动作回调接入 |
-| 本地安全 | 原生缓存的消息载荷、Outbox、同步游标加密；`userSig` 不写入本地消息库 |
+| 一对一聊天 | 文本、图片、视频、语音、表情、定位、礼物、红包、订单 |
+| 群聊 | 文本、图片、视频、语音、表情、定位、红包 |
+| Core | 连接/重连、ACK、消息状态、会话与消息同步、SQLite 本地缓存、Outbox、UserSig 续期、COS PUT 上传、E2EE 协议封装 |
+| 外观 | `light`、`dark`、`system`；`zh-CN`、`en-US`、`system`，可不重新登录即时更新 |
 
-## 接入前准备
+图片、视频和语音使用业务 API 返回的 COS PUT 对象上传；客户端只保存 object key，访问地址由 `cosDomain` 组合。业务动作和系统权限由宿主接管。
 
-1. 服务端创建或确认 IM 应用，向客户端安全下发短期 `userSig`。
-2. 准备三个启动期域名：`apiDomain`、`imDomain`、`cosDomain`。
-3. 生产环境使用 HTTPS/WSS；`imDomain` 必须以 `/ws` 结尾。
-4. 实现 [协议约定](docs/protocol.md) 中的同步、会话和 COS PUT 凭证接口；SDK 不假设服务端的内部服务名称或部署方式。
+## 配置与登录
 
-配置在应用启动时完成，登录参数独立传入：
+应用启动阶段只配置域名和显示偏好；登录阶段才传入用户身份。不要把 UserSig、COS 临时凭据或服务器密钥提交到仓库。
 
 ```text
 PteIMBaseConfig(apiDomain, imDomain, cosDomain, themeMode, language)
 PteIMLoginConfig(sdkAppId, userId, userSig)
 ```
 
-| 参数 | 说明 |
-| --- | --- |
-| `apiDomain` | HTTPS API 根域名，例如 `https://api.example.com` |
-| `imDomain` | WSS 实时连接地址，例如 `wss://im.example.com/ws` |
-| `cosDomain` | COS/CDN 对象根域名，用于把 object key 解析为访问 URL |
-| `sdkAppId` | 正整数 IM 应用 ID |
-| `userId` | 正整数的字符串，例如 `"10001"` |
-| `userSig` | 服务端签发的短期凭证；不可写进 App 包、日志或仓库 |
+`apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。
 
-## 最小 Demo
+### Android
 
-以下示例中的域名、应用 ID、用户 ID、会话 ID 和 UserSig 都应替换成你的实际数据。
+```kotlin
+val im = PteIMSDK.configure(
+  applicationContext,
+  PteIMBaseConfig(apiDomain, imDomain, cosDomain)
+).login(PteIMLoginConfig(sdkAppId, userId, userSig))
 
-### uni-app x UTS（H5 / 微信小程序）
+im.openSingleConversation(peerUserId) { result ->
+  result.onSuccess { conversation ->
+    val chat = PteIMUIkit.createChatView(this, im, conversation.id.toString(), "Alice")
+  }
+}
+```
 
-将 `uni_modules/pte-live-im` 放入 uni-app x 项目后：
+### iOS
+
+以本地 Swift Package 添加 `ios/PteIMSDK` 与 `ios/PteIMUIkit`：
+
+```swift
+import PteIMUIkit
+
+let im = try PteIMSDK.configure(baseConfig).login(loginConfig)
+Task {
+  let conversation = try await im.openSingleConversation(peerUserId: peerUserId)
+  let chat = PteIMUIkit.makeChatViewController(client: im, conversationId: String(conversation.id), title: "Alice")
+}
+```
+
+### HarmonyOS
+
+添加本地 `@ptelive/pte-im-sdk` 与 `@ptelive/pte-im-uikit` HAR：
+
+```ts
+const im = await PteIMSDK.configure(this.context, baseConfig).login(loginConfig)
+const conversation = await im.openSingleConversation(peerUserId)
+PteIMUIChat({ client: im, conversationId: conversation.id.toString() })
+```
+
+### uni-app x UTS
 
 ```uts
-import { createPteLiveIM } from '@/uni_modules/pte-live-im'
+import { createPteIMSDK } from '@/uni_modules/pte-im-sdk/utssdk/web/index.uts'
 
-const bootstrap = createPteLiveIM({
-  apiDomain: 'https://api.example.com',
-  imDomain: 'wss://im.example.com/ws',
-  cosDomain: 'https://cos.example.com',
-  themeMode: 'system',
-  language: 'zh-CN',
-})
-
-const im = bootstrap.login({
-  sdkAppId: 1400000001,
-  userId: '10001',
-  userSig: await fetchUserSigFromYourServer(),
-})
-
-im.onConnectionChanged((connected) => console.log('IM connected:', connected))
-im.onMessage((message) => renderIncomingMessage(message))
-im.onError((message) => console.error('IM error:', message))
+const im = createPteIMSDK({ apiDomain, imDomain, cosDomain, themeMode: 'system', language: 'system' })
+  .login({ sdkAppId, userId, userSig })
 im.start()
-
-const clientMsgId = im.sendText('your-conversation-id', '你好，PteLive IM')
 ```
 
-直接使用 UI Kit 组件：
+微信小程序使用同路径下的 `mp-weixin/index.uts`。H5 配置 CORS 和 WebSocket Origin；微信配置 HTTPS/WSS 域名白名单。
 
-```vue
-<PteIMUIChat :client="im" conversation-id="c2c:10001:10002" @action="handlePteIMAction" />
+## 运行 PteIMUIDemo
+
+每个 Demo 都不保存输入的 UserSig。它们只是业务打通的结构示例：将示例账号校验替换为您的业务登录 API，再使用 API 返回的 `userId` 和短期 `userSig` 登录 PteIMSDK。
+
+```sh
+# Android（项目需提供 Gradle 环境）
+cd android && gradle :pte-im-ui-demo:assembleDebug
+
+# iOS
+xcodebuild -workspace ios/PteIMUIDemo/PteIMUIDemo.xcworkspace -scheme PteIMUIDemo -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
+
+# HarmonyOS
+cd harmony/PteIMUIDemo && hvigorw --no-daemon assembleApp
 ```
 
-`PteIMUIChat` 和 `PteIMUIConversationList` 位于 `uni_modules/pte-live-im/components`；也可从 `utssdk/PteIMUIKit.uts` 创建 UTS 控制器来渲染自定义 UI。
+在 HBuilderX 打开 `uniapp-x/PteIMUIDemo`，选择 H5 或微信小程序运行。
 
-UTS 如需在重启后恢复消息、Outbox 与同步游标，必须提供 `localStorageCipher`；否则 SDK 为避免明文缓存只在内存中保存数据。详见 [UTS 说明](uni_modules/pte-live-im/readme.md) 和 [安全说明](docs/security.md)。
+## 外观和语言
 
-### Android 原生（Kotlin）
-
-将 `android/im-sdk` 作为 Gradle 本地模块引入，然后在 Application 或依赖注入容器中配置：
-
-```kotlin
-val bootstrap = PteLiveIM.configure(
-  applicationContext,
-  PteIMBaseConfig(
-    apiDomain = "https://api.example.com",
-    imDomain = "wss://im.example.com/ws",
-    cosDomain = "https://cos.example.com",
-    themeMode = PteIMThemeMode.SYSTEM,
-    language = PteIMLanguage.ZH_CN,
-  ),
-)
-
-val im = bootstrap.login(
-  PteIMLoginConfig(1400000001, "10001", fetchUserSigFromYourServer()),
-)
-im.addListener(object : PteIMListener {
-  override fun onMessage(message: PteIMMessage) = renderIncomingMessage(message)
-})
-im.sendText("your-conversation-id", "你好，PteLive IM")
-```
-
-登录后直接创建 UI Kit View：
-
-```kotlin
-val chat = PteIMUIKit.createChatView(this, im, "c2c:10001:10002", "Alice")
-chat.onActionRequested = { action -> handlePteIMAction(action) }
-setContentView(chat)
-```
-
-### iOS 原生（Swift）
-
-在 Xcode 以本地 Swift Package 方式添加 `ios/PteLiveIM` 后：
-
-```swift
-let base = try PteIMBaseConfig(
-  apiDomain: "https://api.example.com",
-  imDomain: "wss://im.example.com/ws",
-  cosDomain: "https://cos.example.com",
-  themeMode: .system,
-  language: .zhCN
-)
-let im = try PteLiveIM.configure(base).login(
-  try PteIMLoginConfig(
-    sdkAppId: 1_400_000_001,
-    userId: "10001",
-    userSig: try await fetchUserSigFromYourServer()
-  )
-)
-im.onMessage = { message in renderIncomingMessage(message) }
-im.sendText(conversationId: "your-conversation-id", text: "你好，PteLive IM")
-```
-
-### iOS UIKit UI Kit
-
-在应用完成 Core 登录后，直接使用独立的 `PteIMUIKit` Swift Package；它使用 UIKit，不依赖 SwiftUI：
-
-```swift
-import PteIMUIKit
-
-let chat = PteIMUIKit.makeChatViewController(
-  client: im,
-  conversationId: "c2c:10001:10002",
-  title: "Alice"
-)
-chat.onActionRequested = { action, controller in
-  // 宿主选择图片/视频/语音或进入定位、礼物、红包、订单业务流程后，
-  // 调用 controller.sendImage / sendVideo / sendVoice / sendLocation 等方法。
-}
-navigationController?.pushViewController(chat, animated: true)
-```
-
-`PteIMUIKit` 的 UIKit 源文件均以 `PteIMUI` 前缀命名，包含会话列表、聊天页、消息单元、主题与中英文文案，并跟随 Core 的亮暗和语言回调。
-
-### HarmonyOS 原生（ArkTS）
-
-将 `harmony/PteLiveIM` 作为本地 `@ptelive/im` 依赖加入 DevEco 工程，并配置网络权限与域名白名单：
-
-```ts
-const base = new PteIMBaseConfig(
-  'https://api.example.com',
-  'wss://im.example.com/ws',
-  'https://cos.example.com',
-  PteIMThemeMode.SYSTEM,
-  PteIMLanguage.ZH_CN,
-)
-const im = await PteLiveIM.configure(this.context, base).login(
-  new PteIMLoginConfig(1400000001, '10001', await fetchUserSigFromYourServer()),
-)
-im.addListener(new PteIMListener())
-await im.sendText('your-conversation-id', '你好，PteLive IM')
-```
-
-添加本地 `@ptelive/im-ui-kit` HAR 后，在 ArkUI 页面中直接使用：
-
-```ts
-PteIMUIChat({
-  client: im,
-  conversationId: 'c2c:10001:10002',
-  onActionRequested: (action: PteIMUIAction) => handlePteIMAction(action),
-})
-```
-
-## 常见操作
+登录完成后无需刷新 UserSig 或重连：
 
 ```text
-发送表情       sendEmoji(conversationId, packageId, emojiId)
-直传图片/视频  uploadAndSendImage / uploadAndSendVideo
-直传语音       uploadAndSendVoice(conversationId, source, durationMs, waveform?)
-已读同步       markConversationRead(conversationId, seq)
-历史消息       fetchMessageHistory(conversationId, beforeSeq, limit)
-本地消息       localMessages(conversationId, beforeCreatedAt, limit)
-切换亮暗/语言  updateAppearance(themeMode, language)
-刷新 UserSig   renewUserSig(userSig)
+updateAppearance(themeMode: dark, language: en-US)
+updateAppearance(themeMode: system, language: system)
 ```
 
-媒体上传流程为：宿主 API 签发一次性 COS PUT URL → SDK 直接 PUT 文件 → SDK 发送并仅保存 object key。SDK 从不接收 COS `SecretId`、`SecretKey` 或 UserSig 生成密钥。
+Core 发出外观回调，PteIMUIkit 随即刷新。更多协议、存储与安全约束见 [架构说明](docs/architecture.md) 和 [安全说明](docs/security.md)。
 
-## 开发与验证
+## PteIMUIkit 聊天 UI 架构
 
-```bash
-# Android
-cd android && ./gradlew :im-sdk:compileDebugKotlin
+PteIMUIkit 采用“消息内容单元 + 独立输入条 + 宿主业务回调”的分层方式，参考 MessageKit 的可定制消息单元与 InputBar 思路，但不引入任何第三方 UI 依赖。四端均提供独立的 `PteIMUIInputBar`；它可以脱离聊天页单独复用。
 
-# iOS（Swift Package）
-cd ios/PteLiveIM && swift build
+输入条固定顺序为：`语音切换` → `输入框 / 按住说话` → `+` → `表情` → `发送`。点击语音后，中间区域变为“按住说话”；开始和结束录音只通知宿主，录音权限、编码、上传完成后调用 Core 的 `sendVoice` 仍由业务负责。`+` 面板内置图片、视频、定位、礼物、红包、订单；表情面板内置默认表情项。两种面板均通过回调将选择结果交给宿主。
+
+默认视觉是蓝紫渐变发送气泡与发送按钮，并为亮/暗模式提供两套完全独立的组件色板：背景、会话面、输入栏、收发气泡、渐变、文字、图标、分割线、表情面板和更多面板均可分别配置。
+
+### iOS UIKit
+
+```swift
+let theme = PteIMUITheme(
+  light: .blueVioletLight,
+  dark: .blueVioletDark
+)
+let chat = PteIMUIkit.makeChatViewController(
+  client: im,
+  conversationId: String(conversation.id),
+  title: "Alice",
+  theme: theme
+)
+chat.onActionRequested = { action, controller in
+  // 使用系统选择器或业务页面，完成后调用 controller.sendImage/sendVideo/…
+}
+chat.onVoiceRecordingChanged = { recording, controller in
+  // recording=true 开始录音；false 停止并上传，随后 controller.sendVoice(voice)
+}
 ```
 
-HarmonyOS 请在 DevEco Studio 构建；UTS 请在 HBuilderX 针对 H5 或微信小程序目标运行。修改 SDK 前请阅读 [架构说明](docs/architecture.md)、[协议约定](docs/protocol.md) 与 [安全说明](docs/security.md)。
+`PteIMUIThemePalette` 的所有字段均为公开参数，因此可以只替换 `light` 或 `dark` 的任意组件颜色，不会影响另一套模式。`themeMode = system` 时 UIKit 会自动随系统外观刷新。
+
+### Android、HarmonyOS、uni-app x
+
+Android 使用 `PteIMUITheme(light = …, dark = …)` 并传给 `PteIMUIkit.createChatView`；HarmonyOS 通过 `PteIMUIChat({ theme: new PteIMUITheme(light, dark) })`；UTS 通过 `<PteIMUIChat :theme="new PteIMUITheme(light, dark)" />`。三端均遵循同一套色板字段和输入回调：`onActionRequested` / `action` 负责更多面板，`onVoiceRecordingChanged` / `voice-recording` 负责按住说话状态。

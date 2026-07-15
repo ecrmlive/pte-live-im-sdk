@@ -1,0 +1,7 @@
+import App from './App.uvue'
+import { createSSRApp } from 'vue'
+
+/** Standard uni-app x UTS entry point for H5, WeChat, Android, iOS and Harmony builds. */
+export function createApp() {
+  return { app: createSSRApp(App) }
+}

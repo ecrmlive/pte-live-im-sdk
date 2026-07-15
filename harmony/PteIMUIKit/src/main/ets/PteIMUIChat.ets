@@ -1,6 +1,7 @@
-import { PteIMLanguage, PteIMListener, PteIMMessage, PteIMMessageType, PteIMSendState, PteIMThemeMode, PteLiveIM } from '@ptelive/im'
-import { PteIMUIAction, PteIMUIActionHandler } from './PteIMUIKit'
-import { PteIMUITheme } from './PteIMUITheme'
+import { PteIMLanguage, PteIMListener, PteIMMessage, PteIMMessageType, PteIMSendState, PteIMThemeMode, PteIMSDK } from '@ptelive/pte-im-sdk'
+import { PteIMUIAction, PteIMUIActionHandler } from './PteIMUIkit'
+import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
+import { PteIMUIInputBar, PteIMUIInputCallbacks } from './PteIMUIInputBar'
 
 class PteIMUIChatListener extends PteIMListener {
   private changed: () => void
@@ -11,65 +12,56 @@ class PteIMUIChatListener extends PteIMListener {
   onLanguageChanged(_language: PteIMLanguage): void { this.changed() }
 }
 
+export class PteIMUIVoiceRecordingHandler {
+  private changed: (recording: boolean) => void
+  constructor(changed: (recording: boolean) => void) { this.changed = changed }
+  onChanged(recording: boolean): void { this.changed(recording) }
+}
+
 /** Drop-in ArkUI conversation component for C2C and group conversations. */
 @Component
 export struct PteIMUIChat {
-  @Prop client: PteLiveIM
+  @Prop client: PteIMSDK
   @Prop conversationId: string
   @Prop title: string = ''
   @Prop actionHandler: PteIMUIActionHandler = new PteIMUIActionHandler()
+  /** Host recorder lifecycle; use sendVoice after recording has been uploaded. */
+  @Prop voiceRecordingHandler: PteIMUIVoiceRecordingHandler = new PteIMUIVoiceRecordingHandler((_recording: boolean) => {})
+  @Prop theme: PteIMUITheme = new PteIMUITheme()
   @State messages: PteIMMessage[] = []
   @State draft: string = ''
-  @State moreVisible: boolean = false
-  @State dark: boolean = false
+  @StorageProp('colorMode') systemColorMode: string = 'light'
   private listener: PteIMUIChatListener | null = null
 
   aboutToAppear(): void {
-    this.listener = new PteIMUIChatListener(() => { this.loadMessages(); this.applyAppearance() })
+    this.listener = new PteIMUIChatListener(() => this.loadMessages())
     this.client.addListener(this.listener)
-    this.loadMessages(); this.applyAppearance()
+    this.loadMessages()
   }
   aboutToDisappear(): void { if (this.listener !== null) this.client.removeListener(this.listener) }
 
   build() {
     Column() {
-      Text(this.title.length > 0 ? this.title : this.conversationId).fontSize(18).fontWeight(FontWeight.Medium).fontColor(this.colorText()).width('100%').padding({ left: 18, right: 18, top: 16, bottom: 10 })
+      Text(this.title.length > 0 ? this.title : this.conversationId).fontSize(18).fontWeight(FontWeight.Medium).fontColor(this.palette().text).width('100%').padding({ left: 18, right: 18, top: 16, bottom: 10 })
       Scroll() {
         Column({ space: 8 }) {
           ForEach(this.messages, (message: PteIMMessage) => {
             Row() {
-              Text(this.messageText(message)).fontSize(15).fontColor(message.serverMsgId.length === 0 ? '#FFFFFF' : this.colorText()).backgroundColor(message.serverMsgId.length === 0 ? this.theme().outgoing : this.theme().incoming).borderRadius(16).padding(12)
-            }.width('100%').justifyContent(message.serverMsgId.length === 0 ? FlexAlign.End : FlexAlign.Start)
+              Text(this.messageText(message)).fontSize(15).fontColor(this.isOutgoing(message) ? this.palette().outgoingText : this.palette().incomingText)
+                .linearGradient(this.isOutgoing(message) ? { angle: 90, colors: [[this.palette().outgoingStart, 0.0], [this.palette().outgoingEnd, 1.0]] } : { angle: 90, colors: [[this.palette().incoming, 0.0], [this.palette().incoming, 1.0]] })
+                .borderRadius(18).padding({ left: 14, right: 14, top: 10, bottom: 10 })
+            }.width('100%').justifyContent(this.isOutgoing(message) ? FlexAlign.End : FlexAlign.Start)
           }, (message: PteIMMessage) => message.clientMsgId)
         }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
       }.layoutWeight(1)
-      Row({ space: 8 }) {
-        TextInput({ placeholder: 'Message', text: this.draft }).layoutWeight(1).onChange((value: string) => this.draft = value).onSubmit(() => this.sendText())
-        Button('Send').onClick(() => this.sendText())
-      }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 4 })
-      Row({ space: 4 }) {
-        Button('😀').onClick(() => this.client.sendEmoji(this.conversationId, 'default', 'smile_001'))
-        Button('Image').onClick(() => this.actionHandler.request(PteIMUIAction.IMAGE))
-        Button('Video').onClick(() => this.actionHandler.request(PteIMUIAction.VIDEO))
-        Button('Voice').onClick(() => this.actionHandler.request(PteIMUIAction.VOICE))
-        Button('More').onClick(() => this.moreVisible = !this.moreVisible)
-      }.width('100%').padding({ left: 12, right: 12, bottom: 8 })
-      if (this.moreVisible) {
-        Row({ space: 4 }) {
-          Button('Location').onClick(() => this.actionHandler.request(PteIMUIAction.LOCATION))
-          Button('Gift').onClick(() => this.actionHandler.request(PteIMUIAction.GIFT))
-          Button('Red packet').onClick(() => this.actionHandler.request(PteIMUIAction.RED_PACKET))
-          Button('Order').onClick(() => this.actionHandler.request(PteIMUIAction.ORDER))
-        }.width('100%').padding({ left: 12, right: 12, bottom: 12 })
-      }
-    }.width('100%').height('100%').backgroundColor(this.theme().background)
+      PteIMUIInputBar({ draft: $draft, palette: this.palette(), language: this.client.currentAppearance().language, callbacks: new PteIMUIInputCallbacks((text: string) => this.sendText(text), (packageId: string, emojiId: string) => { this.client.sendEmoji(this.conversationId, packageId, emojiId); this.loadMessages() }, (action: PteIMUIAction) => this.actionHandler.request(action), (recording: boolean) => this.voiceRecordingHandler.onChanged(recording)) })
+    }.width('100%').height('100%').backgroundColor(this.palette().background)
   }
 
   private async loadMessages(): Promise<void> { this.messages = await this.client.localMessages(this.conversationId, 0, 100) }
-  private sendText(): void { const text = this.draft.trim(); if (text.length > 0) { this.client.sendText(this.conversationId, text); this.draft = ''; this.loadMessages() } }
-  private applyAppearance(): void { this.dark = this.client.currentAppearance().themeMode === PteIMThemeMode.DARK }
-  private theme(): PteIMUITheme { return PteIMUITheme.resolve(this.client) }
-  private colorText(): string { return this.theme().text }
+  private sendText(text: string): void { const value = text.trim(); if (value.length > 0) { this.client.sendText(this.conversationId, value); this.loadMessages() } }
+  private palette(): PteIMUIThemePalette { return PteIMUITheme.resolve(this.client, this.theme, this.systemColorMode === 'dark') }
+  private isOutgoing(message: PteIMMessage): boolean { return message.senderId === this.client.currentUserId() }
   private messageText(message: PteIMMessage): string {
     if (message.type === PteIMMessageType.TEXT) return message.text
     if (message.type === PteIMMessageType.EMOJI) return `${message.packageId}:${message.emojiId}`

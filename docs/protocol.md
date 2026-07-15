@@ -30,7 +30,8 @@ For `send_message`, the client sends only routing metadata (`clientMsgId`, `conv
 {
   "clientMsgId": "uuid",
   "serverMsgId": "server assigned after acceptance",
-  "conversationId": "c2c:user_10001:user_10002",
+  "conversationId": "9000001",
+  "senderId": "10001",
   "type": "text | emoji | image | video | voice | location | gift | red_packet | order",
   "createdAt": 1760000000000,
   "content": {
@@ -57,7 +58,7 @@ For `send_message`, the client sends only routing metadata (`clientMsgId`, `conv
 }
 ```
 
-Only fields applicable to the selected type are present: `voice` uses `url`, `durationMs`, optional `waveform` and `sizeBytes`; `location` uses `latitude`, `longitude`, `name`, and optional `address`; `gift`, `red_packet`, and `order` use `businessId`, `title`, optional `subtitle`, and optional `actionUrl`. The server treats `clientMsgId` as an idempotency key.
+`conversationId` and `senderId` are positive numeric strings returned by the server; never construct a `c2c:*` or `group:*` identifier on the client. Compare `senderId` with `IMLoginConfig.userId` to render incoming or outgoing bubbles after cache reload; do not infer direction from `serverMsgId` or send state. Only fields applicable to the selected type are present: `voice` uses `url`, `durationMs`, optional `waveform` and `sizeBytes`; `location` uses `latitude`, `longitude`, `name`, and optional `address`; `gift`, `red_packet`, and `order` use `businessId`, `title`, optional `subtitle`, and optional `actionUrl`. The server treats `clientMsgId` as an idempotency key.
 
 ## SDK REST contract expected from the host API
 

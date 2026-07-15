@@ -1,1 +1,0 @@
-{"name":"entry","version":"1.0.0","description":"PteLive IM Demo entry","main":"","dependencies":{"@ptelive/im":"file:../../PteLiveIM","@ptelive/im-ui-kit":"file:../../PteIMUIKit"}}

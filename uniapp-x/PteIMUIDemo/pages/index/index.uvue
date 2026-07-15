@@ -1,0 +1,84 @@
+<template>
+  <view v-if="screen === 'login'" class="page"><view class="card">
+    <text class="title">PteIMUIDemo · uni-app x</text>
+    <text class="hint">业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIkit。请将示例输入替换为您的业务 API。</text>
+    <input v-model="apiDomain" class="input" placeholder="API domain" /><input v-model="imDomain" class="input" placeholder="IM WSS URL" /><input v-model="cosDomain" class="input" placeholder="COS domain" />
+    <input v-model="sdkAppId" class="input" type="number" placeholder="SDK App ID" /><input v-model="account" class="input" placeholder="Business account" /><input v-model="password" class="input" password="true" placeholder="Business password (demo only)" />
+    <input v-model="userId" class="input" type="number" placeholder="IM user ID returned by business login" /><input v-model="userSig" class="input" password="true" placeholder="Short-lived UserSig returned by business login" />
+    <button @click="businessLogin">业务登录并进入 IM</button><text class="status">{{ status }}</text>
+  </view></view>
+  <view v-else-if="screen === 'home'" class="page"><view class="card">
+    <text class="title">PteIMUIDemo</text><text class="hint">业务层：好友关系、我的；IM UI：会话、聊天、群组。</text>
+    <button @click="screen = 'conversations'">会话列表（PteIMUIkit）</button><button @click="screen = 'friends'">好友列表 / 关系</button><button @click="openDemoGroup">创建群组并聊天（PteIMUIkit）</button><button @click="screen = 'profile'">我的</button><button @click="logout">退出登录</button>
+  </view></view>
+  <view v-else-if="screen === 'friends'" class="page"><view class="card">
+    <text class="title">好友列表 / 关系示例</text><text class="hint">添加、删除好友由业务 API 完成；PteIMUIkit 负责聊天界面。</text>
+    <button @click="openSingleChat(10002)">Alice (10002)</button><button @click="openSingleChat(10003)">Bob (10003)</button><button @click="screen = 'home'">返回</button>
+  </view></view>
+  <view v-else-if="screen === 'profile'" class="page"><view class="card">
+    <text class="title">我的</text><text class="hint">业务账号：{{ account }}\nIM 用户：{{ userId }}\n\n个人资料、好友关系、主题和语言由业务 App 管理；调用 PteIMSDK.updateAppearance(...) 可即时更新 UI。</text><button @click="screen = 'home'">返回</button>
+  </view></view>
+  <view v-else-if="screen === 'conversations'" class="chat-page"><PteIMUIConversationList :client="client" @select="openChat" /></view>
+  <view v-else class="chat-page"><PteIMUIChat :client="client" :conversation-id="conversationId" title="PteIMUIDemo" @action="handleAction" /></view>
+</template>
+
+<script lang="uts">
+import PteIMUIChat from '../../../../uni_modules/pte-im-sdk/components/PteIMUIChat/PteIMUIChat.uvue'
+import PteIMUIConversationList from '../../../../uni_modules/pte-im-sdk/components/PteIMUIConversationList/PteIMUIConversationList.uvue'
+import { PteIMBusinessContent, PteIMLocation } from '../../../../uni_modules/pte-im-sdk/utssdk/interface.uts'
+import { PteIMUIAction } from '../../../../uni_modules/pte-im-sdk/utssdk/PteIMUIkit.uts'
+// #ifdef WEB
+import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/web/index.uts'
+// #endif
+// #ifdef MP-WEIXIN
+import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/mp-weixin/index.uts'
+// #endif
+
+export default {
+  components: { PteIMUIChat, PteIMUIConversationList },
+  data() { return { apiDomain: 'https://api.example.com', imDomain: 'wss://im.example.com/ws', cosDomain: 'https://cos.example.com', sdkAppId: '1400000001', account: 'demo-user', password: '', userId: '10001', userSig: '', conversationId: '', status: '未登录；不会保存 UserSig', screen: 'login', client: null as any } },
+  methods: {
+    businessLogin() {
+      try {
+        if (this.account.length === 0 || this.userId.length === 0 || this.userSig.length === 0) throw new Error('业务后端应返回 account、userId 与短期 UserSig')
+        const client = createPteIMSDK({ apiDomain: this.apiDomain, imDomain: this.imDomain, cosDomain: this.cosDomain, themeMode: 'system', language: 'system' }).login({ sdkAppId: Number(this.sdkAppId), userId: this.userId, userSig: this.userSig })
+        client.onError((message: string) => this.status = `错误：${message}`); client.start(); this.client = client; this.screen = 'home'
+      } catch (error) { this.status = `登录错误：${error instanceof Error ? error.message : String(error)}` }
+    },
+    openChat(conversationId: string) { this.conversationId = conversationId; this.screen = 'chat' },
+    openSingleChat(peerUserId: number) {
+      if (this.client == null) return
+      this.client.openSingleConversation(peerUserId, (conversation: any, error: string | null) => {
+        if (conversation == null || error != null) { this.status = `无法打开会话：${error ?? 'unknown error'}`; return }
+        this.openChat(String(conversation.id))
+      })
+    },
+    openDemoGroup() {
+      if (this.client == null) return
+      this.client.createGroupConversation('PteIMUIDemo Group', [10002, 10003], null, (conversation: any, error: string | null) => {
+        if (conversation == null || error != null) { this.status = `无法创建群组：${error ?? 'unknown error'}`; return }
+        this.openChat(String(conversation.id))
+      })
+    },
+    logout() { if (this.client != null) this.client.stop(); this.client = null; this.screen = 'login' },
+    handleAction(action: PteIMUIAction) {
+      if (this.client == null) return
+      if (action === 'image' || action === 'video' || action === 'voice') { this.pickMedia(action); return }
+      if (action === 'location') this.client.sendLocation(this.conversationId, { latitude: 31.2304, longitude: 121.4737, name: 'Shanghai', address: 'PteIMUIDemo' } as PteIMLocation)
+      else { const content = { businessId: `demo-${Date.now()}`, title: action } as PteIMBusinessContent; if (action === 'gift') this.client.sendGift(this.conversationId, content); else if (action === 'red_packet') this.client.sendRedPacket(this.conversationId, content); else this.client.sendOrder(this.conversationId, content) }
+    },
+    pickMedia(type: PteIMUIAction) {
+      // #ifdef MP-WEIXIN
+      uni.chooseMedia({ count: 1, mediaType: type === 'image' ? ['image'] : type === 'video' ? ['video'] : ['mix'], success: (result: any) => { const path = result.tempFiles[0].tempFilePath as string; if (type === 'image') this.client.uploadAndSendImage(this.conversationId, path); else if (type === 'video') this.client.uploadAndSendVideo(this.conversationId, path); else this.client.uploadAndSendVoice(this.conversationId, path, 1000) } })
+      // #endif
+      // #ifdef WEB
+      this.status = 'H5 请由宿主选择文件后调用 uploadAndSend*。'
+      // #endif
+    },
+  },
+}
+</script>
+
+<style>
+.page, .chat-page { height: 100%; }.page { padding: 24rpx; box-sizing: border-box; background-color: #F7F9FC; }.card { padding: 24rpx; border-radius: 16rpx; background-color: #FFFFFF; }.title { display: block; margin-bottom: 12rpx; font-size: 40rpx; font-weight: 700; color: #1769AA; }.hint, .status { display: block; margin: 12rpx 0; font-size: 24rpx; color: #687385; }.input { height: 72rpx; margin-bottom: 12rpx; padding: 0 16rpx; border: 1px solid #D6DCE5; border-radius: 10rpx; } button { margin: 10rpx 0; }
+</style>

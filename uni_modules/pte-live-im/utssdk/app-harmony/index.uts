@@ -1,4 +1,0 @@
-import { PteIMBaseConfig, PteLiveIMBootstrap } from '../interface.uts'
-import { createCrossPlatformPteLiveIM } from '../cross-platform.uts'
-
-export function createPteLiveIM(config: PteIMBaseConfig): PteLiveIMBootstrap { return createCrossPlatformPteLiveIM(config) }

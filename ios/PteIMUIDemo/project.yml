@@ -1,0 +1,26 @@
+name: PteIMUIDemo
+options:
+  bundleIdPrefix: com.ptelive.im
+  deploymentTarget:
+    iOS: '16.0'
+packages:
+  PteIMSDK:
+    path: ../PteIMSDK
+  PteIMUIkit:
+    path: ../PteIMUIkit
+targets:
+  PteIMUIDemo:
+    type: application
+    platform: iOS
+    sources: [PteIMUIDemo]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ptelive.im.demo
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '5.9'
+        TARGETED_DEVICE_FAMILY: '1,2'
+    dependencies:
+      - package: PteIMSDK
+        product: PteIMSDK
+      - package: PteIMUIkit
+        product: PteIMUIkit

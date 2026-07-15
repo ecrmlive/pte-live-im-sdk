@@ -1,0 +1,28 @@
+{
+	"name": "PteIMUIDemo",
+	"appid": "__UNI__9B20802",
+	"description": "PteIMSDK and PteIMUIkit uni-app x UTS business demo",
+	"versionName": "0.1.0-alpha",
+	"versionCode": 100,
+	"uni-app-x": {
+		"vapor": true,
+		"styleIsolationVersion": "2"
+	},
+	"vueVersion": "3",
+	"web": {
+		"title": "PteIMUIDemo"
+	},
+	"mp-weixin": {
+		"appid": "wx355c3f642c588462",
+		"setting": {
+			"es6": true,
+			"postcss": true,
+			"minified": true
+		},
+		"permission": {
+			"scope.userLocation": {
+				"desc": "聊天发送定位"
+			}
+		}
+	}
+}

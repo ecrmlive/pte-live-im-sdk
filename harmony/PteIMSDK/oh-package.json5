@@ -1,0 +1,9 @@
+{
+  "name": "@ptelive/pte-im-sdk",
+  "version": "1.0.0",
+  "description": "PteIMSDK native SDK for HarmonyOS",
+  "main": "src/main/ets/index.ets",
+  "author": "PteLive",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

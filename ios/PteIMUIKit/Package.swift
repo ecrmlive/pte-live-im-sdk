@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-  name: "PteIMUIKit",
+  name: "PteIMUIkit",
   platforms: [.iOS(.v16)],
-  products: [.library(name: "PteIMUIKit", targets: ["PteIMUIKit"])],
-  dependencies: [.package(path: "../PteLiveIM")],
+  products: [.library(name: "PteIMUIkit", targets: ["PteIMUIkit"])],
+  dependencies: [.package(path: "../PteIMSDK")],
   targets: [.target(
-    name: "PteIMUIKit",
-    dependencies: [.product(name: "PteLiveIM", package: "PteLiveIM")],
-    path: "Sources/PteIMUIKit"
+    name: "PteIMUIkit",
+    dependencies: [.product(name: "PteIMSDK", package: "PteIMSDK")],
+    path: "Sources/PteIMUIkit"
   )]
 )
