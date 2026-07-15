@@ -2,10 +2,42 @@ import { Context } from '@kit.AbilityKit'
 import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMConversation, PteIMConversationPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMThemeMode, PteIMVoice } from './IMModels'
+import util from '@ohos.util'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMConversation, PteIMConversationPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMThemeMode, PteIMVoice, PteIMWireMessage } from './IMModels'
 import { PteIMSqliteStore } from './IMSqliteStore'
 
 type WireObject = Record<string, Object>
+
+interface PteIMHttpRequestOptions extends http.HttpRequestOptions {}
+
+class PteIMRequestBody {
+  userSig: string = ''
+  syncCursor: string = ''
+  pageSize: number = 0
+  limit: number = 0
+  page: number = 0
+  peerUserId: number = 0
+  title: string = ''
+  memberIds: number[] = []
+  avatar: string = ''
+  conversationId: number = 0
+  seq: number = 0
+  beforeSeq: number = 0
+  mediaType: string = ''
+  contentType: string = ''
+  contentLength: number = 0
+  serverMsgId: string = ''
+}
+
+class PteIMEnvelope {
+  protocolVersion: number = 1
+  action: string = ''
+  requestId: string = ''
+  sdkAppId: number = 0
+  userId: string = ''
+  userSig: string = ''
+  payload: Object = new PteIMRequestBody()
+}
 
 /** Native HarmonyOS IM runtime. The database is initialized before the client is returned. */
 export class PteLiveIM {
@@ -19,7 +51,14 @@ export class PteLiveIM {
   private syncing: boolean = false
   private appearance: PteIMAppearance
 
-  constructor(private config: PteIMLoginConfig, private base: PteIMBaseConfig, private store: PteIMSqliteStore) {
+  private config: PteIMLoginConfig
+  private base: PteIMBaseConfig
+  private store: PteIMSqliteStore
+
+  constructor(config: PteIMLoginConfig, base: PteIMBaseConfig, store: PteIMSqliteStore) {
+    this.config = config
+    this.base = base
+    this.store = store
     this.appearance = new PteIMAppearance(base.themeMode, base.language)
   }
 
@@ -55,7 +94,8 @@ export class PteLiveIM {
   renewUserSig(userSig: string): void {
     if (userSig.length === 0) throw new Error('userSig is required')
     this.config.userSig = userSig
-    this.sendEnvelope('renew_user_sig', { userSig: userSig })
+    const body = new PteIMRequestBody(); body.userSig = userSig
+    this.sendEnvelope('renew_user_sig', body)
   }
 
   updateAppearance(themeMode: PteIMThemeMode | null = null, language: PteIMLanguage | null = null): PteIMAppearance {
@@ -94,7 +134,8 @@ export class PteLiveIM {
     if (this.syncing) return
     this.syncing = true
     try {
-      const payload = await this.sdkRequest('/v1/im/sync', { syncCursor: await this.store.cursor(), pageSize: 200 })
+      const body = new PteIMRequestBody(); body.syncCursor = await this.store.cursor(); body.pageSize = 200
+      const payload = await this.sdkRequest('/v1/im/sync', body)
       const messages = this.messagesFromResponse(payload)
       const nextCursor = this.stringValue(payload, 'nextCursor')
       await this.store.apply(messages, nextCursor)
@@ -122,7 +163,8 @@ export class PteLiveIM {
 
   async fetchConversationPage(page: number = 1, pageSize: number = 50): Promise<PteIMConversationPage> {
     if (page <= 0 || pageSize <= 0 || pageSize > 200) throw new Error('invalid conversation page')
-    const data = await this.sdkRequest('/v1/im/conversations', { page: page, pageSize: pageSize })
+    const body = new PteIMRequestBody(); body.page = page; body.pageSize = pageSize
+    const data = await this.sdkRequest('/v1/im/conversations', body)
     const values = data['list'] as Object[]
     const items: PteIMRemoteConversation[] = values === undefined || values === null ? [] : values.map((value: Object) => this.remoteConversation(value as WireObject))
     return new PteIMConversationPage(this.numberValue(data, 'total'), items)
@@ -130,22 +172,26 @@ export class PteLiveIM {
 
   async openSingleConversation(peerUserId: number): Promise<PteIMRemoteConversation> {
     if (peerUserId <= 0) throw new Error('peerUserId must be positive')
-    return this.remoteConversation(await this.sdkRequest('/v1/im/conversations/open-single', { peerUserId: peerUserId }))
+    const body = new PteIMRequestBody(); body.peerUserId = peerUserId
+    return this.remoteConversation(await this.sdkRequest('/v1/im/conversations/open-single', body))
   }
 
   async createGroupConversation(title: string, memberIds: number[] = [], avatar: string = ''): Promise<PteIMRemoteConversation> {
     if (title.length === 0 || memberIds.some((memberId: number) => memberId <= 0)) throw new Error('invalid group parameters')
-    return this.remoteConversation(await this.sdkRequest('/v1/im/conversations/create-group', { title: title, memberIds: memberIds, avatar: avatar }))
+    const body = new PteIMRequestBody(); body.title = title; body.memberIds = memberIds; body.avatar = avatar
+    return this.remoteConversation(await this.sdkRequest('/v1/im/conversations/create-group', body))
   }
 
   async markConversationRead(conversationId: number, seq: number = 0): Promise<void> {
     if (conversationId <= 0 || seq < 0) throw new Error('invalid read cursor')
-    await this.sdkRequest('/v1/im/conversations/read', { conversationId: conversationId, seq: seq })
+    const body = new PteIMRequestBody(); body.conversationId = conversationId; body.seq = seq
+    await this.sdkRequest('/v1/im/conversations/read', body)
   }
 
   async fetchMessageHistory(conversationId: number, beforeSeq: number = 0, limit: number = 50): Promise<PteIMMessagePage> {
     if (conversationId <= 0 || beforeSeq < 0 || limit <= 0 || limit > 200) throw new Error('invalid message history page')
-    const data = await this.sdkRequest('/v1/im/conversations/messages', { conversationId: conversationId, beforeSeq: beforeSeq, limit: limit })
+    const body = new PteIMRequestBody(); body.conversationId = conversationId; body.beforeSeq = beforeSeq; body.limit = limit
+    const data = await this.sdkRequest('/v1/im/conversations/messages', body)
     const values = data['list'] as Object[]
     const items: PteIMRemoteMessage[] = values === undefined || values === null ? [] : values.map((value: Object) => this.remoteMessage(value as WireObject))
     return new PteIMMessagePage(items)
@@ -184,18 +230,22 @@ export class PteLiveIM {
 
   private async uploadMedia(filePath: string, type: PteIMMessageType, mimeType: string): Promise<PteIMMedia> {
     const bytes = this.readFile(filePath)
-    const credential = await this.apiImRequest('/v1/im/media/put-url', { mediaType: type, contentType: mimeType, contentLength: bytes.byteLength })
+    const body = new PteIMRequestBody(); body.mediaType = type; body.contentType = mimeType; body.contentLength = bytes.byteLength
+    const credential = await this.apiImRequest('/v1/im/media/put-url', body)
     const key = this.stringValue(credential, 'key')
     const uploadUrl = this.stringValue(credential, 'uploadUrl')
     const headers = credential['headers'] as WireObject
-    if (key.length === 0 || uploadUrl.length === 0 || headers === undefined || headers === null) throw new Error('api-im returned an invalid COS upload credential')
+    if (key.length === 0 || uploadUrl.length === 0 || headers === undefined || headers === null) throw new Error('media credential response is invalid')
     const request = http.createHttp()
     try {
-      const response = await request.request(uploadUrl, {
+      const requestHeaders = new Map<string, string>()
+      requestHeaders.set('Content-Type', this.stringValue(headers, 'Content-Type'))
+      const options: PteIMHttpRequestOptions = {
         method: http.RequestMethod.PUT,
-        header: { 'Content-Type': this.stringValue(headers, 'Content-Type') },
+        header: requestHeaders,
         extraData: bytes.buffer
-      })
+      }
+      const response = await request.request(uploadUrl, options)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`COS upload failed with HTTP ${response.responseCode}`)
       return new PteIMMedia(key, '', '', 0, 0, 0, bytes.byteLength)
     } finally { request.destroy() }
@@ -222,13 +272,16 @@ export class PteLiveIM {
   private connect(): void {
     this.socket = webSocket.createWebSocket()
     this.socket.on('open', () => { this.onOpen() })
-    this.socket.on('message', (_error: Error | null, value: webSocket.WebSocketMessage) => { if (value !== null) this.handleInbound(value.toString()) })
+    this.socket.on('message', (_error: Error | null, value: string | ArrayBuffer) => {
+      if (typeof value === 'string') this.handleInbound(value)
+      else this.handleInbound(util.TextDecoder.create('utf-8').decode(new Uint8Array(value)))
+    })
     this.socket.on('close', () => { this.onClose() })
     this.socket.on('error', (error: Error) => { this.emitError(error); this.onClose() })
     this.socket.connect(this.webSocketURL(), (error: Error) => { if (error !== null) { this.emitError(error); this.onClose() } })
   }
 
-  // api-im validates UserSig at WSS upgrade; use the same query contract as H5/mini-program.
+  // The configured IM service validates UserSig at WSS upgrade; use the same query contract as H5/mini-program.
   private webSocketURL(): string {
     const separator = this.base.imDomain.indexOf('?') >= 0 ? '&' : '?'
     return this.base.imDomain + separator + 'sdkAppID=' + encodeURIComponent(this.config.sdkAppId.toString()) +
@@ -239,7 +292,8 @@ export class PteLiveIM {
     this.reconnectAttempt = 0
     this.connected = true
     this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged(true))
-    this.sendEnvelope('login', { syncCursor: await this.store.cursor() })
+    const body = new PteIMRequestBody(); body.syncCursor = await this.store.cursor()
+    this.sendEnvelope('login', body)
     await this.flushOutbox()
     await this.syncNow()
   }
@@ -261,7 +315,8 @@ export class PteLiveIM {
         const message = this.messageFromWire(payload)
         this.store.apply([message], this.stringValue(envelope, 'syncCursor')).then(() => {
           this.listeners.forEach((listener: PteIMListener) => listener.onMessage(message))
-          this.sendEnvelope('ack', { serverMsgId: message.serverMsgId })
+          const body = new PteIMRequestBody(); body.serverMsgId = message.serverMsgId
+          this.sendEnvelope('ack', body)
         }).catch((error: Error) => this.emitError(error))
       } else if (action === 'ack') {
         const clientMsgId = this.stringValue(payload, 'clientMsgId')
@@ -274,10 +329,15 @@ export class PteLiveIM {
     } catch (error) { this.emitError(error) }
   }
 
-  private sendEnvelope(action: string, payload: WireObject): void {
+  private sendEnvelope(action: string, payload: Object): void {
     if (!this.connected || this.socket === null) return
-    const envelope: WireObject = { protocolVersion: 1, action: action, requestId: `${Date.now()}-${Math.random()}`,
-      sdkAppId: this.config.sdkAppId, userId: this.config.userId, userSig: this.config.userSig, payload: payload }
+    const envelope = new PteIMEnvelope()
+    envelope.action = action
+    envelope.requestId = `${Date.now()}-${Math.random()}`
+    envelope.sdkAppId = this.config.sdkAppId
+    envelope.userId = this.config.userId
+    envelope.userSig = this.config.userSig
+    envelope.payload = payload
     this.socket.send(JSON.stringify(envelope), (error: Error) => { if (error !== null) this.emitError(error) })
   }
 
@@ -308,21 +368,25 @@ export class PteLiveIM {
   }
 
   private resolveMedia(media: PteIMMedia): PteIMMedia { return new PteIMMedia(this.resolveCosUrl(media.url), this.resolveCosUrl(media.thumbnailUrl), this.resolveCosUrl(media.coverUrl), media.width, media.height, media.durationMs, media.sizeBytes) }
-  private async sdkRequest(path: string, body: WireObject): Promise<WireObject> {
+  private async sdkRequest(path: string, body: PteIMRequestBody): Promise<WireObject> {
     const request = http.createHttp()
     try {
-      const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, { method: http.RequestMethod.POST, header: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.config.userSig}`, 'X-Pte-Sdk-AppId': this.config.sdkAppId.toString(), 'X-Pte-User-Id': this.config.userId }, extraData: JSON.stringify(body) })
+      const requestHeaders = this.apiRequestHeaders()
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
+      const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
       const root = JSON.parse(response.result.toString()) as WireObject
       if (this.numberValue(root, 'code') !== 1) throw new Error(this.stringValue(root, 'msg'))
       return root['data'] as WireObject
     } finally { request.destroy() }
   }
-  private async apiImRequest(path: string, body: WireObject): Promise<WireObject> {
+  private async apiImRequest(path: string, body: PteIMRequestBody): Promise<WireObject> {
     const request = http.createHttp()
     try {
-      const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, { method: http.RequestMethod.POST, header: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.config.userSig}`, 'X-Pte-Sdk-AppId': this.config.sdkAppId.toString(), 'X-Pte-User-Id': this.config.userId }, extraData: JSON.stringify(body) })
-      if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`api-im failed with HTTP ${response.responseCode}`)
+      const requestHeaders = this.apiRequestHeaders()
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
+      const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
+      if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
       const root = JSON.parse(response.result.toString()) as WireObject
       if (this.numberValue(root, 'code') !== 0) throw new Error(this.stringValue(root, 'msg'))
       return root['data'] as WireObject
@@ -330,6 +394,14 @@ export class PteLiveIM {
   }
   private remoteConversation(value: WireObject): PteIMRemoteConversation { return new PteIMRemoteConversation(this.numberValue(value, 'id'), this.stringValue(value, 'type'), this.stringValue(value, 'title'), this.stringValue(value, 'avatar'), this.numberValue(value, 'last_message_seq'), this.stringValue(value, 'last_message_snapshot'), this.numberValue(value, 'last_message_at'), this.numberValue(value, 'unread_count')) }
   private remoteMessage(value: WireObject): PteIMRemoteMessage { return new PteIMRemoteMessage(this.numberValue(value, 'message_id'), this.numberValue(value, 'conversation_id'), this.numberValue(value, 'sender_id'), this.stringValue(value, 'client_msg_id'), this.stringValue(value, 'msg_type'), this.stringValue(value, 'content'), this.stringValue(value, 'payload'), this.numberValue(value, 'seq'), this.numberValue(value, 'sent_at'), this.numberValue(value, 'recalled_at')) }
+  private apiRequestHeaders(): Map<string, string> {
+    const headers = new Map<string, string>()
+    headers.set('Content-Type', 'application/json')
+    headers.set('Authorization', `Bearer ${this.config.userSig}`)
+    headers.set('X-Pte-Sdk-AppId', this.config.sdkAppId.toString())
+    headers.set('X-Pte-User-Id', this.config.userId)
+    return headers
+  }
   private resolveCosUrl(value: string): string { return value.length === 0 || value.startsWith('https://') ? value : `${this.base.cosDomain.replace(/\/$/, '')}/${value.replace(/^\//, '')}` }
   private emitError(error: Object): void { const value = error instanceof Error ? error : new Error(error.toString()); this.listeners.forEach((listener: PteIMListener) => listener.onError(value)) }
 
@@ -344,7 +416,7 @@ export class PteLiveIM {
     return message
   }
   private messageFromWire(value: WireObject): PteIMMessage {
-    const content = (value['content'] as WireObject) ?? {}
+    const content = value['content'] as WireObject
     const type = this.stringValue(value, 'type') as PteIMMessageType
     const media = type === PteIMMessageType.IMAGE || type === PteIMMessageType.VIDEO ? new PteIMMedia(this.resolveCosUrl(this.stringValue(content, 'url')), this.resolveCosUrl(this.stringValue(content, 'thumbnailUrl')), this.resolveCosUrl(this.stringValue(content, 'coverUrl')), this.numberValue(content, 'width'), this.numberValue(content, 'height'), this.numberValue(content, 'durationMs'), this.numberValue(content, 'sizeBytes')) : null
     const voice = type === PteIMMessageType.VOICE ? new PteIMVoice(this.resolveCosUrl(this.stringValue(content, 'url')), this.numberValue(content, 'durationMs'), this.stringValue(content, 'waveform'), this.numberValue(content, 'sizeBytes')) : null
@@ -360,7 +432,9 @@ export class PteLiveIM {
 }
 
 export class PteLiveIMBootstrap {
-  constructor(private context: Context, private baseConfig: PteIMBaseConfig) {}
+  private context: Context
+  private baseConfig: PteIMBaseConfig
+  constructor(context: Context, baseConfig: PteIMBaseConfig) { this.context = context; this.baseConfig = baseConfig }
 
   async login(loginConfig: PteIMLoginConfig): Promise<PteLiveIM> {
     this.baseConfig.validate(); loginConfig.validate()

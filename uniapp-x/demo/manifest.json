@@ -1,0 +1,9 @@
+{
+  "name": "PteLiveIMDemo",
+  "appid": "__UNI__PTEIMDEMO",
+  "description": "PteLive IM uni-app x UTS SDK demo",
+  "versionName": "0.1.0-alpha",
+  "versionCode": "100",
+  "h5": { "title": "PteLive IM Demo" },
+  "mp-weixin": { "appid": "" }
+}

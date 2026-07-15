@@ -4,6 +4,8 @@ build/
 **/dist/
 **/.gradle/
 **/.kotlin/
+**/.build/
+**/BuildProfile.ets
 *.log
 *.lock
 

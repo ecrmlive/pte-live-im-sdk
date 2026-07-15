@@ -1,6 +1,6 @@
 {
   "name": "@ptelive/im",
-  "version": "0.1.0-alpha.1",
+  "version": "1.0.0",
   "description": "PteLive IM native SDK for HarmonyOS",
   "main": "src/main/ets/index.ets",
   "author": "PteLive",

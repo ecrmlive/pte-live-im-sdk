@@ -3,6 +3,12 @@
   "displayName": "PteLive IM UTS SDK",
   "version": "0.1.0-alpha.1",
   "description": "PteLive IM UTS SDK for H5/Web and WeChat mini-program applications",
+  "main": "utssdk/PteIMUIKit.uts",
+  "dependencies": {
+    "@noble/ciphers": "2.0.1",
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1"
+  },
   "uni_modules": {
     "platforms": ["web", "mp-weixin"]
   }

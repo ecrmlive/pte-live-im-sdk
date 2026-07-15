@@ -2,14 +2,46 @@ import { relationalStore } from '@kit.ArkData'
 import { Context } from '@kit.AbilityKit'
 import { PteIMConversation, PteIMMessage, PteIMSendState } from './IMModels'
 
-type StoredMessage = { payload: string, serverMsgId: string, serverSeq: number, createdAt: number, state: PteIMSendState }
+interface PteIMStoreConfig extends relationalStore.StoreConfig {}
+
+export class PteIMStoredMessage {
+  payload: string
+  serverMsgId: string
+  serverSeq: number
+  createdAt: number
+  state: PteIMSendState
+
+  constructor(payload: string, serverMsgId: string, serverSeq: number, createdAt: number, state: PteIMSendState) {
+    this.payload = payload
+    this.serverMsgId = serverMsgId
+    this.serverSeq = serverSeq
+    this.createdAt = createdAt
+    this.state = state
+  }
+}
+
+export class PteIMStoredConversation {
+  conversationId: string
+  stored: PteIMStoredMessage
+
+  constructor(conversationId: string, stored: PteIMStoredMessage) {
+    this.conversationId = conversationId
+    this.stored = stored
+  }
+}
 
 /** Account-isolated relational-store cache. It keeps only metadata and JSON payloads, never UserSig. */
 export class PteIMSqliteStore {
-  private constructor(private store: relationalStore.RdbStore) {}
+  private store: relationalStore.RdbStore
+
+  private constructor(store: relationalStore.RdbStore) { this.store = store }
 
   static async open(context: Context, storeName: string): Promise<PteIMSqliteStore> {
-    const config: relationalStore.StoreConfig = { name: storeName, securityLevel: relationalStore.SecurityLevel.S1 }
+    const config: PteIMStoreConfig = {
+      name: storeName,
+      securityLevel: relationalStore.SecurityLevel.S1,
+      encrypt: true,
+    }
     const store = await relationalStore.getRdbStore(context, config)
     const value = new PteIMSqliteStore(store)
     await value.migrate()
@@ -53,7 +85,7 @@ export class PteIMSqliteStore {
     await this.store.executeSql('UPDATE sync_state SET cursor=? WHERE id=1', [cursor])
   }
 
-  async dueOutbox(now: number): Promise<StoredMessage[]> {
+  async dueOutbox(now: number): Promise<PteIMStoredMessage[]> {
     return await this.readStored('SELECT m.payload,m.server_msg_id,m.server_seq,m.created_at,m.state FROM outbox o INNER JOIN messages m ON o.client_msg_id=m.client_msg_id WHERE o.next_retry_at<=? ORDER BY o.next_retry_at LIMIT 100', [now])
   }
 
@@ -70,18 +102,18 @@ export class PteIMSqliteStore {
     try { return rows.goToFirstRow() && !rows.isColumnNull(rows.getColumnIndex('at')) ? rows.getLong(rows.getColumnIndex('at')) : 0 } finally { rows.close() }
   }
 
-  async localMessages(conversationId: string, beforeCreatedAt: number = 0, limit: number = 50): Promise<StoredMessage[]> {
+  async localMessages(conversationId: string, beforeCreatedAt: number = 0, limit: number = 50): Promise<PteIMStoredMessage[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200)
     if (beforeCreatedAt > 0) return await this.readStored(`SELECT payload,server_msg_id,server_seq,created_at,state FROM messages WHERE conversation_id=? AND created_at<? ORDER BY created_at DESC LIMIT ${safeLimit}`, [conversationId, beforeCreatedAt])
     return await this.readStored(`SELECT payload,server_msg_id,server_seq,created_at,state FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT ${safeLimit}`, [conversationId])
   }
 
-  async localConversations(limit: number = 100): Promise<{ conversationId: string, stored: StoredMessage }[]> {
+  async localConversations(limit: number = 100): Promise<PteIMStoredConversation[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200)
     const rows = await this.store.querySql(`SELECT m.conversation_id,m.payload,m.server_msg_id,m.server_seq,m.created_at,m.state FROM messages m WHERE m.rowid=(SELECT newest.rowid FROM messages newest WHERE newest.conversation_id=m.conversation_id ORDER BY newest.created_at DESC LIMIT 1) ORDER BY m.created_at DESC LIMIT ${safeLimit}`)
-    const values: { conversationId: string, stored: StoredMessage }[] = []
+    const values: PteIMStoredConversation[] = []
     try {
-      while (rows.goToNextRow()) values.push({ conversationId: rows.getString(rows.getColumnIndex('conversation_id')), stored: this.rowToStored(rows) })
+      while (rows.goToNextRow()) values.push(new PteIMStoredConversation(rows.getString(rows.getColumnIndex('conversation_id')), this.rowToStored(rows)))
     } finally { rows.close() }
     return values
   }
@@ -91,14 +123,14 @@ export class PteIMSqliteStore {
     await this.store.executeSql('INSERT OR REPLACE INTO messages(client_msg_id,server_msg_id,conversation_id,server_seq,created_at,payload,state) VALUES(?,?,?,?,?,?,?)', [message.clientMsgId, message.serverMsgId, message.conversationId, message.serverSeq, message.createdAt, payload, state])
   }
 
-  private async readStored(sql: string, args: (string | number)[]): Promise<StoredMessage[]> {
+  private async readStored(sql: string, args: (string | number)[]): Promise<PteIMStoredMessage[]> {
     const rows = await this.store.querySql(sql, args)
-    const values: StoredMessage[] = []
+    const values: PteIMStoredMessage[] = []
     try { while (rows.goToNextRow()) values.push(this.rowToStored(rows)) } finally { rows.close() }
     return values
   }
 
-  private rowToStored(row: relationalStore.ResultSet): StoredMessage {
-    return { payload: row.getString(row.getColumnIndex('payload')), serverMsgId: row.isColumnNull(row.getColumnIndex('server_msg_id')) ? '' : row.getString(row.getColumnIndex('server_msg_id')), serverSeq: row.isColumnNull(row.getColumnIndex('server_seq')) ? 0 : row.getLong(row.getColumnIndex('server_seq')), createdAt: row.getLong(row.getColumnIndex('created_at')), state: row.getString(row.getColumnIndex('state')) as PteIMSendState }
+  private rowToStored(row: relationalStore.ResultSet): PteIMStoredMessage {
+    return new PteIMStoredMessage(row.getString(row.getColumnIndex('payload')), row.isColumnNull(row.getColumnIndex('server_msg_id')) ? '' : row.getString(row.getColumnIndex('server_msg_id')), row.isColumnNull(row.getColumnIndex('server_seq')) ? 0 : row.getLong(row.getColumnIndex('server_seq')), row.getLong(row.getColumnIndex('created_at')), row.getString(row.getColumnIndex('state')) as PteIMSendState)
   }
 }

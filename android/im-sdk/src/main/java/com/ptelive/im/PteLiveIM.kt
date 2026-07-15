@@ -31,6 +31,7 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
   private val reconnectExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
   private var config = initialConfig
   private var store = PteIMSqliteStore(appContext, initialConfig.storeKey())
+  private val e2ee = PteIME2EE(appContext, initialConfig.storeKey(), initialConfig.sdkAppId, initialConfig.userId.toLong())
   private var transport: WssTransport? = null
   @Volatile private var stopRequested = false
   private var reconnectAttempt = 0
@@ -54,7 +55,10 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
     config.validate()
     stopRequested = false
     transport?.close()
-    connect()
+    executor.execute {
+      try { e2ee.register(::postSdkData); connect() }
+      catch (error: Throwable) { listeners.forEach { it.onError(error) } }
+    }
   }
 
   fun stop() { stopRequested = true; socketConnected = false; outboxRetryFuture?.cancel(false); transport?.close(); transport = null }
@@ -137,7 +141,7 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
           put("pageSize", 200)
         })
         val messages = response.optJSONArray("messages") ?: JSONArray()
-        val decoded = (0 until messages.length()).map { messageFromJson(messages.getJSONObject(it), config.cosDomain) }
+        val decoded = (0 until messages.length()).map { decodeMessage(messages.getJSONObject(it)) }
         store.applyDelta(response.getString("nextCursor"), decoded)
         decoded.forEach { message -> listeners.forEach { it.onMessage(message) } }
         if (response.optBoolean("hasMore")) syncNow()
@@ -230,7 +234,12 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
     return message
   }
 
-  private fun sendQueued(message: PteIMMessage) = sendEnvelope("send_message", message.toWireJson())
+  private fun sendQueued(message: PteIMMessage) = sendEnvelope("send_message", JSONObject().apply {
+    put("clientMsgId", message.clientMsgId)
+    put("conversationId", message.conversationId)
+    put("type", message.type.name.lowercase())
+    put("e2ee", e2ee.encrypt(message, ::postSdkData))
+  })
 
   override fun onOpen() {
     reconnectAttempt = 0
@@ -245,7 +254,7 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
     try {
       val envelope = JSONObject(text)
       when (envelope.getString("action")) {
-        "message" -> messageFromJson(envelope.getJSONObject("payload"), config.cosDomain).also { message ->
+        "message" -> decodeMessage(envelope.getJSONObject("payload")).also { message ->
           store.applyDelta(envelope.optString("syncCursor", store.cursor()), listOf(message))
           listeners.forEach { it.onMessage(message) }
           sendEnvelope("ack", JSONObject().put("serverMsgId", message.serverMsgId))
@@ -286,7 +295,7 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
     runCatching { transport?.sendText(envelope.toString()) }.onFailure { error -> listeners.forEach { it.onError(error) } }
   }
 
-  /** api-im authenticates the WSS upgrade itself. Android's dependency-free transport cannot add
+  /** The configured IM service authenticates the WSS upgrade. Android's dependency-free transport cannot add
    * custom upgrade headers, so its short-lived UserSig is URL encoded in the documented WSS query. */
   private fun connect() { transport = WssTransport(webSocketUrl(), this).also { it.connect() } }
 
@@ -339,9 +348,43 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
     state = runCatching { PteIMSendState.valueOf(value.state) }.getOrDefault(PteIMSendState.SENT),
   )
 
+  private fun decodeMessage(json: JSONObject): PteIMMessage {
+    val materialized = JSONObject(json.toString())
+    if (materialized.has("e2ee") && !materialized.isNull("e2ee")) materialized.put("content", e2ee.decrypt(materialized.getJSONObject("e2ee")))
+    return messageFromJson(materialized, config.cosDomain)
+  }
+
   private fun postJson(path: String, payload: JSONObject): JSONObject {
     val connection = URL(config.apiDomain.trimEnd('/') + path).openConnection() as HttpURLConnection
+    val responseKey = PteIMResponseCipher.createRequestKey()
     return try {
+      connection.requestMethod = "POST"
+      connection.setRequestProperty("Content-Type", "application/json")
+      connection.setRequestProperty("Authorization", "Bearer ${config.userSig}")
+      connection.setRequestProperty("X-Pte-Sdk-AppId", config.sdkAppId.toString())
+      connection.setRequestProperty("X-Pte-User-Id", config.userId)
+      connection.setRequestProperty("X-Pte-Response-Public-Key", PteIMResponseCipher.requestPublicKey(responseKey))
+      connection.doOutput = true
+      connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+      check(connection.responseCode in 200..299) { "sync failed with HTTP ${connection.responseCode}" }
+      val encrypted = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+      JSONObject(PteIMResponseCipher.decrypt(encrypted, responseKey))
+    } finally { connection.disconnect() }
+  }
+
+  private fun postSdkJson(path: String, payload: JSONObject): JSONObject = postSdkData(path, payload) as? JSONObject
+    ?: error("IM API response data is not an object")
+
+  private fun postSdkData(path: String, payload: JSONObject): Any {
+    val root = postJson(path, payload)
+    check(root.optInt("code", 1) == 1) { root.optString("msg", "IM API request failed") }
+    return root.opt("data") ?: JSONObject()
+  }
+
+  /** The media-credential contract uses a { code: 0, data } envelope. */
+  private fun postMediaCredentialJson(path: String, payload: JSONObject): JSONObject {
+    val connection = URL(config.apiDomain.trimEnd('/') + path).openConnection() as HttpURLConnection
+    val root = try {
       connection.requestMethod = "POST"
       connection.setRequestProperty("Content-Type", "application/json")
       connection.setRequestProperty("Authorization", "Bearer ${config.userSig}")
@@ -349,22 +392,11 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
       connection.setRequestProperty("X-Pte-User-Id", config.userId)
       connection.doOutput = true
       connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-      check(connection.responseCode in 200..299) { "sync failed with HTTP ${connection.responseCode}" }
+      check(connection.responseCode in 200..299) { "media credential request failed with HTTP ${connection.responseCode}" }
       JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
     } finally { connection.disconnect() }
-  }
-
-  private fun postSdkJson(path: String, payload: JSONObject): JSONObject {
-    val root = postJson(path, payload)
-    check(root.optInt("code", 1) == 1) { root.optString("msg", "IM API request failed") }
-    return root.optJSONObject("data") ?: root
-  }
-
-  /** api-im uses its existing { code: 0, data } envelope, unlike api-chat's code 1 envelope. */
-  private fun postApiImJson(path: String, payload: JSONObject): JSONObject {
-    val root = postJson(path, payload)
-    check(root.optInt("code", -1) == 0) { root.optString("msg", "api-im request failed") }
-    return root.optJSONObject("data") ?: error("api-im response has no data")
+    check(root.optInt("code", -1) == 0) { root.optString("msg", "media credential request failed") }
+    return root.optJSONObject("data") ?: error("media credential response has no data")
   }
 
   private fun uploadMedia(uri: Uri, type: PteIMMessageType, onProgress: (Long, Long?) -> Unit): PteIMMedia {
@@ -384,7 +416,7 @@ class PteLiveIM private constructor(private val appContext: Context, initialConf
       PteIMMessageType.VOICE -> "audio/mpeg"
       else -> error("unsupported upload message type")
     }
-    val credential = postApiImJson("/v1/im/media/put-url", JSONObject().apply {
+    val credential = postMediaCredentialJson("/v1/im/media/put-url", JSONObject().apply {
       put("mediaType", mediaType); put("contentType", contentType); put("contentLength", total)
     })
     val key = credential.getString("key")
@@ -416,6 +448,16 @@ class PteLiveIMBootstrap internal constructor(private val context: Context, priv
     val session = PteIMSessionConfig(baseConfig, loginConfig)
     session.validate()
     return PteLiveIM.create(context, session).also { it.start() }
+  }
+
+  /**
+   * Clears only the selected account's SDK cache and Keystore key. Stop a running client first,
+   * then call [login] and [PteLiveIM.syncNow] to rebuild cache data from the service.
+   */
+  fun clearLocalCache(loginConfig: PteIMLoginConfig) {
+    val session = PteIMSessionConfig(baseConfig, loginConfig)
+    session.validate()
+    PteIMSqliteStore.clear(context, session.storeKey())
   }
 }
 

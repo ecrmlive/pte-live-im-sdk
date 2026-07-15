@@ -1,0 +1,138 @@
+import { gcm } from '@noble/ciphers/aes.js'
+import { p256 } from '@noble/curves/nist.js'
+import { hmac } from '@noble/hashes/hmac.js'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { PteIMBaseConfig, PteIMLoginConfig } from './interface.uts'
+
+type PteIMRequest = (path: string, body: any, callback: (data: any | null, error: string | null) => void) => void
+type PteIMIdentity = { privateKey: Uint8Array, deviceId: string }
+type PteIMResponseKey = { privateKey: Uint8Array, publicKey: string }
+
+/**
+ * P-256/A256GCM protocol engine for H5 and WeChat. Noble is pinned in this
+ * module's package.json; random bytes always come from the platform bridge and
+ * are consumed once, never recycled.
+ */
+export class PteIME2EE {
+  private readonly namespace: string
+  private identityValue: PteIMIdentity | null = null
+  private randomBytes: Uint8Array = new Uint8Array(0)
+  private randomOffset: number = 0
+
+  constructor(private readonly base: PteIMBaseConfig, private readonly login: PteIMLoginConfig) {
+    this.namespace = `pte_im_e2ee:${base.apiDomain}|${base.imDomain}|${base.cosDomain}|${login.sdkAppId}|${login.userId}`
+  }
+
+  async register(request: PteIMRequest): Promise<void> {
+    const identity = await this.identity()
+    await this.call(request, '/api/v1/chat/e2ee/device/register', {
+      app_id: this.login.sdkAppId, user_id: Number(this.login.userId), device_id: identity.deviceId,
+      public_key: base64URL(p256.getPublicKey(identity.privateKey, false)), algorithm: 'P-256/A256GCM',
+    })
+  }
+
+  async encrypt(message: any, request: PteIMRequest): Promise<any> {
+    const recipients = await this.call(request, '/api/v1/chat/e2ee/device/list', {
+      app_id: this.login.sdkAppId, user_id: Number(this.login.userId), conversation_id: Number(message.conversationId),
+    }) as any[]
+    const audit = await this.call(request, '/api/v1/chat/e2ee/audit-key', {}) as any
+    if (!Array.isArray(recipients) || audit == null) throw new Error('invalid E2EE device response')
+    await this.primeRandom(Math.max(4096, 256 + recipients.length * 96))
+    const contentKey = this.takeRandom(32)
+    const nonce = this.takeRandom(12)
+    const sealed = gcm(contentKey, nonce, utf8('pte-live-im-message-v1')).encrypt(utf8(JSON.stringify(message.content)))
+    const result: any = {
+      version: 1, algorithm: 'P-256/A256GCM', ciphertext: base64URL(sealed), nonce: base64URL(nonce), recipients: [],
+    }
+    for (let index = 0; index < recipients.length; index++) {
+      const device = recipients[index]
+      const wrapped = this.wrap(contentKey, String(device.public_key))
+      result.recipients.push({ user_id: Number(device.user_id), device_id: String(device.device_id), ephemeral_public_key: wrapped.publicKey, wrapped_key: wrapped.ciphertext, nonce: wrapped.nonce })
+    }
+    if (audit.enabled === true) {
+      if (audit.algorithm !== 'P-256/A256GCM' || typeof audit.key_id !== 'string' || typeof audit.public_key !== 'string') throw new Error('unsupported E2EE audit key')
+      const wrapped = this.wrap(contentKey, audit.public_key)
+      result.audit_recipients = [{ key_id: audit.key_id, ephemeral_public_key: wrapped.publicKey, wrapped_key: wrapped.ciphertext, nonce: wrapped.nonce }]
+    } else if (audit.required === true) throw new Error('E2EE audit recipient is required')
+    return result
+  }
+
+  async decrypt(envelope: any): Promise<any> {
+    if (envelope.version !== 1 || envelope.algorithm !== 'P-256/A256GCM' || !Array.isArray(envelope.recipients)) throw new Error('unsupported E2EE message envelope')
+    const identity = await this.identity()
+    const recipient = envelope.recipients.find((entry: any): boolean => entry.device_id === identity.deviceId)
+    if (recipient == null) throw new Error('this device is not an E2EE recipient')
+    const wrapNonce = base64URLDecode(String(recipient.nonce))
+    const shared = sharedSecret(identity.privateKey, base64URLDecode(String(recipient.ephemeral_public_key)))
+    const contentKey = gcm(deriveKey(shared, wrapNonce, 'pte-live-im-audit-wrap-v1'), wrapNonce, utf8('pte-live-im-audit-wrap-v1')).decrypt(base64URLDecode(String(recipient.wrapped_key)))
+    if (contentKey.length !== 32) throw new Error('invalid E2EE content key')
+    const nonce = base64URLDecode(String(envelope.nonce))
+    return JSON.parse(utf8Decode(gcm(contentKey, nonce, utf8('pte-live-im-message-v1')).decrypt(base64URLDecode(String(envelope.ciphertext)))))
+  }
+
+  async responseKey(): Promise<PteIMResponseKey> {
+    await this.primeRandom(256)
+    const privateKey = p256.utils.randomSecretKey()
+    return { privateKey, publicKey: base64URL(p256.getPublicKey(privateKey, false)) }
+  }
+
+  decryptResponse(root: any, key: PteIMResponseKey): any {
+    if (root.version !== 1 || root.algorithm !== 'P-256/A256GCM') throw new Error('unsupported API response encryption')
+    const salt = base64URLDecode(String(root.salt)); const nonce = base64URLDecode(String(root.nonce))
+    if (salt.length !== 32 || nonce.length !== 12) throw new Error('invalid API response encryption envelope')
+    const shared = sharedSecret(key.privateKey, base64URLDecode(String(root.ephemeral_public_key)))
+    return JSON.parse(utf8Decode(gcm(deriveKey(shared, salt, 'pte-live-api-response-v1'), nonce, utf8('pte-live-api-response-v1')).decrypt(base64URLDecode(String(root.ciphertext)))))
+  }
+
+  private wrap(contentKey: Uint8Array, recipientPublicKey: string): any {
+    const privateKey = p256.utils.randomSecretKey(); const publicKey = p256.getPublicKey(privateKey, false)
+    const nonce = this.takeRandom(12); const shared = sharedSecret(privateKey, base64URLDecode(recipientPublicKey))
+    return { publicKey: base64URL(publicKey), nonce: base64URL(nonce), ciphertext: base64URL(gcm(deriveKey(shared, nonce, 'pte-live-im-audit-wrap-v1'), nonce, utf8('pte-live-im-audit-wrap-v1')).encrypt(contentKey)) }
+  }
+
+  private async identity(): Promise<PteIMIdentity> {
+    if (this.identityValue != null) return this.identityValue
+    const stored = uni.getStorageSync(this.namespace) as string
+    if (typeof stored === 'string' && stored.length > 0 && this.base.localStorageCipher != null) {
+      const value = JSON.parse(this.base.localStorageCipher.decrypt(stored)) as any
+      this.identityValue = { privateKey: base64URLDecode(String(value.privateKey)), deviceId: String(value.deviceId) }
+      return this.identityValue
+    }
+    await this.primeRandom(256)
+    const privateKey = p256.utils.randomSecretKey(); const deviceId = uuid(this.takeRandom(16))
+    this.identityValue = { privateKey, deviceId }
+    if (this.base.localStorageCipher != null) uni.setStorageSync(this.namespace, this.base.localStorageCipher.encrypt(JSON.stringify({ privateKey: base64URL(privateKey), deviceId })))
+    return this.identityValue
+  }
+
+  private async primeRandom(minimum: number): Promise<void> {
+    const source = this.base.cryptoRandomSource
+    if (source == null) throw new Error('secure random source is unavailable')
+    await new Promise<void>((resolve, reject) => source.getBytes(minimum, (value, error) => {
+      if (error != null || value == null || value.length < minimum) { reject(new Error(error ?? 'secure random source returned insufficient bytes')); return }
+      this.randomBytes = value; this.randomOffset = 0
+      const self = this
+      globalThis.crypto = { getRandomValues: (target: Uint8Array): Uint8Array => { target.set(self.takeRandom(target.length)); return target } }
+      resolve()
+    }))
+  }
+
+  private takeRandom(size: number): Uint8Array {
+    if (size < 0 || this.randomOffset + size > this.randomBytes.length) throw new Error('secure random buffer exhausted')
+    const value = this.randomBytes.slice(this.randomOffset, this.randomOffset + size); this.randomOffset += size
+    return value
+  }
+
+  private call(request: PteIMRequest, path: string, body: any): Promise<any> {
+    return new Promise<any>((resolve, reject) => request(path, body, (value, error) => error == null && value != null ? resolve(value) : reject(new Error(error ?? 'E2EE API request failed'))))
+  }
+}
+
+function sharedSecret(privateKey: Uint8Array, publicKey: Uint8Array): Uint8Array { return p256.getSharedSecret(privateKey, publicKey, false).slice(1, 33) }
+function deriveKey(shared: Uint8Array, salt: Uint8Array, label: string): Uint8Array { return hmac(sha256, salt, concat(shared, utf8(label))) }
+function concat(first: Uint8Array, second: Uint8Array): Uint8Array { const value = new Uint8Array(first.length + second.length); value.set(first); value.set(second, first.length); return value }
+function base64URL(value: Uint8Array): string { let output = ''; const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; for (let index = 0; index < value.length; index += 3) { const a = value[index]; const b = index + 1 < value.length ? value[index + 1] : -1; const c = index + 2 < value.length ? value[index + 2] : -1; output += chars[a >> 2] + chars[((a & 3) << 4) | (b < 0 ? 0 : b >> 4)]; if (b >= 0) output += chars[((b & 15) << 2) | (c < 0 ? 0 : c >> 6)]; if (c >= 0) output += chars[c & 63] } return output }
+function base64URLDecode(value: string): Uint8Array { const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; const bytes: number[] = []; for (let index = 0; index < value.length; index += 4) { const a = chars.indexOf(value[index]); const b = chars.indexOf(value[index + 1]); const c = index + 2 < value.length ? chars.indexOf(value[index + 2]) : -1; const d = index + 3 < value.length ? chars.indexOf(value[index + 3]) : -1; if (a < 0 || b < 0 || c < -1 || d < -1) throw new Error('invalid base64url value'); bytes.push((a << 2) | (b >> 4)); if (c >= 0) bytes.push(((b & 15) << 4) | (c >> 2)); if (d >= 0) bytes.push(((c & 3) << 6) | d) } return new Uint8Array(bytes) }
+function utf8(value: string): Uint8Array { return new TextEncoder().encode(value) }
+function utf8Decode(value: Uint8Array): string { return new TextDecoder().decode(value) }
+function uuid(value: Uint8Array): string { value[6] = (value[6] & 15) | 64; value[8] = (value[8] & 63) | 128; const hex = Array.from(value).map((entry: number): string => entry.toString(16).padStart(2, '0')).join(''); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` }

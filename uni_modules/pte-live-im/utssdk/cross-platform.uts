@@ -1,4 +1,5 @@
 import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteLiveIMBootstrap, PteLiveIMClient } from './interface.uts'
+import { PteIME2EE } from './e2ee.uts'
 
 type PteIMOutboxMessage = {
   clientMsgId: string
@@ -24,6 +25,8 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   private messages: PteIMIncomingMessage[] = []
   private syncCursor: string = ''
   private syncInFlight: boolean = false
+  private e2ee: PteIME2EE
+  private encryptingOutboxIds: string[] = []
   private connectionCallback: ((connected: boolean) => void) | null = null
   private messageCallback: ((message: PteIMIncomingMessage) => void) | null = null
   private messageStateCallback: ((event: PteIMMessageStateChange) => void) | null = null
@@ -36,6 +39,7 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   constructor(base: PteIMBaseConfig, loginConfig: PteIMLoginConfig) {
     this.base = base
     this.loginConfig = loginConfig
+    this.e2ee = new PteIME2EE(base, loginConfig)
     this.loadOutbox()
     this.loadSyncCursor()
     this.loadMessages()
@@ -45,7 +49,9 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
     this.stopped = false
     if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
-    if (this.socket == null) this.connect()
+    if (this.socket == null) this.e2ee.register((path, body, callback) => this.sdkRequest(path, body, callback)).then(() => {
+      if (!this.stopped && this.socket == null) this.connect()
+    }).catch((error) => this.emitError(error))
   }
 
   stop(): void {
@@ -81,11 +87,13 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
       this.syncInFlight = false
       if (payload == null || error != null) { this.emitError(new Error(error ?? 'sync failed')); return }
       try {
-        const rawMessages = payload['messages'] as UTSJSONObject[]
-        if (rawMessages != null) for (let index = 0; index < rawMessages.length; index++) this.recordMessage(rawMessages[index] as PteIMIncomingMessage, true)
-        const nextCursor = payload['nextCursor'] as string
-        if (nextCursor != null) { this.syncCursor = nextCursor; this.persistSyncCursor() }
-        if ((payload['hasMore'] as boolean) == true) this.syncNow()
+        const rawMessages = payload['messages'] as any[]
+        this.materializeMessages(rawMessages ?? [], (messages) => {
+          messages.forEach((message) => this.recordMessage(message, true))
+          const nextCursor = payload['nextCursor'] as string
+          if (nextCursor != null) { this.syncCursor = nextCursor; this.persistSyncCursor() }
+          if ((payload['hasMore'] as boolean) == true) this.syncNow()
+        })
       } catch (syncError) { this.emitError(syncError) }
     })
   }
@@ -179,15 +187,21 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
     return clientMsgId
   }
   private sdkRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
-    uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
-      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'IM API request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
-      fail: (error) => callback(null, error.message as string ?? String(error)),
-    })
+    this.e2ee.responseKey().then((key) => uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId, 'X-Pte-Response-Public-Key': key.publicKey } as UTSJSONObject, data: data as UTSJSONObject,
+      success: (response) => {
+        try {
+          const encrypted = response.data as any
+          const root = this.e2ee.decryptResponse(encrypted, key) as UTSJSONObject
+          if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'IM API request failed'); return }
+          callback(root['data'] as UTSJSONObject, null)
+        } catch (error) { callback(null, error instanceof Error ? error.message : String(error)) }
+      }, fail: (error) => callback(null, error.message as string ?? String(error)),
+    })).catch((error) => callback(null, error instanceof Error ? error.message : String(error)))
   }
 
   /**
    * Reads the selected file and PUTs it to the one-object COS URL issued by
-   * api-im. `uni.uploadFile` is intentionally not used: it always sends a
+   * host API. `uni.uploadFile` is intentionally not used: it always sends a
    * multipart POST, whereas COS credentials are scoped to an HTTP PUT.
    */
   private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice', durationMs: number = 0, waveform: string = ''): string {
@@ -202,7 +216,7 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
         const uploadUrl = String(credential['uploadUrl'] ?? '')
         const key = String(credential['key'] ?? '')
         const headers = credential['headers'] as UTSJSONObject
-        if (uploadUrl.length == 0 || key.length == 0 || headers == null) { this.failUpload(clientMsgId, 'api-im returned an invalid COS upload credential'); return }
+        if (uploadUrl.length == 0 || key.length == 0 || headers == null) { this.failUpload(clientMsgId, 'media credential response is invalid'); return }
         uni.request({
           url: uploadUrl,
           method: 'PUT',
@@ -223,7 +237,7 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
 
   private apiImRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
     uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
-      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 0) { callback(null, root['msg'] as string ?? 'api-im request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
+      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 0) { callback(null, root['msg'] as string ?? 'media credential request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
       fail: (error) => callback(null, error.message as string ?? String(error)),
     })
   }
@@ -295,7 +309,7 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
     })
   }
 
-  // api-im validates UserSig during WSS upgrade. This short-lived query contract is
+  // The configured IM service validates UserSig during WSS upgrade. This short-lived query contract is
   // intentionally shared with H5 because WebSocket upgrade headers are not portable.
   private webSocketURL(): string {
     const separator = this.base.imDomain.indexOf('?') >= 0 ? '&' : '?'
@@ -310,11 +324,13 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
       const action = envelope.action as string
       const payload = envelope.payload as any
       if (action == 'message') {
-        this.recordMessage(payload as PteIMIncomingMessage, true)
-        const cursor = envelope.syncCursor as string
-        if (cursor != null && cursor.length > 0) { this.syncCursor = cursor; this.persistSyncCursor() }
-        const serverMsgId = payload.serverMsgId as string
-        if (serverMsgId != null && serverMsgId.length > 0) this.sendEnvelope('ack', { serverMsgId })
+        this.materializeMessage(payload, (message) => {
+          this.recordMessage(message, true)
+          const cursor = envelope.syncCursor as string
+          if (cursor != null && cursor.length > 0) { this.syncCursor = cursor; this.persistSyncCursor() }
+          const serverMsgId = message.serverMsgId as string
+          if (serverMsgId != null && serverMsgId.length > 0) this.sendEnvelope('ack', { serverMsgId })
+        })
       } else if (action == 'ack') {
         const clientMsgId = payload.clientMsgId as string
         this.removeOutbox(clientMsgId)
@@ -347,18 +363,12 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
       message.retryCount = message.retryCount + 1
       message.nextRetryAt = now + retryDelayMs(message.retryCount - 1)
       changed = true
-      try {
-        this.sendEnvelope('send_message', {
-          clientMsgId: message.clientMsgId,
-          conversationId: message.conversationId,
-          type: message.type,
-          createdAt: message.createdAt,
-          content: message.content,
-        })
-      } catch (error) {
-        this.emitError(error)
-        break
-      }
+      if (this.encryptingOutboxIds.indexOf(message.clientMsgId) >= 0) continue
+      this.encryptingOutboxIds.push(message.clientMsgId)
+      this.e2ee.encrypt(message, (path, body, callback) => this.sdkRequest(path, body, callback)).then((e2ee) => {
+        this.removeEncrypting(message.clientMsgId)
+        this.sendEnvelope('send_message', { clientMsgId: message.clientMsgId, conversationId: message.conversationId, type: message.type, e2ee })
+      }).catch((error) => { this.removeEncrypting(message.clientMsgId); this.emitError(error) })
     }
     if (changed) this.persistOutbox()
     this.scheduleOutboxRetry()
@@ -374,8 +384,9 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   }
 
   private loadOutbox(): void {
+    if (this.base.localStorageCipher == null) return
     try {
-      const raw = uni.getStorageSync(this.outboxStorageKey()) as string
+      const raw = this.decryptStorage(uni.getStorageSync(this.outboxStorageKey()) as string)
       if (typeof raw == 'string' && raw.length > 0) {
         const parsed = JSON.parse(raw) as any
         if (Array.isArray(parsed)) this.outbox = parsed as PteIMOutboxMessage[]
@@ -384,7 +395,8 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   }
 
   private persistOutbox(): void {
-    try { uni.setStorageSync(this.outboxStorageKey(), JSON.stringify(this.outbox)) }
+    if (this.base.localStorageCipher == null) return
+    try { uni.setStorageSync(this.outboxStorageKey(), this.encryptStorage(JSON.stringify(this.outbox))) }
     catch (error) { this.emitError(error) }
   }
 
@@ -406,19 +418,37 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
     if (emit) this.messageCallback?.(message)
   }
 
+  private materializeMessages(values: any[], callback: (messages: PteIMIncomingMessage[]) => void): void {
+    if (values.length == 0) { callback([]); return }
+    const messages: PteIMIncomingMessage[] = []; let remaining = values.length
+    values.forEach((value) => this.materializeMessage(value, (message) => { messages.push(message); remaining -= 1; if (remaining == 0) callback(messages) }))
+  }
+
+  private materializeMessage(value: any, callback: (message: PteIMIncomingMessage) => void): void {
+    if (value.e2ee == null) { callback(value as PteIMIncomingMessage); return }
+    this.e2ee.decrypt(value.e2ee).then((content) => { value.content = content; callback(value as PteIMIncomingMessage) }).catch((error) => this.emitError(error))
+  }
+
+  private removeEncrypting(clientMsgId: string): void {
+    const index = this.encryptingOutboxIds.indexOf(clientMsgId)
+    if (index >= 0) this.encryptingOutboxIds.splice(index, 1)
+  }
+
   private outboxStorageKey(): string {
     return 'pte_live_im_outbox:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
   }
 
   private loadSyncCursor(): void {
+    if (this.base.localStorageCipher == null) return
     try {
-      const value = uni.getStorageSync(this.syncCursorStorageKey()) as string
+      const value = this.decryptStorage(uni.getStorageSync(this.syncCursorStorageKey()) as string)
       if (typeof value == 'string') this.syncCursor = value
     } catch (_) { this.syncCursor = '' }
   }
 
   private persistSyncCursor(): void {
-    try { uni.setStorageSync(this.syncCursorStorageKey(), this.syncCursor) }
+    if (this.base.localStorageCipher == null) return
+    try { uni.setStorageSync(this.syncCursorStorageKey(), this.encryptStorage(this.syncCursor)) }
     catch (error) { this.emitError(error) }
   }
 
@@ -427,8 +457,9 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   }
 
   private loadMessages(): void {
+    if (this.base.localStorageCipher == null) return
     try {
-      const raw = uni.getStorageSync(this.messageStorageKey()) as string
+      const raw = this.decryptStorage(uni.getStorageSync(this.messageStorageKey()) as string)
       if (typeof raw == 'string' && raw.length > 0) {
         const parsed = JSON.parse(raw) as any
         if (Array.isArray(parsed)) this.messages = parsed as PteIMIncomingMessage[]
@@ -437,12 +468,29 @@ export class CrossPlatformPteLiveIMClient implements PteLiveIMClient {
   }
 
   private persistMessages(): void {
-    try { uni.setStorageSync(this.messageStorageKey(), JSON.stringify(this.messages)) }
+    if (this.base.localStorageCipher == null) return
+    try { uni.setStorageSync(this.messageStorageKey(), this.encryptStorage(JSON.stringify(this.messages))) }
     catch (error) { this.emitError(error) }
   }
 
   private messageStorageKey(): string {
     return 'pte_live_im_messages:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
+  }
+
+  private encryptStorage(value: string): string {
+    const cipher = this.base.localStorageCipher
+    if (cipher == null) throw new Error('localStorageCipher is required for persistent cache')
+    const encrypted = cipher.encrypt(value)
+    if (encrypted.length == 0 || encrypted == value) throw new Error('localStorageCipher must return encrypted data')
+    return 'pte1:' + encrypted
+  }
+
+  private decryptStorage(value: string): string {
+    if (value.length == 0) return ''
+    if (!value.startsWith('pte1:')) throw new Error('unencrypted legacy IM cache is not loaded; clear it before enabling persistence')
+    const cipher = this.base.localStorageCipher
+    if (cipher == null) throw new Error('localStorageCipher is required for persistent cache')
+    return cipher.decrypt(value.substring(5))
   }
 
   private emitError(error: any): void {

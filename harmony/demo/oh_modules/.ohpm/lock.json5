@@ -1,0 +1,74 @@
+{
+  "lockVersion": "1.0",
+  "settings": {
+    "resolveConflict": true,
+    "resolveConflictStrict": false,
+    "installAll": true
+  },
+  "overrides": {},
+  "overrideDependencyMap": {},
+  "modules": {
+    ".": {
+      "name": "",
+      "dependencies": {},
+      "devDependencies": {},
+      "dynamicDependencies": {},
+      "maskedByOverrideDependencyMap": false
+    },
+    "../PteIMUIKit": {
+      "name": "pte_im_ui_kit",
+      "dependencies": {
+        "@ptelive/im": {
+          "specifier": "file:../PteLiveIM",
+          "version": "file:../PteLiveIM"
+        }
+      },
+      "devDependencies": {},
+      "dynamicDependencies": {},
+      "maskedByOverrideDependencyMap": false
+    },
+    "../PteLiveIM": {
+      "name": "pte_live_im",
+      "dependencies": {},
+      "devDependencies": {},
+      "dynamicDependencies": {},
+      "maskedByOverrideDependencyMap": false
+    },
+    "entry": {
+      "name": "entry",
+      "dependencies": {
+        "@ptelive/im": {
+          "specifier": "file:../PteLiveIM",
+          "version": "file:../PteLiveIM"
+        },
+        "@ptelive/im-ui-kit": {
+          "specifier": "file:../PteIMUIKit",
+          "version": "file:../PteIMUIKit"
+        }
+      },
+      "devDependencies": {},
+      "dynamicDependencies": {},
+      "maskedByOverrideDependencyMap": false
+    }
+  },
+  "packages": {
+    "@ptelive/im@file:../PteLiveIM": {
+      "storePath": "../PteLiveIM",
+      "dependencies": {},
+      "dynamicDependencies": {},
+      "dev": false,
+      "dynamic": false,
+      "maskedByOverrideDependencyMap": false
+    },
+    "@ptelive/im-ui-kit@file:../PteIMUIKit": {
+      "storePath": "../PteIMUIKit",
+      "dependencies": {
+        "@ptelive/im": "../PteLiveIM"
+      },
+      "dynamicDependencies": {},
+      "dev": false,
+      "dynamic": false,
+      "maskedByOverrideDependencyMap": false
+    }
+  }
+}

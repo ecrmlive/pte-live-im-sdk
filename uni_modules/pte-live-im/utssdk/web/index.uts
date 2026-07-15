@@ -1,4 +1,15 @@
 import { PteIMBaseConfig, PteLiveIMBootstrap } from '../interface.uts'
 import { createCrossPlatformPteLiveIM } from '../cross-platform.uts'
 
-export function createPteLiveIM(config: PteIMBaseConfig): PteLiveIMBootstrap { return createCrossPlatformPteLiveIM(config) }
+export function createPteLiveIM(config: PteIMBaseConfig): PteLiveIMBootstrap {
+  if (config.cryptoRandomSource == null) config.cryptoRandomSource = {
+    getBytes: (length, callback) => {
+      try {
+        const value = new Uint8Array(length)
+        globalThis.crypto.getRandomValues(value)
+        callback(value, null)
+      } catch (error) { callback(null, error instanceof Error ? error.message : String(error)) }
+    },
+  }
+  return createCrossPlatformPteLiveIM(config)
+}

@@ -7,3 +7,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "pte-live-im-android"
 include(":im-sdk")
+include(":im-ui-kit")
+include(":demo")

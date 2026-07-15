@@ -13,6 +13,7 @@ public final class PteLiveIM: NSObject {
 
   private var config: PteIMSessionConfig
   private let store: PteIMSqliteStore
+  private let e2ee: PteIME2EE
   private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
   private var socket: URLSessionWebSocketTask?
   private var reconnectWorkItem: DispatchWorkItem?
@@ -25,6 +26,7 @@ public final class PteLiveIM: NSObject {
     self.config = config
     self.appearance = PteIMAppearance(themeMode: config.base.themeMode, language: config.base.language)
     self.store = try PteIMSqliteStore(storeKey: config.storeKey)
+    self.e2ee = PteIME2EE(storeKey: config.storeKey, appId: config.sdkAppId, userId: config.userId)
     super.init()
   }
 
@@ -33,6 +35,17 @@ public final class PteLiveIM: NSObject {
   public func start() {
     stopRequested = false
     reconnectWorkItem?.cancel(); reconnectWorkItem = nil
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await self.e2ee.register { path, body in try await self.e2eeRequest(path: path, body: body) }
+        guard !self.stopRequested else { return }
+        self.connect()
+      } catch { self.onError?(error) }
+    }
+  }
+
+  private func connect() {
     socket?.cancel(with: .goingAway, reason: nil)
     let task = session.webSocketTask(with: webSocketURL())
     socket = task
@@ -100,11 +113,12 @@ public final class PteLiveIM: NSObject {
       guard let self else { return }
       do {
         let cursor = try self.store.cursor()
-        let delta: PteIMSyncResponse = try await self.sdkRequest(path: "v1/im/sync", body: ["syncCursor": cursor, "pageSize": 200], response: PteIMSyncResponse.self)
-        let messages = delta.messages.map(self.resolveMessage)
-        try self.store.apply(messages: messages, nextCursor: delta.nextCursor)
+        guard let delta = try await self.sdkPayload(path: "v1/im/sync", body: ["syncCursor": cursor, "pageSize": 200]) as? [String: Any],
+              let wireMessages = delta["messages"] as? [[String: Any]], let nextCursor = delta["nextCursor"] as? String else { throw PteIMError.invalidResponse }
+        let messages = try wireMessages.map(self.decodeMessage).map(self.resolveMessage)
+        try self.store.apply(messages: messages, nextCursor: nextCursor)
         messages.forEach { self.onMessage?($0) }
-        if delta.hasMore { self.syncNow() }
+        if (delta["hasMore"] as? Bool) == true { self.syncNow() }
       } catch { self.onError?(error) }
     }
   }
@@ -184,7 +198,15 @@ public final class PteLiveIM: NSObject {
     return message
   }
 
-  private func sendQueued(_ message: PteIMMessage) { sendEnvelope(action: "send_message", payload: message.dictionary) }
+  private func sendQueued(_ message: PteIMMessage) {
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        let encrypted = try await self.e2ee.encrypt(message) { path, body in try await self.e2eeRequest(path: path, body: body) }
+        self.sendEnvelope(action: "send_message", payload: ["clientMsgId": message.clientMsgId, "conversationId": message.conversationId, "type": message.type.rawValue, "e2ee": encrypted])
+      } catch { self.onError?(error) }
+    }
+  }
 
   private func flushOutbox() {
     guard socketConnected, !stopRequested else { return }
@@ -253,7 +275,9 @@ public final class PteLiveIM: NSObject {
   }
 
   private func decodeMessage(_ payload: [String: Any]) throws -> PteIMMessage {
-    resolveMessage(try JSONDecoder().decode(PteIMMessage.self, from: JSONSerialization.data(withJSONObject: payload)))
+    var cleartext = payload
+    if let envelope = payload["e2ee"] as? [String: Any] { cleartext["content"] = try e2ee.decrypt(envelope) }
+    return resolveMessage(try JSONDecoder().decode(PteIMMessage.self, from: JSONSerialization.data(withJSONObject: cleartext)))
   }
 
   private func uploadMedia(fileURL: URL, type: PteIMMessageType, progress: @escaping (Int64, Int64) -> Void) async throws -> PteIMMedia {
@@ -275,15 +299,28 @@ public final class PteLiveIM: NSObject {
   }
 
   private func sdkRequest<T: Decodable>(path: String, body: [String: Any], response: T.Type) async throws -> T {
+    let payload = try await sdkPayload(path: path, body: body)
+    return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: payload))
+  }
+
+  private func e2eeRequest(path: String, body: [String: Any]) async throws -> Any {
+    try await sdkPayload(path: path, body: body)
+  }
+
+  /** api-im encrypts every application response with the caller's ephemeral P-256 public key. */
+  private func sdkPayload(path: String, body: [String: Any]) async throws -> Any {
     var request = URLRequest(url: config.apiDomain.appendingPathComponent(path))
     request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer \(config.userSig)", forHTTPHeaderField: "Authorization")
     request.setValue(String(config.sdkAppId), forHTTPHeaderField: "X-Pte-Sdk-AppId"); request.setValue(config.userId, forHTTPHeaderField: "X-Pte-User-Id")
+    let responseKey = PteIMResponseCipher.requestKey()
+    request.setValue(PteIMResponseCipher.requestPublicKey(responseKey), forHTTPHeaderField: "X-Pte-Response-Public-Key")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, httpResponse) = try await session.data(for: request)
     guard let http = httpResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
-    let envelope = try JSONDecoder().decode(PteIMSDKEnvelope<T>.self, from: data)
-    guard envelope.code == 1, let value = envelope.data else { throw PteIMError.invalidResponse }
+    let clear = try PteIMResponseCipher.decrypt(data, with: responseKey)
+    guard let envelope = try JSONSerialization.jsonObject(with: clear) as? [String: Any],
+          (envelope["code"] as? NSNumber)?.intValue == 1, let value = envelope["data"] else { throw PteIMError.invalidResponse }
     return value
   }
 
@@ -336,7 +373,7 @@ public final class PteLiveIM: NSObject {
     return config.cosDomain.appendingPathComponent(value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))).absoluteString
   }
 
-  /** api-im validates UserSig during the WSS upgrade. Browsers cannot attach arbitrary
+  /** The configured IM service validates UserSig during the WSS upgrade. Browsers cannot attach arbitrary
    * upgrade headers, so every SDK uses the same URL-encoded, short-lived query contract. */
   private func webSocketURL() -> URL {
     var components = URLComponents(url: config.imDomain, resolvingAgainstBaseURL: false)!
@@ -375,8 +412,8 @@ extension PteLiveIM: URLSessionWebSocketDelegate {
   }
 }
 
-private struct PteIMSyncResponse: Decodable { let messages: [PteIMMessage]; let nextCursor: String; let hasMore: Bool }
 private struct PteIMOKResponse: Decodable { let ok: Bool }
+/** Plain response shape used only by api-im's COS credential endpoint. */
 private struct PteIMSDKEnvelope<T: Decodable>: Decodable { let code: Int; let msg: String; let data: T? }
 private struct PteIMCosPutCredential: Decodable { let key: String; let uploadUrl: String; let headers: [String: String]; let expiresAt: Int64 }
 
@@ -388,16 +425,26 @@ public final class PteLiveIMBootstrap {
     client.start()
     return client
   }
+
+  /**
+   * Clears only this account's SDK cache and Keychain cache key. Stop a running client first,
+   * then log in and call syncNow() to rebuild cache data from the service.
+   */
+  public func clearLocalCache(_ loginConfig: PteIMLoginConfig) throws {
+    try PteIMSqliteStore.clear(storeKey: PteIMSessionConfig(base: baseConfig, login: loginConfig).storeKey)
+  }
 }
 
-private extension PteIMMessage {
-  var dictionary: [String: Any] {
+extension PteIMMessage {
+  var contentDictionary: [String: Any] {
     var content: [String: Any] = [:]
     if let text { content["text"] = text }; if let packageId { content["packageId"] = packageId }; if let emojiId { content["emojiId"] = emojiId }
     if let media { if let url = media.url { content["url"] = url }; if let thumbnailUrl = media.thumbnailUrl { content["thumbnailUrl"] = thumbnailUrl }; if let coverUrl = media.coverUrl { content["coverUrl"] = coverUrl }; if let width = media.width { content["width"] = width }; if let height = media.height { content["height"] = height }; if let durationMs = media.durationMs { content["durationMs"] = durationMs }; if let sizeBytes = media.sizeBytes { content["sizeBytes"] = sizeBytes } }
     if let voice { content["url"] = voice.url; content["durationMs"] = voice.durationMs; if let waveform = voice.waveform { content["waveform"] = waveform }; if let sizeBytes = voice.sizeBytes { content["sizeBytes"] = sizeBytes } }
     if let location { content["latitude"] = location.latitude; content["longitude"] = location.longitude; content["name"] = location.name; if let address = location.address { content["address"] = address } }
     if let business { content["businessId"] = business.businessId; content["title"] = business.title; if let subtitle = business.subtitle { content["subtitle"] = subtitle }; if let actionURL = business.actionUrl { content["actionUrl"] = actionURL } }
-    return ["clientMsgId": clientMsgId, "conversationId": conversationId, "type": type.rawValue, "createdAt": createdAt, "content": content]
+    return content
   }
+
+  fileprivate var dictionary: [String: Any] { ["clientMsgId": clientMsgId, "conversationId": conversationId, "type": type.rawValue, "createdAt": createdAt, "content": contentDictionary] }
 }

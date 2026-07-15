@@ -2,8 +2,6 @@
   "module": {
     "name": "pte_live_im",
     "type": "har",
-    "deviceTypes": ["default"],
-    "deliveryWithInstall": true,
-    "installationFree": false
+    "deviceTypes": ["default"]
   }
 }

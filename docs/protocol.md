@@ -2,9 +2,9 @@
 
 ## Login configuration
 
-`PteIMBaseConfig` is configured once at App startup with `apiDomain`, `imDomain`, and `cosDomain`. `PteIMLoginConfig` is supplied only when logging in with `sdkAppId`, `userId`, and `userSig`. `userId` is a positive numeric string such as `"10001"`; the SDK preserves it as a string for cross-platform compatibility but the IM service indexes it as an integer. `apiDomain` must be an HTTPS origin without an API path. Its public gateway routes durable `/v1/im/*` requests to `api-chat`, except `/v1/im/media/put-url`, which routes to `api-im`. `imDomain` must be a complete WSS URL and include `/ws`; `cosDomain` must be the HTTPS root for COS/CDN media objects.
+`PteIMBaseConfig` is configured once at App startup with `apiDomain`, `imDomain`, and `cosDomain`. `PteIMLoginConfig` is supplied only when logging in with `sdkAppId`, `userId`, and `userSig`. `userId` is a positive numeric string such as `"10001"`; the SDK preserves it as a string for cross-platform compatibility but the IM service indexes it as an integer. `apiDomain` must be an HTTPS origin without an API path. It is the host application's API root for `/v1/im/*` requests. `imDomain` must be a complete WSS URL and include `/ws`; `cosDomain` must be the HTTPS root for COS/CDN media objects.
 
-The `userSig` is short-lived. When the SDK emits `userSigWillExpire` or `userSigExpired`, the host obtains a replacement from its own backend and calls `renewUserSig`. `api-im` authenticates the initial WSS upgrade, therefore all SDKs append URL-encoded `sdkAppID`, `identifier` (the numeric `userId`), and `userSig` to `imDomain`; WSS protects these short-lived query values in transit. Do not log complete WebSocket URLs or reuse UserSig values.
+The `userSig` is short-lived. When the SDK emits `userSigWillExpire` or `userSigExpired`, the host obtains a replacement from its own backend and calls `renewUserSig`. The configured real-time service authenticates the initial WSS upgrade, therefore all SDKs append URL-encoded `sdkAppID`, `identifier` (the numeric `userId`), and `userSig` to `imDomain`; WSS protects these short-lived query values in transit. Do not log complete WebSocket URLs or reuse UserSig values.
 
 ## Wire envelope
 
@@ -21,6 +21,8 @@ The `userSig` is short-lived. When the SDK emits `userSigWillExpire` or `userSig
 ```
 
 The server responds or pushes an envelope with `action`, `requestId` when applicable, and `payload`. Every data-changing event has a monotonically increasing `syncCursor` and message events additionally have a per-conversation `serverSeq`.
+
+For `send_message`, the client sends only routing metadata (`clientMsgId`, `conversationId`, `type`) and an `e2ee` object. Plain `content` is not sent over WSS. The precise E2EE object, device registration endpoints, encrypted API response header, and key-derivation labels are specified in [security.md](security.md).
 
 ## Message payload
 
@@ -57,7 +59,7 @@ The server responds or pushes an envelope with `action`, `requestId` when applic
 
 Only fields applicable to the selected type are present: `voice` uses `url`, `durationMs`, optional `waveform` and `sizeBytes`; `location` uses `latitude`, `longitude`, `name`, and optional `address`; `gift`, `red_packet`, and `order` use `businessId`, `title`, optional `subtitle`, and optional `actionUrl`. The server treats `clientMsgId` as an idempotency key.
 
-## Durable API contract required from `api-chat`
+## SDK REST contract expected from the host API
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -67,11 +69,11 @@ Only fields applicable to the selected type are present: `voice` uses `url`, `du
 | `POST /v1/im/conversations/read` | UserSig-protected read cursor; body `{ conversationId, seq }`, with `seq: 0` meaning latest |
 | `POST /v1/im/conversations` | UserSig-protected conversation page; body `{ page, pageSize }` |
 | `POST /v1/im/conversations/messages` | UserSig-protected history page; body `{ conversationId, beforeSeq, limit }` |
-| `POST /v1/im/media/put-url` | `api-im` UserSig-protected COS credential; body `{ mediaType, contentType, contentLength }`, returns `{ key, uploadUrl, headers, expiresAt }` |
+| `POST /v1/im/media/put-url` | UserSig-protected COS credential; body `{ mediaType, contentType, contentLength }`, returns `{ key, uploadUrl, headers, expiresAt }` |
 
-Conversation and history schemas belong in `pte-live-im/im-api/docs/openapi.yaml`; the COS credential schema belongs in `pte-live-im/im/docs/openapi.yaml`. This SDK repository only consumes both contracts.
+For the PteLive reference deployment, these requests are served by `api-im`. The SDK consumes the contract and does not depend on the service's internal deployment layout.
 
-For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authorization: Bearer`), `X-Pte-Sdk-AppId`, and `X-Pte-User-Id`. `api-im` verifies the UserSig, derives an object key in the verified user's namespace, and returns a short-lived COS `PUT` URL plus mandatory headers. The SDK performs the PUT, then persists/sends only `key` as `media.url` (or `voice.url`). Image/video dimensions and duration may be enriched by the host; `uploadAndSendVoice` requires the recording duration and accepts an optional waveform. `cosDomain` is used only to resolve a key for display. COS secrets are server-side YAML configuration and are never exposed to clients.
+For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authorization: Bearer`), `X-Pte-Sdk-AppId`, and `X-Pte-User-Id`. The host API verifies the UserSig, derives an object key in the verified user's namespace, and returns a short-lived COS `PUT` URL plus mandatory headers. The SDK performs the PUT, then persists/sends only `key` as `media.url` (or `voice.url`). Image/video dimensions and duration may be enriched by the host; `uploadAndSendVoice` requires the recording duration and accepts an optional waveform. `cosDomain` is used only to resolve a key for display. COS secrets are server-side YAML configuration and are never exposed to clients.
 
 ## Synchronization rules
 

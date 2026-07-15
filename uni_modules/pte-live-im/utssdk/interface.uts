@@ -1,9 +1,27 @@
+/**
+ * Host-provided envelope encryption for durable UTS cache data.
+ * The implementation must keep its key out of uni storage and source code.
+ */
+export type PteIMLocalStorageCipher = {
+  encrypt(plaintext: string): string
+  decrypt(ciphertext: string): string
+}
+
+/** Platform secure-random bridge used internally by the UTS E2EE implementation. */
+export type PteIMSecureRandomSource = {
+  getBytes(length: number, callback: (bytes: Uint8Array | null, error: string | null) => void): void
+}
+
 export type PteIMBaseConfig = {
   apiDomain: string
   imDomain: string
   cosDomain: string
   themeMode?: 'system' | 'light' | 'dark'
   language?: 'system' | 'zh-CN' | 'en-US'
+  /** Required to persist UTS messages, outbox data, or sync cursors on H5/mini-program. */
+  localStorageCipher?: PteIMLocalStorageCipher
+  /** Supplied by the H5/WeChat entry module; applications normally do not set this themselves. */
+  cryptoRandomSource?: PteIMSecureRandomSource
 }
 
 export type PteIMLoginConfig = {

@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "com.ptelive.im.demo",
+    "vendor": "PteLive",
+    "icon": "$media:PteIMUIAppIcon",
+    "label": "$string:PteIMUIAppName",
+    "versionCode": 1,
+    "versionName": "0.1.0-alpha"
+  }
+}

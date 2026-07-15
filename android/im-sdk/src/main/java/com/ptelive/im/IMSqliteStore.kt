@@ -12,6 +12,7 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
   null,
   1,
 ) {
+  private val cipher = PteIMLocalCipher(storeKey)
   override fun onCreate(db: SQLiteDatabase) {
     db.execSQL("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     db.execSQL("INSERT INTO meta(key, value) VALUES ('db_schema_version', '1')")
@@ -26,6 +27,15 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     // All future migrations must be additive and transactional; never delete user data here.
+  }
+
+  override fun onOpen(db: SQLiteDatabase) {
+    super.onOpen(db)
+    db.transaction {
+      migrateValue(this, "sync_state", "cursor", "id = 1", emptyArray())
+      migratePayloads(this, "messages", "client_msg_id")
+      migratePayloads(this, "conversations", "id")
+    }
   }
 
   fun enqueue(message: PteIMMessage) = writableDatabase.transaction {
@@ -52,11 +62,11 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
 
   fun applyDelta(nextCursor: String, messages: List<PteIMMessage>) = writableDatabase.transaction {
     messages.forEach { insertMessage(this, it.copy(state = PteIMSendState.SENT)) }
-    update("sync_state", ContentValues().apply { put("cursor", nextCursor) }, "id = 1", null)
+    update("sync_state", ContentValues().apply { put("cursor", cipher.encrypt(nextCursor)) }, "id = 1", null)
   }
 
   fun cursor(): String = readableDatabase.rawQuery("SELECT cursor FROM sync_state WHERE id = 1", null).use {
-    if (it.moveToFirst()) it.getString(0) else ""
+    if (it.moveToFirst()) cipher.decrypt(it.getString(0)) else ""
   }
 
   fun localMessages(conversationId: String, beforeCreatedAt: Long?, limit: Int): List<StoredMessage> {
@@ -66,7 +76,7 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
     return readableDatabase.rawQuery(
       "SELECT payload, server_msg_id, server_seq, created_at, state FROM messages WHERE $selection ORDER BY created_at DESC LIMIT $limit",
       args,
-    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredMessage(cursor.getString(0), cursor.getStringOrNull(1), cursor.getLongOrNull(2), cursor.getLong(3), cursor.getString(4))) } }
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredMessage(cipher.decrypt(cursor.getString(0)), cursor.getStringOrNull(1), cursor.getLongOrNull(2), cursor.getLong(3), cursor.getString(4))) } }
   }
 
   fun localConversations(limit: Int): List<StoredConversation> {
@@ -74,7 +84,7 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
     return readableDatabase.rawQuery(
       "SELECT conversation_id, MAX(created_at), (SELECT payload FROM messages latest WHERE latest.conversation_id = messages.conversation_id ORDER BY created_at DESC LIMIT 1), (SELECT server_msg_id FROM messages latest WHERE latest.conversation_id = messages.conversation_id ORDER BY created_at DESC LIMIT 1), (SELECT server_seq FROM messages latest WHERE latest.conversation_id = messages.conversation_id ORDER BY created_at DESC LIMIT 1), (SELECT state FROM messages latest WHERE latest.conversation_id = messages.conversation_id ORDER BY created_at DESC LIMIT 1) FROM messages GROUP BY conversation_id ORDER BY MAX(created_at) DESC LIMIT $limit",
       null,
-    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredConversation(cursor.getString(0), cursor.getLong(1), StoredMessage(cursor.getString(2), cursor.getStringOrNull(3), cursor.getLongOrNull(4), cursor.getLong(1), cursor.getString(5)))) } }
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredConversation(cursor.getString(0), cursor.getLong(1), StoredMessage(cipher.decrypt(cursor.getString(2)), cursor.getStringOrNull(3), cursor.getLongOrNull(4), cursor.getLong(1), cursor.getString(5)))) } }
   }
 
   /** Returns retryable messages whose persisted backoff has elapsed. */
@@ -83,7 +93,7 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
     return readableDatabase.rawQuery(
       "SELECT m.payload, m.server_msg_id, m.server_seq, m.created_at, m.state FROM outbox o JOIN messages m ON m.client_msg_id = o.client_msg_id WHERE o.next_retry_at <= ? ORDER BY o.next_retry_at ASC LIMIT $limit",
       arrayOf(now.toString()),
-    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredMessage(cursor.getString(0), cursor.getStringOrNull(1), cursor.getLongOrNull(2), cursor.getLong(3), cursor.getString(4))) } }
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(StoredMessage(cipher.decrypt(cursor.getString(0)), cursor.getStringOrNull(1), cursor.getLongOrNull(2), cursor.getLong(3), cursor.getString(4))) } }
   }
 
   /** Records one send attempt and returns its next persisted retry time. */
@@ -112,8 +122,40 @@ internal class PteIMSqliteStore(context: Context, storeKey: String) : SQLiteOpen
       put("type", message.type.name)
       put("created_at", message.createdAt)
       put("state", message.state.name)
-      put("payload", message.toWireJson().toString())
+      put("payload", cipher.encrypt(message.toWireJson().toString()))
     }, SQLiteDatabase.CONFLICT_REPLACE)
+  }
+
+  /** Upgrades plaintext and pte1 records to pte2 AES-GCM values while retaining every cache row. */
+  private fun migratePayloads(db: SQLiteDatabase, table: String, idColumn: String) {
+    val rowsToMigrate = buildList {
+      db.rawQuery("SELECT $idColumn, payload FROM $table", null).use { rows ->
+        while (rows.moveToNext()) {
+          val value = rows.getString(1)
+          if (cipher.needsMigration(value)) add(rows.getString(0) to value)
+        }
+      }
+    }
+    rowsToMigrate.forEach { (id, value) ->
+      db.update(table, ContentValues().apply { put("payload", cipher.encrypt(cipher.decrypt(value))) }, "$idColumn = ?", arrayOf(id))
+    }
+  }
+
+  private fun migrateValue(db: SQLiteDatabase, table: String, column: String, selection: String, args: Array<String>) {
+    db.rawQuery("SELECT $column FROM $table WHERE $selection", args).use { rows ->
+      if (rows.moveToFirst()) {
+        val value = rows.getString(0)
+        if (cipher.needsMigration(value)) db.update(table, ContentValues().apply { put(column, cipher.encrypt(cipher.decrypt(value))) }, selection, args)
+      }
+    }
+  }
+
+  companion object {
+    /** Explicit recovery for an unavailable Keystore key or irrecoverably corrupted local cache. */
+    fun clear(context: Context, storeKey: String) {
+      context.applicationContext.deleteDatabase("pte_live_im_${storeKey.sha256()}.db")
+      PteIMLocalCipher.removeKey(storeKey)
+    }
   }
 }
 

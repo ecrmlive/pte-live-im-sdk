@@ -1,0 +1,54 @@
+<template>
+  <view class="pte-im-ui-chat" :class="isDark ? 'pte-im-ui-dark' : ''">
+    <text class="pte-im-ui-title">{{ title || conversationId }}</text>
+    <scroll-view class="pte-im-ui-messages" scroll-y="true">
+      <view v-for="message in messages" :key="message.clientMsgId" class="pte-im-ui-message" :class="message.serverMsgId ? 'pte-im-ui-incoming' : 'pte-im-ui-outgoing'">
+        <text>{{ label(message) }}</text>
+      </view>
+    </scroll-view>
+    <view class="pte-im-ui-compose"><input v-model="draft" class="pte-im-ui-input" :placeholder="copy('message')" @confirm="sendText" /><button @click="sendText">{{ copy('send') }}</button></view>
+    <view class="pte-im-ui-actions"><button @click="sendEmoji">😀</button><button @click="action('image')">{{ copy('image') }}</button><button @click="action('video')">{{ copy('video') }}</button><button @click="action('voice')">{{ copy('voice') }}</button><button @click="more = !more">{{ copy('more') }}</button></view>
+    <view v-if="more" class="pte-im-ui-actions"><button @click="action('location')">{{ copy('location') }}</button><button @click="action('gift')">{{ copy('gift') }}</button><button @click="action('red_packet')">{{ copy('redPacket') }}</button><button @click="action('order')">{{ copy('order') }}</button></view>
+  </view>
+</template>
+
+<script lang="uts">
+import { PteIMIncomingMessage, PteLiveIMClient } from '../../utssdk/interface.uts'
+import { PteIMUIAction, PteIMUIChatController, PteIMUIKit } from '../../utssdk/PteIMUIKit.uts'
+
+export default {
+  props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' } },
+  emits: ['action'],
+  data() { return { messages: [] as PteIMIncomingMessage[], draft: '', more: false, isDark: false, language: 'zh-CN', controller: null as PteIMUIChatController | null } },
+  mounted() {
+    const client = this.client as PteLiveIMClient
+    const controller = PteIMUIKit.createChatController(client, this.conversationId)
+    controller.onChanged = () => { this.messages = controller.messages; const appearance = client.currentAppearance(); this.isDark = appearance.themeMode === 'dark'; this.language = appearance.language === 'en-US' ? 'en-US' : 'zh-CN' }
+    controller.onActionRequested = (action: PteIMUIAction) => this.$emit('action', action)
+    this.controller = controller; controller.refresh()
+  },
+  beforeUnmount() { this.controller?.dispose() },
+  methods: {
+    sendText() { this.controller?.sendText(this.draft); this.draft = '' },
+    sendEmoji() { this.controller?.sendEmoji() },
+    action(action: PteIMUIAction) { this.controller?.requestAction(action) },
+    label(message: PteIMIncomingMessage): string { const content = message.content as any; if (message.type === 'text') return String(content.text ?? ''); if (message.type === 'emoji') return String(content.packageId ?? 'emoji') + ':' + String(content.emojiId ?? ''); if (message.type === 'location') return '[Location] ' + String(content.name ?? ''); if (message.type === 'gift') return '[Gift] ' + String(content.title ?? ''); if (message.type === 'red_packet') return '[Red packet] ' + String(content.title ?? ''); if (message.type === 'order') return '[Order] ' + String(content.title ?? ''); return '[' + message.type + ']' },
+    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Message' : '输入消息'; if (key === 'send') return en ? 'Send' : '发送'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'voice') return en ? 'Voice' : '语音'; if (key === 'more') return en ? 'More' : '更多'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'redPacket') return en ? 'Red packet' : '红包'; return en ? 'Order' : '订单' },
+  },
+}
+</script>
+
+<style>
+.pte-im-ui-chat { display: flex; flex-direction: column; height: 100%; background-color: #F7F9FC; color: #191C21; }
+.pte-im-ui-title { padding: 24rpx 28rpx; font-size: 32rpx; font-weight: 600; }
+.pte-im-ui-messages { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
+.pte-im-ui-message { display: flex; width: fit-content; max-width: 78%; margin: 10rpx 0; padding: 16rpx 20rpx; border-radius: 20rpx; font-size: 28rpx; }
+.pte-im-ui-incoming { align-self: flex-start; background-color: #EBEFF5; }
+.pte-im-ui-outgoing { align-self: flex-end; margin-left: auto; color: #FFFFFF; background-color: #1976D2; }
+.pte-im-ui-compose, .pte-im-ui-actions { display: flex; gap: 8rpx; padding: 8rpx 20rpx; }
+.pte-im-ui-input { flex: 1; height: 68rpx; padding: 0 16rpx; border: 1px solid #D6DCE5; border-radius: 10rpx; background-color: #FFFFFF; }
+.pte-im-ui-actions button { flex: 1; font-size: 23rpx; }
+.pte-im-ui-dark { background-color: #18181B; color: #F5F5F5; }
+.pte-im-ui-dark .pte-im-ui-incoming { background-color: #3F3F46; }
+.pte-im-ui-dark .pte-im-ui-input { color: #F5F5F5; border-color: #52525B; background-color: #27272A; }
+</style>

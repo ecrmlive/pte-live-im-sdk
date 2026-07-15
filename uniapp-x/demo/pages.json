@@ -1,0 +1,7 @@
+{
+  "pages": [{
+    "path": "pages/index/index",
+    "style": { "navigationBarTitleText": "PteLive IM Demo", "navigationBarBackgroundColor": "#1769AA", "navigationBarTextStyle": "white" }
+  }],
+  "globalStyle": { "backgroundColor": "#F6F8FB" }
+}

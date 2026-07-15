@@ -1,0 +1,7 @@
+{
+  "module": {
+    "name": "pte_im_ui_kit",
+    "type": "har",
+    "deviceTypes": ["default"]
+  }
+}

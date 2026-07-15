@@ -1,0 +1,9 @@
+<script lang="uts">
+export default {
+  onLaunch() { console.log('PteLive IM uni-app x demo launched') }
+}
+</script>
+
+<style>
+page { background-color: #F6F8FB; }
+</style>
