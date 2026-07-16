@@ -1,4 +1,4 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
 
 type PteIMOutboxMessage = {
@@ -82,6 +82,18 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   }
   currentAppearance(): PteIMAppearance { return { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' } }
   currentUserId(): string { return this.loginConfig.userId }
+  fetchMyProfile(callback: (result: PteIMUserProfile | null, error: string | null) => void): void {
+    this.sdkRequest('/v1/im/profile/me', {}, (data, error) => {
+      if (data == null || error != null) { callback(null, error ?? 'fetch profile failed'); return }
+      callback(profileFromWire(data), null)
+    })
+  }
+  updateMyProfile(update: PteIMUserProfileUpdate, callback: (result: PteIMUserProfile | null, error: string | null) => void): void {
+    this.sdkRequest('/v1/im/profile/update', { field: update.field, value: update.value }, (data, error) => {
+      if (data == null || error != null) { callback(null, error ?? 'update profile failed'); return }
+      callback(profileFromWire(data), null)
+    })
+  }
   syncNow(): void {
     if (this.syncInFlight) return
     this.syncInFlight = true
@@ -510,6 +522,12 @@ function mediaContent(media: PteIMMedia): any {
 
 function remoteConversationFromWire(value: any): PteIMRemoteConversation {
   return { id: Number(value.id), type: String(value.type), title: String(value.title), avatar: value.avatar == null ? undefined : String(value.avatar), lastMessageSeq: Number(value.last_message_seq), lastMessageSnapshot: value.last_message_snapshot == null ? undefined : String(value.last_message_snapshot), lastMessageAt: Number(value.last_message_at), unreadCount: Number(value.unread_count) }
+}
+
+function profileFromWire(value: any): PteIMUserProfile {
+  const rawGender = String(value.gender ?? '')
+  const gender: PteIMGender = rawGender == 'male' || rawGender == 'female' ? rawGender as PteIMGender : 'unknown'
+  return { userId: Number(value.user_id), nickname: String(value.nickname ?? ''), avatar: String(value.avatar ?? ''), gender, birthday: String(value.birthday ?? ''), province: String(value.province ?? ''), city: String(value.city ?? ''), district: String(value.district ?? '') }
 }
 
 function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice'): string {

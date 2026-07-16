@@ -10,7 +10,10 @@
 	},
 	"vueVersion": "3",
 	"web": {
-		"title": "PteIMUIDemo"
+		"title": "PteIMUIDemo",
+		"router": {
+			"mode": ""
+		}
 	},
 	"mp-weixin": {
 		"appid": "wx355c3f642c588462",

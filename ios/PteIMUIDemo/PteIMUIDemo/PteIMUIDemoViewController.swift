@@ -18,6 +18,7 @@ final class PteIMUIDemoViewController: UIViewController {
   private var client: PteIMSDK?
   private var friends = [PteIMUIDemoFriend(name: "Alice", userId: "10002"), PteIMUIDemoFriend(name: "Bob", userId: "10003")]
   private var configurationStack: UIStackView?
+  private var loginDarkMode = false
   #if DEBUG
   private var didRunAutomation = false
   private var didOpenLocalPreview = false
@@ -31,52 +32,55 @@ final class PteIMUIDemoViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "Pte Live IM"
-    navigationItem.largeTitleDisplayMode = .never
-    view.backgroundColor = .systemBackground
+    navigationItem.hidesBackButton = true
+    navigationController?.setNavigationBarHidden(true, animated: false)
+    view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
     conversationId.isEnabled = false
-    account.text = "PteIMUIDemo"
-    userId.text = ""
+    account.text = "PteIMUIDemo"; password.text = ""
+    appId.text = "432532532"
+    userId.text = "123654"
     userSig.text = ""
 
     let scrollView = UIScrollView(); scrollView.alwaysBounceVertical = true; scrollView.showsVerticalScrollIndicator = false
-    let content = UIStackView(); content.axis = .vertical; content.spacing = 18
+    let content = UIStackView(); content.axis = .vertical; content.spacing = 13
     view.addSubview(scrollView); scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
 
-    let hero = PteIMUIDemoHeroView()
-    let eyebrow = PteIMUIDemoLabel("PTE LIVE · SECURE MESSAGING", style: .caption1, color: .secondaryLabel)
-    let heading = PteIMUIDemoLabel("连接你的私域关系", style: .largeTitle, color: .label); heading.font = .systemFont(ofSize: 30, weight: .bold)
-    let subtitle = PteIMUIDemoLabel("从业务登录到实时会话，一次完成 Core、UIkit 与加密消息链路验证。", style: .body, color: .secondaryLabel); subtitle.numberOfLines = 0
-    let heroCopy = UIStackView(arrangedSubviews: [eyebrow, heading, subtitle]); heroCopy.axis = .vertical; heroCopy.spacing = 8
+    let header = UIView(); let language = UIButton(type: .system); language.setTitle("切换中文", for: .normal); language.setTitleColor(UIColor(red: 0.30, green: 0.31, blue: 0.42, alpha: 1), for: .normal); language.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+    let appearance = UIButton(type: .system); appearance.setImage(UIImage(systemName: "moon"), for: .normal); appearance.tintColor = UIColor(red: 0.30, green: 0.31, blue: 0.42, alpha: 1); appearance.addTarget(self, action: #selector(toggleLoginAppearance), for: .touchUpInside)
+    [language, appearance].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; header.addSubview($0) }
+    NSLayoutConstraint.activate([header.heightAnchor.constraint(equalToConstant: 34), language.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10), language.centerYAnchor.constraint(equalTo: header.centerYAnchor), appearance.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10), appearance.centerYAnchor.constraint(equalTo: header.centerYAnchor), appearance.widthAnchor.constraint(equalToConstant: 36), appearance.heightAnchor.constraint(equalToConstant: 36)])
+    let logo = UIImageView(image: UIImage(named: "PteIMUILogo")); logo.contentMode = .scaleAspectFit; logo.layer.cornerRadius = 24; logo.clipsToBounds = true; logo.translatesAutoresizingMaskIntoConstraints = false
+    let titleLabel = PteIMUIDemoLabel("PrivateChat", style: .largeTitle, color: UIColor(red: 0.11, green: 0.11, blue: 0.20, alpha: 1)); titleLabel.textAlignment = .center; titleLabel.font = .systemFont(ofSize: 29, weight: .bold)
+    let subtitle = PteIMUIDemoLabel("Secure · Private · Efficient", style: .subheadline, color: UIColor(red: 0.42, green: 0.43, blue: 0.53, alpha: 1)); subtitle.textAlignment = .center
+    let brand = UIStackView(arrangedSubviews: [logo, titleLabel, subtitle]); brand.axis = .vertical; brand.alignment = .center; brand.spacing = 8; logo.widthAnchor.constraint(equalToConstant: 96).isActive = true; logo.heightAnchor.constraint(equalToConstant: 96).isActive = true
 
-    let card = UIView(); card.backgroundColor = .secondarySystemBackground; card.layer.cornerRadius = 24
-    let cardTitle = PteIMUIDemoLabel("快速开始", style: .title2, color: .label); cardTitle.font = .systemFont(ofSize: 21, weight: .bold)
-    let cardNote = PteIMUIDemoLabel("自动申请短期测试 UserSig，不会保存凭据。", style: .footnote, color: .secondaryLabel)
-    let demoLogin = PteIMUIDemoGradientButton(title: "使用测试账号进入 Demo")
-    demoLogin.addTarget(self, action: #selector(demoLoginTapped), for: .touchUpInside)
-    let preview = UIButton(type: .system); preview.setTitle("先查看 PteIMUIkit 视觉预览", for: .normal); preview.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold); preview.addTarget(self, action: #selector(previewTapped), for: .touchUpInside)
-    status.font = .preferredFont(forTextStyle: .footnote); status.textColor = .secondaryLabel; status.textAlignment = .center; status.numberOfLines = 0; status.text = "准备就绪"
-
-    let configToggle = UIButton(type: .system); configToggle.setTitle("手动登录凭据", for: .normal); configToggle.setImage(UIImage(systemName: "person.badge.key"), for: .normal); configToggle.tintColor = .systemIndigo; configToggle.addTarget(self, action: #selector(toggleConfiguration), for: .touchUpInside)
-    let login = UIButton(type: .system); login.setTitle("使用手动凭据登录", for: .normal); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
-    let note = PteIMUIDemoLabel("生产环境应由你的业务后端返回 userId 与短期 UserSig；Demo 的测试入口仅用于本地开发验证。", style: .footnote, color: .secondaryLabel); note.numberOfLines = 0
-    let config = UIStackView(arrangedSubviews: [appId, userId, userSig, login, note]); config.axis = .vertical; config.spacing = 10; config.isHidden = true
-    configurationStack = config
-    let cardStack = UIStackView(arrangedSubviews: [cardTitle, cardNote, demoLogin, preview, status, configToggle, config]); cardStack.axis = .vertical; cardStack.spacing = 13
+    let card = UIView(); card.backgroundColor = .white; card.layer.cornerRadius = 24; card.layer.shadowColor = UIColor.black.cgColor; card.layer.shadowOpacity = 0.12; card.layer.shadowRadius = 18; card.layer.shadowOffset = CGSize(width: 0, height: 9)
+    let login = PteIMUIDemoGradientButton(title: "登录"); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
+    [appId, userId, userSig].forEach { field in field.borderStyle = .none; field.backgroundColor = UIColor(red: 0.92, green: 0.90, blue: 1, alpha: 1); field.layer.cornerRadius = 18; field.setLeftPadding(16); field.heightAnchor.constraint(equalToConstant: field == userSig ? 80 : 46).isActive = true }
+    appId.placeholder = "SDKAppID"; userId.placeholder = "User ID"; userSig.placeholder = "User Signature (UserSig)"
+    let demoLogin = UIButton(type: .system); demoLogin.setTitle("获取测试账号", for: .normal); demoLogin.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium); demoLogin.addTarget(self, action: #selector(demoLoginTapped), for: .touchUpInside)
+    let preview = UIButton(type: .system); preview.setTitle("本地 UI 预览", for: .normal); preview.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium); preview.addTarget(self, action: #selector(previewTapped), for: .touchUpInside)
+    let helper = UIStackView(arrangedSubviews: [demoLogin, UIView(), preview]); helper.axis = .horizontal; helper.alignment = .center
+    status.font = .preferredFont(forTextStyle: .footnote); status.textColor = .secondaryLabel; status.textAlignment = .center; status.numberOfLines = 0; status.text = "业务系统返回 IM 用户与短期 UserSig"
+    let cardStack = UIStackView(arrangedSubviews: [PteIMUIDemoLabel("SDKAppID", style: .subheadline, color: .label), appId, PteIMUIDemoLabel("User ID", style: .subheadline, color: .label), userId, PteIMUIDemoLabel("User Signature (UserSig)", style: .subheadline, color: .label), userSig, login, helper, status]); cardStack.axis = .vertical; cardStack.spacing = 9
     card.addSubview(cardStack); cardStack.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 20), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -20), demoLogin.heightAnchor.constraint(equalToConstant: 52)])
+    NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 26), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24), login.heightAnchor.constraint(equalToConstant: 48)])
 
     let privacy = PteIMUIDemoLabel("端到端加密 · SQLite 本地缓存 · 亮/暗模式", style: .footnote, color: .tertiaryLabel); privacy.textAlignment = .center
-    content.addArrangedSubview(hero); content.addArrangedSubview(heroCopy); content.addArrangedSubview(card); content.addArrangedSubview(privacy)
+    content.addArrangedSubview(header); content.addArrangedSubview(brand); content.setCustomSpacing(30, after: header); content.setCustomSpacing(28, after: brand); content.addArrangedSubview(card); content.addArrangedSubview(privacy)
     NSLayoutConstraint.activate([
       scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor), scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 22), content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -22),
-      content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 22), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
+      content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
       content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -44),
-      hero.heightAnchor.constraint(equalToConstant: 168)
     ])
+  }
+
+  @objc private func toggleLoginAppearance() {
+    loginDarkMode.toggle(); overrideUserInterfaceStyle = loginDarkMode ? .dark : .light
+    view.backgroundColor = loginDarkMode ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1) : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
   }
 
   @objc private func toggleConfiguration() {
@@ -308,4 +312,11 @@ private final class PteIMUIDemoHeroView: UIView {
   }
   required init?(coder: NSCoder) { nil }
   override func layoutSubviews() { super.layoutSubviews(); gradient.frame = bounds }
+}
+
+private extension UITextField {
+  func setLeftPadding(_ value: CGFloat) {
+    leftView = UIView(frame: CGRect(x: 0, y: 0, width: value, height: 1))
+    leftViewMode = .always
+  }
 }

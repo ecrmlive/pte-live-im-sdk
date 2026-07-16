@@ -6,9 +6,10 @@ import PteIMSDK
  message type without reaching out to a remote image loader, so the host can
  attach its own media cache without making PteIMUIkit depend on a third party.
  */
-public final class PteIMUIMessageCell: UITableViewCell {
+open class PteIMUIMessageCell: UITableViewCell {
   public static let reuseIdentifier = "PteIMUIMessageCell"
-  private let avatar = UILabel()
+  public var onAvatarTapped: (() -> Void)?
+  public let avatar = UILabel()
   private let bubble = UIView()
   private let typeLabel = UILabel()
   private let bodyLabel = UILabel()
@@ -28,6 +29,8 @@ public final class PteIMUIMessageCell: UITableViewCell {
     avatar.font = .systemFont(ofSize: 12, weight: .bold)
     avatar.layer.cornerRadius = 17
     avatar.clipsToBounds = true
+    avatar.isUserInteractionEnabled = true
+    avatar.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapAvatar)))
     avatar.translatesAutoresizingMaskIntoConstraints = false
     contentView.addSubview(avatar)
 
@@ -64,7 +67,7 @@ public final class PteIMUIMessageCell: UITableViewCell {
     stateLabel.font = .preferredFont(forTextStyle: .caption2)
     stateLabel.adjustsFontForContentSizeCategory = true
   }
-  required init?(coder: NSCoder) { nil }
+  required public init?(coder: NSCoder) { nil }
 
   public override func prepareForReuse() {
     super.prepareForReuse()
@@ -77,7 +80,9 @@ public final class PteIMUIMessageCell: UITableViewCell {
     outgoingGradient.frame = bubble.bounds
   }
 
-  public func configure(message: PteIMMessage, outgoing: Bool, theme: PteIMUITheme, language: PteIMLanguage) {
+  @objc private func tapAvatar() { onAvatarTapped?() }
+
+  open func configure(message: PteIMMessage, outgoing: Bool, theme: PteIMUITheme, language: PteIMLanguage, style: PteIMUIChatStyle = .default) {
     let palette = theme.palette(for: traitCollection)
     let isEmoji = message.type == .emoji
     let isPlainText = message.type == .text
@@ -85,13 +90,16 @@ public final class PteIMUIMessageCell: UITableViewCell {
     typeLabel.text = isPlainText || isEmoji ? nil : PteIMUIMessageText.typeTitle(message.type, language: language)
     typeLabel.isHidden = typeLabel.text == nil
     bodyLabel.text = PteIMUIMessageText.render(message, language: language)
-    bodyLabel.font = isEmoji ? .systemFont(ofSize: 31) : .preferredFont(forTextStyle: .body)
+    bodyLabel.font = isEmoji ? .systemFont(ofSize: 31) : style.messageFont
     stateLabel.text = PteIMUIMessageText.deliveryLine(for: message, outgoing: outgoing, language: language)
 
-    typeLabel.textColor = outgoing ? palette.outgoingTextColor.withAlphaComponent(0.82) : palette.secondaryTextColor
-    bodyLabel.textColor = outgoing ? palette.outgoingTextColor : palette.incomingTextColor
-    stateLabel.textColor = outgoing ? palette.outgoingTextColor.withAlphaComponent(0.70) : palette.secondaryTextColor
-    bubble.backgroundColor = outgoing ? .clear : palette.incomingBubbleColor
+    typeLabel.font = style.messageMetaFont
+    stateLabel.font = style.messageMetaFont
+    typeLabel.textColor = outgoing ? (style.outgoingTextColor ?? palette.outgoingTextColor).withAlphaComponent(0.82) : (style.messageMetaColor ?? palette.secondaryTextColor)
+    bodyLabel.textColor = outgoing ? (style.outgoingTextColor ?? palette.outgoingTextColor) : (style.incomingTextColor ?? palette.incomingTextColor)
+    stateLabel.textColor = outgoing ? (style.outgoingTextColor ?? palette.outgoingTextColor).withAlphaComponent(0.70) : (style.messageMetaColor ?? palette.secondaryTextColor)
+    bubble.backgroundColor = outgoing ? .clear : (style.incomingBubbleColor ?? palette.incomingBubbleColor)
+    bubble.layer.cornerRadius = style.bubbleCornerRadius
     outgoingGradient.isHidden = !outgoing
     outgoingGradient.colors = [palette.outgoingGradientStartColor.cgColor, palette.outgoingGradientEndColor.cgColor]
 
@@ -99,6 +107,10 @@ public final class PteIMUIMessageCell: UITableViewCell {
     avatar.text = PteIMUIMessageText.avatarText(for: avatarSeed)
     avatar.textColor = outgoing ? .white : palette.outgoingGradientStartColor
     avatar.backgroundColor = outgoing ? palette.outgoingGradientEndColor : palette.surfaceColor
+    avatar.font = .systemFont(ofSize: max(11, style.avatarSize * 0.36), weight: .bold)
+    avatar.layer.cornerRadius = style.avatarSize / 2
+    avatar.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
+    avatar.constraints.filter { $0.firstAttribute == .height }.first?.constant = style.avatarSize
 
     [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing].forEach { $0?.isActive = false }
     if outgoing {
@@ -126,6 +138,7 @@ public enum PteIMUIMessageText {
     case .gift: return PteIMUILocalization.value("礼物", "Gift", language: language)
     case .red_packet: return PteIMUILocalization.value("红包", "Red packet", language: language)
     case .order: return PteIMUILocalization.value("订单", "Order", language: language)
+    case .file: return PteIMUILocalization.value("文件", "File", language: language)
     }
   }
 
@@ -139,6 +152,7 @@ public enum PteIMUIMessageText {
     case .gift: symbol = "✦"
     case .red_packet: symbol = "¥"
     case .order: symbol = "□"
+    case .file: symbol = "▤"
     case .text, .emoji: symbol = ""
     }
     return "\(symbol)  \(typeName(type, language: language))"
@@ -149,6 +163,7 @@ public enum PteIMUIMessageText {
     if message.type == .emoji, let emoji = message.emojiId { return emojiGlyph(for: emoji) }
     if message.type == .image { return PteIMUILocalization.value("轻触查看图片", "Tap to view image", language: language) }
     if message.type == .video { return PteIMUILocalization.value("轻触播放视频", "Tap to play video", language: language) }
+    if message.type == .file { return message.media?.fileName ?? PteIMUILocalization.value("文件", "File", language: language) }
     if let voice = message.voice { return "▁▃▆▃▁  \(max(1, voice.durationMs / 1000))\"" }
     if let location = message.location { return [location.name, location.address].compactMap { $0 }.joined(separator: "\n") }
     if let business = message.business { return [business.title, business.subtitle].compactMap { $0 }.joined(separator: "\n") }

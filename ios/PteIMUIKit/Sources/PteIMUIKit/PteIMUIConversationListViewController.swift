@@ -1,155 +1,124 @@
 import UIKit
 import PteIMSDK
 
-/** Cache-first conversation list with a blue–violet visual language shared by the chat screen. */
-public final class PteIMUIConversationListViewController: UITableViewController {
+/**
+ Cache-first conversation list. Subclass it to supply business display data,
+ layout rows, handle avatars, or route C2C and group conversations differently.
+ */
+open class PteIMUIConversationListViewController: UITableViewController {
   public let client: PteIMSDK
-  public var theme: PteIMUITheme { didSet { applyTheme() } }
-  public var onConversationSelected: ((PteIMConversation, PteIMUIConversationListViewController) -> Void)?
+  public var skin: PteIMUISkin { didSet { applySkin() } }
+  public var onConversationSelected: ((PteIMUIConversationPresentation, PteIMUIConversationListViewController) -> Void)?
+  public var onAvatarTapped: ((PteIMUIConversationPresentation, PteIMUIConversationListViewController) -> Void)?
   private var conversations: [PteIMConversation] = []
   private var previousMessageCallback: ((PteIMMessage) -> Void)?
 
-  public init(client: PteIMSDK, theme: PteIMUITheme = .default) {
-    self.client = client
-    self.theme = theme
-    super.init(style: .plain)
-    title = PteIMUILocalization.value("消息", "Messages", language: client.appearance.language)
+  public init(client: PteIMSDK, skin: PteIMUISkin = .default) {
+    self.client = client; self.skin = skin; super.init(style: .plain)
+    title = PteIMUILocalization.value("会话", "Chats", language: client.appearance.language)
   }
-  required init?(coder: NSCoder) { nil }
+  public convenience init(client: PteIMSDK, theme: PteIMUITheme) { self.init(client: client, skin: PteIMUISkin(theme: theme)) }
+  required public init?(coder: NSCoder) { nil }
 
-  public override func viewDidLoad() {
+  open override func viewDidLoad() {
     super.viewDidLoad()
     tableView.register(PteIMUIConversationCell.self, forCellReuseIdentifier: PteIMUIConversationCell.reuseIdentifier)
     tableView.separatorStyle = .none
-    tableView.rowHeight = 78
-    tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 12, right: 0)
-    refreshControl = UIRefreshControl()
-    refreshControl?.addTarget(self, action: #selector(refresh), for: .valueChanged)
-    bindClient()
-    reloadConversations()
-    applyTheme()
+    refreshControl = UIRefreshControl(); refreshControl?.addTarget(self, action: #selector(refresh), for: .valueChanged)
+    bindClient(); reloadConversations(); applySkin()
   }
 
-  @objc public func refresh() {
-    client.syncNow()
-    reloadConversations()
-    refreshControl?.endRefreshing()
+  @objc open func refresh() { client.syncNow(); reloadConversations(); refreshControl?.endRefreshing() }
+  open func reloadConversations() { conversations = (try? client.localConversations(limit: 100)) ?? []; tableView.reloadData() }
+
+  /** Override to use your member/group directory for nickname, avatar and unread count. */
+  open func presentation(for conversation: PteIMConversation) -> PteIMUIConversationPresentation {
+    let rendered = PteIMUIMessageText.render(conversation.lastMessage, language: client.appearance.language).replacingOccurrences(of: "\n", with: " · ")
+    return PteIMUIConversationPresentation(conversationId: conversation.conversationId, title: conversation.conversationId, subtitle: rendered, avatarText: PteIMUIMessageText.avatarText(for: conversation.conversationId), updatedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000))
   }
 
-  public func reloadConversations() {
-    conversations = (try? client.localConversations(limit: 100)) ?? []
-    tableView.reloadData()
+  /** Override to install a custom subclass or change every individual row. */
+  open func configure(cell: PteIMUIConversationCell, presentation: PteIMUIConversationPresentation, at indexPath: IndexPath) {
+    cell.configure(presentation: presentation, style: skin.list, palette: skin.theme.palette(for: traitCollection), icons: skin.icons)
+  }
+  open func didTapAvatar(_ presentation: PteIMUIConversationPresentation) { onAvatarTapped?(presentation, self) }
+  open func didSelectConversation(_ presentation: PteIMUIConversationPresentation) {
+    if let onConversationSelected { onConversationSelected(presentation, self); return }
+    let chat = makeChatViewController(for: presentation)
+    navigationController?.pushViewController(chat, animated: true)
+  }
+  /** Override for different single/group chat controllers. */
+  open func makeChatViewController(for presentation: PteIMUIConversationPresentation) -> PteIMUIChatViewController {
+    PteIMUIChatViewController(client: client, conversationId: presentation.conversationId, title: presentation.title, skin: skin)
   }
 
   private func bindClient() {
     previousMessageCallback = client.onMessage
-    client.onMessage = { [weak self] message in
-      self?.previousMessageCallback?(message)
-      DispatchQueue.main.async { self?.reloadConversations() }
-    }
+    client.onMessage = { [weak self] message in self?.previousMessageCallback?(message); DispatchQueue.main.async { self?.reloadConversations() } }
   }
-
-  private func applyTheme() {
+  private func applySkin() {
     guard isViewLoaded else { return }
-    let palette = theme.palette(for: traitCollection)
-    tableView.backgroundColor = palette.backgroundColor
-    refreshControl?.tintColor = palette.outgoingGradientStartColor
-    navigationController?.navigationBar.tintColor = palette.outgoingGradientStartColor
+    let palette = skin.theme.palette(for: traitCollection)
+    tableView.backgroundColor = palette.backgroundColor; tableView.rowHeight = skin.list.rowHeight
+    refreshControl?.tintColor = palette.outgoingGradientStartColor; navigationController?.navigationBar.tintColor = palette.iconColor
     tableView.reloadData()
   }
-
-  public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-    super.traitCollectionDidChange(previousTraitCollection)
-    if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle { applyTheme() }
-  }
-
-  public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { conversations.count }
-
-  public override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+  open override func traitCollectionDidChange(_ previous: UITraitCollection?) { super.traitCollectionDidChange(previous); if previous?.userInterfaceStyle != traitCollection.userInterfaceStyle { applySkin() } }
+  open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { conversations.count }
+  open override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
     let cell = tableView.dequeueReusableCell(withIdentifier: PteIMUIConversationCell.reuseIdentifier, for: indexPath) as! PteIMUIConversationCell
-    let conversation = conversations[indexPath.row]
-    cell.configure(conversation: conversation, theme: theme, language: client.appearance.language)
-    return cell
+    let item = presentation(for: conversations[indexPath.row]); configure(cell: cell, presentation: item, at: indexPath)
+    cell.onAvatarTapped = { [weak self] in self?.didTapAvatar(item) }; return cell
   }
-
-  public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-    tableView.deselectRow(at: indexPath, animated: true)
-    let conversation = conversations[indexPath.row]
-    if let onConversationSelected { onConversationSelected(conversation, self) }
-    else {
-      navigationController?.pushViewController(
-        PteIMUIkit.makeChatViewController(client: client, conversationId: conversation.conversationId, title: conversation.conversationId, theme: theme),
-        animated: true
-      )
-    }
-  }
+  open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didSelectConversation(presentation(for: conversations[indexPath.row])) }
 }
 
-private final class PteIMUIConversationCell: UITableViewCell {
-  static let reuseIdentifier = "PteIMUIConversationCell"
-  private let card = UIView()
-  private let avatar = UILabel()
-  private let titleLabel = UILabel()
-  private let previewLabel = UILabel()
-  private let timeLabel = UILabel()
-  private let unreadDot = UIView()
+open class PteIMUIConversationCell: UITableViewCell {
+  public static let reuseIdentifier = "PteIMUIConversationCell"
+  public var onAvatarTapped: (() -> Void)?
+  public let avatarButton = UIButton(type: .custom)
+  public let avatarImageView = UIImageView()
+  public let avatarLabel = UILabel()
+  public let titleLabel = UILabel()
+  public let subtitleLabel = UILabel()
+  public let timeLabel = UILabel()
+  public let unreadLabel = UILabel()
+  public let separator = UIView()
+  public let chevron = UIImageView()
 
-  override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-    super.init(style: style, reuseIdentifier: reuseIdentifier)
-    selectionStyle = .none
-    backgroundColor = .clear
-
-    card.layer.cornerRadius = 18
-    card.translatesAutoresizingMaskIntoConstraints = false
-    contentView.addSubview(card)
-    avatar.textAlignment = .center
-    avatar.font = .systemFont(ofSize: 14, weight: .bold)
-    avatar.layer.cornerRadius = 23
-    avatar.clipsToBounds = true
-    avatar.translatesAutoresizingMaskIntoConstraints = false
-    card.addSubview(avatar)
-    [titleLabel, previewLabel, timeLabel, unreadDot].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; card.addSubview($0) }
-    titleLabel.font = .preferredFont(forTextStyle: .headline)
-    previewLabel.font = .preferredFont(forTextStyle: .subheadline)
-    previewLabel.numberOfLines = 1
-    timeLabel.font = .preferredFont(forTextStyle: .caption2)
-    unreadDot.layer.cornerRadius = 4
+  public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+    super.init(style: style, reuseIdentifier: reuseIdentifier); selectionStyle = .none; backgroundColor = .clear
+    [avatarButton, titleLabel, subtitleLabel, timeLabel, unreadLabel, separator, chevron].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview($0) }
+    avatarButton.addSubview(avatarImageView); avatarButton.addSubview(avatarLabel); avatarButton.addTarget(self, action: #selector(tapAvatar), for: .touchUpInside)
+    [avatarImageView, avatarLabel].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+    avatarImageView.contentMode = .scaleAspectFill; avatarImageView.clipsToBounds = true; avatarLabel.textAlignment = .center
+    subtitleLabel.numberOfLines = 1; unreadLabel.textAlignment = .center; unreadLabel.clipsToBounds = true
     NSLayoutConstraint.activate([
-      card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12), card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-      card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4), card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-      avatar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12), avatar.centerYAnchor.constraint(equalTo: card.centerYAnchor), avatar.widthAnchor.constraint(equalToConstant: 46), avatar.heightAnchor.constraint(equalToConstant: 46),
-      titleLabel.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 12), titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 15), titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -10),
-      previewLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor), previewLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -34), previewLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 5),
-      timeLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -13), timeLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
-      unreadDot.widthAnchor.constraint(equalToConstant: 8), unreadDot.heightAnchor.constraint(equalToConstant: 8), unreadDot.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -13), unreadDot.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
+      avatarButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), avatarButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor), avatarButton.widthAnchor.constraint(equalToConstant: 42), avatarButton.heightAnchor.constraint(equalTo: avatarButton.widthAnchor),
+      avatarImageView.leadingAnchor.constraint(equalTo: avatarButton.leadingAnchor), avatarImageView.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor), avatarImageView.topAnchor.constraint(equalTo: avatarButton.topAnchor), avatarImageView.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor),
+      avatarLabel.leadingAnchor.constraint(equalTo: avatarButton.leadingAnchor), avatarLabel.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor), avatarLabel.topAnchor.constraint(equalTo: avatarButton.topAnchor), avatarLabel.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor),
+      titleLabel.leadingAnchor.constraint(equalTo: avatarButton.trailingAnchor, constant: 13), titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 15),
+      subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor), subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4), subtitleLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -8),
+      timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20), timeLabel.topAnchor.constraint(equalTo: titleLabel.topAnchor),
+      unreadLabel.trailingAnchor.constraint(equalTo: timeLabel.trailingAnchor), unreadLabel.topAnchor.constraint(equalTo: timeLabel.bottomAnchor, constant: 8), unreadLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18), unreadLabel.heightAnchor.constraint(equalToConstant: 18),
+      separator.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor), separator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor), separator.bottomAnchor.constraint(equalTo: contentView.bottomAnchor), separator.heightAnchor.constraint(equalToConstant: 1),
+      chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18), chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor), chevron.widthAnchor.constraint(equalToConstant: 12), chevron.heightAnchor.constraint(equalToConstant: 16)
     ])
   }
-  required init?(coder: NSCoder) { nil }
-
-  func configure(conversation: PteIMConversation, theme: PteIMUITheme, language: PteIMLanguage) {
-    let palette = theme.palette(for: traitCollection)
-    let seed = conversation.conversationId
-    card.backgroundColor = palette.surfaceColor
-    avatar.text = PteIMUIMessageText.avatarText(for: seed)
-    avatar.backgroundColor = palette.outgoingGradientEndColor
-    avatar.textColor = .white
-    titleLabel.text = seed
-    titleLabel.textColor = palette.primaryTextColor
-    previewLabel.text = PteIMUIMessageText.render(conversation.lastMessage, language: language).replacingOccurrences(of: "\n", with: " · ")
-    previewLabel.textColor = palette.secondaryTextColor
-    timeLabel.text = PteIMUIConversationCell.time(conversation.updatedAt)
-    timeLabel.textColor = palette.secondaryTextColor
-    unreadDot.backgroundColor = palette.outgoingGradientStartColor
-    unreadDot.isHidden = conversation.lastMessage.senderId == nil
+  required public init?(coder: NSCoder) { nil }
+  @objc private func tapAvatar() { onAvatarTapped?() }
+  open func configure(presentation: PteIMUIConversationPresentation, style: PteIMUIListStyle, palette: PteIMUIThemePalette, icons: PteIMUIIconProvider = PteIMUISystemIconProvider()) {
+    contentView.backgroundColor = style.cellBackgroundColor ?? palette.surfaceColor; contentView.layer.cornerRadius = style.cellCornerRadius
+    avatarButton.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
+    avatarButton.layer.cornerRadius = style.avatarSize / 2; avatarButton.clipsToBounds = true
+    avatarImageView.image = presentation.avatarImage; avatarImageView.isHidden = presentation.avatarImage == nil
+    avatarLabel.isHidden = presentation.avatarImage != nil; avatarLabel.text = presentation.avatarText; avatarLabel.font = style.avatarFont; avatarLabel.textColor = style.avatarTextColor; avatarLabel.backgroundColor = palette.outgoingGradientEndColor
+    titleLabel.text = presentation.title; titleLabel.font = style.titleFont; titleLabel.textColor = style.titleColor ?? palette.primaryTextColor
+    subtitleLabel.text = presentation.subtitle; subtitleLabel.font = style.subtitleFont; subtitleLabel.textColor = style.subtitleColor ?? palette.secondaryTextColor
+    timeLabel.text = presentation.updatedAt.map { Self.timeFormatter.string(from: $0) }; timeLabel.font = style.timeFont; timeLabel.textColor = style.timeColor ?? palette.secondaryTextColor
+    unreadLabel.text = presentation.unreadCount > 0 ? "\(presentation.unreadCount)" : nil; unreadLabel.isHidden = presentation.unreadCount == 0; unreadLabel.font = style.unreadFont; unreadLabel.textColor = style.unreadTextColor; unreadLabel.backgroundColor = style.unreadBackgroundColor ?? UIColor.systemRed; unreadLabel.layer.cornerRadius = 9
+    separator.backgroundColor = style.separatorColor ?? palette.dividerColor; separator.isHidden = !style.showsSeparator
+    chevron.image = icons.image(for: .chevron, traitCollection: traitCollection); chevron.tintColor = style.chevronColor ?? palette.secondaryTextColor; chevron.isHidden = !style.showsChevron
   }
-
-  private static func time(_ milliseconds: Int64) -> String {
-    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
-    return formatter.string(from: date)
-  }
-  private static let formatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "HH:mm"
-    return formatter
-  }()
+  private static let timeFormatter: DateFormatter = { let value = DateFormatter(); value.dateFormat = "HH:mm"; return value }()
 }

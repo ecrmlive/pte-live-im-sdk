@@ -51,14 +51,19 @@ private final class PteIMUIDemoLaunchViewController: UIViewController {
     super.viewDidLoad()
     gradient.colors = [UIColor(red: 0.04, green: 0.17, blue: 0.52, alpha: 1).cgColor, UIColor(red: 0.16, green: 0.38, blue: 0.96, alpha: 1).cgColor, UIColor(red: 0.43, green: 0.18, blue: 0.88, alpha: 1).cgColor]
     gradient.startPoint = CGPoint(x: 0, y: 0); gradient.endPoint = CGPoint(x: 1, y: 1); view.layer.insertSublayer(gradient, at: 0)
-    let mark = UIView(); mark.backgroundColor = UIColor.white.withAlphaComponent(0.16); mark.layer.cornerRadius = 46; mark.layer.borderWidth = 1; mark.layer.borderColor = UIColor.white.withAlphaComponent(0.42).cgColor
-    let mic = UIImageView(image: UIImage(systemName: "mic.fill")); mic.tintColor = .white; mic.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 43, weight: .medium)
+    if let background = UIImage(named: "PteIMUILaunchBackground") {
+      let imageView = UIImageView(image: background); imageView.contentMode = .scaleAspectFill; imageView.translatesAutoresizingMaskIntoConstraints = false; imageView.alpha = 0.42
+      view.addSubview(imageView)
+      NSLayoutConstraint.activate([imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor), imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor), imageView.topAnchor.constraint(equalTo: view.topAnchor), imageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)])
+    }
+    let mark = UIImageView(image: UIImage(named: "PteIMUILaunchMark") ?? UIImage(named: "PteIMUILogo"))
+    mark.contentMode = .scaleAspectFit
+    mark.layer.shadowColor = UIColor.black.cgColor; mark.layer.shadowOpacity = 0.22; mark.layer.shadowRadius = 18; mark.layer.shadowOffset = CGSize(width: 0, height: 10)
     let title = UILabel(); title.text = "Pte Live IM"; title.textColor = .white; title.font = .systemFont(ofSize: 25, weight: .bold)
     let caption = UILabel(); caption.text = "PRIVATE LIVE · SECURE MESSAGING"; caption.textColor = UIColor.white.withAlphaComponent(0.72); caption.font = .systemFont(ofSize: 11, weight: .semibold)
-    [mark, mic, title, caption].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; view.addSubview($0) }
+    [mark, title, caption].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; view.addSubview($0) }
     NSLayoutConstraint.activate([
-      mark.centerXAnchor.constraint(equalTo: view.centerXAnchor), mark.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -36), mark.widthAnchor.constraint(equalToConstant: 92), mark.heightAnchor.constraint(equalToConstant: 92),
-      mic.centerXAnchor.constraint(equalTo: mark.centerXAnchor), mic.centerYAnchor.constraint(equalTo: mark.centerYAnchor),
+      mark.centerXAnchor.constraint(equalTo: view.centerXAnchor), mark.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -36), mark.widthAnchor.constraint(equalToConstant: 112), mark.heightAnchor.constraint(equalToConstant: 112),
       title.centerXAnchor.constraint(equalTo: view.centerXAnchor), title.topAnchor.constraint(equalTo: mark.bottomAnchor, constant: 22),
       caption.centerXAnchor.constraint(equalTo: view.centerXAnchor), caption.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8)
     ])

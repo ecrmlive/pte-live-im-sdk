@@ -1,52 +1,60 @@
 import UIKit
 import PteIMSDK
 
-public enum PteIMUIAction: CaseIterable {
-  case image, video, voice, location, gift, redPacket, order
+public enum PteIMUIAction: CaseIterable, Hashable {
+  case image, camera, video, voice, location, gift, redPacket, order, file
   public func title(language: PteIMLanguage) -> String {
     switch self {
     case .image: return PteIMUILocalization.value("图片", "Image", language: language)
+    case .camera: return PteIMUILocalization.value("拍摄", "Camera", language: language)
     case .video: return PteIMUILocalization.value("视频", "Video", language: language)
     case .voice: return PteIMUILocalization.value("语音", "Voice", language: language)
     case .location: return PteIMUILocalization.value("位置", "Location", language: language)
     case .gift: return PteIMUILocalization.value("礼物", "Gift", language: language)
     case .redPacket: return PteIMUILocalization.value("红包", "Red packet", language: language)
     case .order: return PteIMUILocalization.value("订单", "Order", language: language)
+    case .file: return PteIMUILocalization.value("文件", "File", language: language)
     }
   }
 }
 
 /** A UIKit conversation screen. The host supplies attachment, location, and business payloads through [onActionRequested]. */
-public final class PteIMUIChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
+open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
   public let client: PteIMSDK
   public let conversationId: String
+  public var skin: PteIMUISkin { didSet { theme = skin.theme; inputBar.skin = skin; applySkin() } }
   public var theme: PteIMUITheme { didSet { applyTheme() } }
   public private(set) var language: PteIMLanguage
   public var onActionRequested: ((PteIMUIAction, PteIMUIChatViewController) -> Void)?
   /** `true` starts host recording; `false` finalises/cancels it. The host then calls [sendVoice]. */
   public var onVoiceRecordingChanged: ((Bool, PteIMUIChatViewController) -> Void)?
+  public var onAvatarTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  public var onMessageTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var isOutgoing: ((PteIMMessage) -> Bool) = { _ in false }
 
-  private let tableView = UITableView(frame: .zero, style: .plain)
-  private let composerBar = UIView()
-  private lazy var inputBar = PteIMUIInputBar(theme: theme)
-  private var messages: [PteIMMessage] = []
+  public let tableView = UITableView(frame: .zero, style: .plain)
+  public let composerBar = UIView()
+  public private(set) lazy var inputBar = PteIMUIInputBar(skin: skin)
+  /// The current ordered timeline. Subclasses receive items through the open
+  /// cell hooks; keeping mutation private preserves Core/cache consistency.
+  public private(set) var messages: [PteIMMessage] = []
   private var previousMessageCallback: ((PteIMMessage) -> Void)?
   private var previousStateCallback: ((String, PteIMSendState) -> Void)?
   private var previousThemeCallback: ((PteIMThemeMode) -> Void)?
   private var previousLanguageCallback: ((PteIMLanguage) -> Void)?
 
-  public init(client: PteIMSDK, conversationId: String, title: String? = nil, theme: PteIMUITheme = .default) {
-    self.client = client; self.conversationId = conversationId; self.theme = theme; self.language = client.appearance.language
+  public init(client: PteIMSDK, conversationId: String, title: String? = nil, skin: PteIMUISkin = .default) {
+    self.client = client; self.conversationId = conversationId; self.skin = skin; self.theme = skin.theme; self.language = client.appearance.language
     self.isOutgoing = { message in message.senderId == client.currentUserId }
     super.init(nibName: nil, bundle: nil)
     self.title = title ?? conversationId
   }
-  required init?(coder: NSCoder) { nil }
+  public convenience init(client: PteIMSDK, conversationId: String, title: String? = nil, theme: PteIMUITheme) { self.init(client: client, conversationId: conversationId, title: title, skin: PteIMUISkin(theme: theme)) }
+  required public init?(coder: NSCoder) { nil }
 
   public override func viewDidLoad() {
     super.viewDidLoad()
-    configureViews(); bindClient(); reloadFromCache(); applyTheme()
+    configureViews(); bindClient(); reloadFromCache(); applySkin()
   }
 
   public override func viewDidAppear(_ animated: Bool) {
@@ -79,12 +87,35 @@ public final class PteIMUIChatViewController: UIViewController, UITableViewDataS
   public func sendGift(_ content: PteIMBusinessContent) { append(message: client.sendGift(conversationId: conversationId, content: content)) }
   public func sendRedPacket(_ content: PteIMBusinessContent) { append(message: client.sendRedPacket(conversationId: conversationId, content: content)) }
   public func sendOrder(_ content: PteIMBusinessContent) { append(message: client.sendOrder(conversationId: conversationId, content: content)) }
+  public func sendFile(_ media: PteIMMedia) { append(message: client.sendFile(conversationId: conversationId, media: media)) }
+
+  /** Override to add a title view, call buttons or group-management controls. */
+  open func configureNavigationBar() { navigationItem.largeTitleDisplayMode = .never }
+  /** Override and register custom cells such as gifts, red packets or business cards. */
+  open func registerMessageCells(in tableView: UITableView) { tableView.register(PteIMUIMessageCell.self, forCellReuseIdentifier: PteIMUIMessageCell.reuseIdentifier) }
+  open func messageCellReuseIdentifier(for message: PteIMMessage) -> String { PteIMUIMessageCell.reuseIdentifier }
+  /**
+   Register any `UITableViewCell`, return its reuse identifier above, then
+   override this method. The default branch configures PteIMUIMessageCell.
+   This is intentionally not restricted to an SDK cell subclass.
+   */
+  open func configureMessageCell(_ cell: UITableViewCell, message: PteIMMessage, outgoing: Bool, at indexPath: IndexPath) {
+    (cell as? PteIMUIMessageCell)?.configure(message: message, outgoing: outgoing, theme: theme, language: language, style: skin.chat)
+  }
+  /** Dedicated hook for avatar actions in the default SDK message cell. */
+  open func configureAvatarAction(on cell: UITableViewCell, message: PteIMMessage) {
+    (cell as? PteIMUIMessageCell)?.onAvatarTapped = { [weak self] in self?.didTapAvatar(for: message) }
+  }
+  open func didTapAvatar(for message: PteIMMessage) { onAvatarTapped?(message, self) }
+  open func didTapMessage(_ message: PteIMMessage) { onMessageTapped?(message, self) }
+  /** Gift/order/red-packet actions are routed to the host business app. */
+  open func didRequestAction(_ action: PteIMUIAction) { onActionRequested?(action, self) }
 
   private func configureViews() {
     view.addSubview(tableView); view.addSubview(composerBar)
     tableView.translatesAutoresizingMaskIntoConstraints = false; composerBar.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor), tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor), tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), tableView.bottomAnchor.constraint(equalTo: composerBar.topAnchor), composerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor), composerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor), composerBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor), composerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 58)])
-    tableView.register(PteIMUIMessageCell.self, forCellReuseIdentifier: PteIMUIMessageCell.reuseIdentifier); tableView.dataSource = self; tableView.delegate = self; tableView.separatorStyle = .none; tableView.keyboardDismissMode = .interactive
+    registerMessageCells(in: tableView); tableView.dataSource = self; tableView.delegate = self; tableView.separatorStyle = .none; tableView.keyboardDismissMode = .interactive
     composerBar.addSubview(inputBar)
     NSLayoutConstraint.activate([inputBar.leadingAnchor.constraint(equalTo: composerBar.leadingAnchor), inputBar.trailingAnchor.constraint(equalTo: composerBar.trailingAnchor), inputBar.topAnchor.constraint(equalTo: composerBar.topAnchor), inputBar.bottomAnchor.constraint(equalTo: composerBar.bottomAnchor)])
     inputBar.onSendText = { [weak self] text in self?.sendText(text) }
@@ -92,13 +123,14 @@ public final class PteIMUIChatViewController: UIViewController, UITableViewDataS
       guard let self else { return }
       switch selection {
       case let .emoji(packageId, emojiId): self.sendEmoji(packageId: packageId, emojiId: emojiId)
-      case let .action(action): self.onActionRequested?(action, self)
+      case let .action(action): self.didRequestAction(action)
       }
     }
     inputBar.onVoiceRecordingChanged = { [weak self] isRecording in
       guard let self else { return }
       self.onVoiceRecordingChanged?(isRecording, self)
     }
+    configureNavigationBar()
   }
   private func bindClient() {
     previousMessageCallback = client.onMessage; previousStateCallback = client.onMessageStateChanged; previousThemeCallback = client.onThemeModeChanged; previousLanguageCallback = client.onLanguageChanged
@@ -147,8 +179,21 @@ public final class PteIMUIChatViewController: UIViewController, UITableViewDataS
     applyLocalizedStrings()
     tableView.reloadData()
   }
+  private func applySkin() {
+    guard isViewLoaded else { return }
+    tableView.rowHeight = UITableView.automaticDimension; tableView.estimatedRowHeight = 72
+    inputBar.enabledActions = skin.chat.enabledActions
+    applyTheme()
+  }
   private func applyLocalizedStrings() { guard isViewLoaded else { return }; inputBar.language = language; tableView.reloadData() }
   public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) { super.traitCollectionDidChange(previousTraitCollection); if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle { applyTheme() } }
   public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { messages.count }
-  public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { let cell = tableView.dequeueReusableCell(withIdentifier: PteIMUIMessageCell.reuseIdentifier, for: indexPath) as! PteIMUIMessageCell; let message = messages[indexPath.row]; cell.configure(message: message, outgoing: isOutgoing(message), theme: theme, language: language); return cell }
+  open func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    let message = messages[indexPath.row]
+    let cell = tableView.dequeueReusableCell(withIdentifier: messageCellReuseIdentifier(for: message), for: indexPath)
+    configureMessageCell(cell, message: message, outgoing: isOutgoing(message), at: indexPath)
+    configureAvatarAction(on: cell, message: message)
+    return cell
+  }
+  open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didTapMessage(messages[indexPath.row]) }
 }

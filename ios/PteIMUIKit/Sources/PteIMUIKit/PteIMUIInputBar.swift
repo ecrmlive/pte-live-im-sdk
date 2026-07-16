@@ -11,10 +11,12 @@ public enum PteIMUIInputBarAction {
  Reusable UIKit input accessory for PteIMUIkit. It owns presentation and
  interaction only; recording, pickers and business flows remain host-owned.
  */
-public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
+open class PteIMUIInputBar: UIView, UITextFieldDelegate {
   public var onSendText: ((String) -> Void)?
   public var onAction: ((PteIMUIInputBarAction) -> Void)?
   public var onVoiceRecordingChanged: ((Bool) -> Void)?
+  public var skin: PteIMUISkin { didSet { theme = skin.theme; applySkin() } }
+  public var enabledActions: Set<PteIMUIAction> = Set(PteIMUIAction.allCases) { didSet { rebuildMorePanel() } }
   public var language: PteIMLanguage = .zhCN { didSet { applyCopy() } }
   public var theme: PteIMUITheme { didSet { applyTheme() } }
   public private(set) var voiceMode = false
@@ -29,19 +31,20 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
   private let sendButton = UIButton(type: .system)
   private let holdToTalkButton = UIButton(type: .system)
   private let panelView = UIView()
-  private let emojiStack = UIStackView()
+  private lazy var emojiPicker = PteIMUIEmojiPickerView(skin: skin)
   private let moreGrid = UIStackView()
   private var moreButtons: [(UIButton, PteIMUIAction)] = []
   private let sendGradient = CAGradientLayer()
 
-  public init(theme: PteIMUITheme = .default) {
-    self.theme = theme
+  public init(skin: PteIMUISkin = .default) {
+    self.skin = skin; self.theme = skin.theme
     super.init(frame: .zero)
     configureViews()
     applyCopy()
     applyTheme()
   }
-  required init?(coder: NSCoder) { nil }
+  public convenience init(theme: PteIMUITheme) { self.init(skin: PteIMUISkin(theme: theme)) }
+  required public init?(coder: NSCoder) { nil }
 
   public func clearText() { input.text = nil }
   public func endEditingInput() { endEditing(true) }
@@ -58,9 +61,9 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
       $0.widthAnchor.constraint(equalToConstant: 34).isActive = true
       $0.heightAnchor.constraint(equalToConstant: 44).isActive = true
     }
-    configureIcon(voiceButton, symbol: "mic")
-    configureIcon(moreButton, symbol: "plus")
-    configureIcon(emojiButton, symbol: "face.smiling")
+    configureIcon(voiceButton, key: .voice)
+    configureIcon(moreButton, key: .add)
+    configureIcon(emojiButton, key: .emoji)
     voiceButton.addTarget(self, action: #selector(toggleVoiceMode), for: .touchUpInside)
     moreButton.addTarget(self, action: #selector(toggleMore), for: .touchUpInside)
     emojiButton.addTarget(self, action: #selector(toggleEmoji), for: .touchUpInside)
@@ -115,31 +118,23 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
     sendGradient.frame = sendButton.bounds
   }
 
-  private func configureIcon(_ button: UIButton, symbol: String) {
-    button.setImage(UIImage(systemName: symbol), for: .normal)
+  open func configureIcon(_ button: UIButton, key: PteIMUIIconKey) {
+    button.setImage(skin.icons.image(for: key, traitCollection: traitCollection), for: .normal)
     button.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 18, weight: .medium), forImageIn: .normal)
   }
 
   private func configurePanels() {
-    emojiStack.axis = .horizontal; emojiStack.distribution = .fillEqually; emojiStack.spacing = 8
-    ["smile_001", "smile_002", "wave_001", "heart_001", "thumb_001", "party_001"].forEach { emojiId in
-      let button = UIButton(type: .system)
-      button.setTitle(emojiGlyph(for: emojiId), for: .normal)
-      button.titleLabel?.font = .systemFont(ofSize: 25)
-      button.accessibilityLabel = emojiId
-      button.addAction(UIAction { [weak self] _ in self?.selectEmoji(emojiId) }, for: .touchUpInside)
-      emojiStack.addArrangedSubview(button)
-    }
+    emojiPicker.onSelect = { [weak self] item in self?.selectEmoji(item.id) }
     moreGrid.axis = .vertical; moreGrid.distribution = .fillEqually; moreGrid.spacing = 8
-    let actions: [PteIMUIAction] = [.image, .video, .location, .gift, .redPacket, .order]
-    stride(from: 0, to: actions.count, by: 3).forEach { index in
+    let actions: [PteIMUIAction] = [.image, .camera, .video, .location, .redPacket, .order, .file, .gift].filter { enabledActions.contains($0) }
+    stride(from: 0, to: actions.count, by: 4).forEach { index in
       let row = UIStackView()
       row.axis = .horizontal; row.distribution = .fillEqually; row.spacing = 8
-      actions[index..<min(index + 3, actions.count)].forEach { action in
+      actions[index..<min(index + 4, actions.count)].forEach { action in
         let button = UIButton(type: .system)
         button.titleLabel?.font = .preferredFont(forTextStyle: .caption2)
         button.tag = actionIndex(action)
-        button.setImage(UIImage(systemName: symbol(for: action)), for: .normal)
+        button.setImage(skin.icons.image(for: iconKey(for: action), traitCollection: traitCollection), for: .normal)
         button.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold), forImageIn: .normal)
         button.addTarget(self, action: #selector(selectMoreAction(_:)), for: .touchUpInside)
         row.addArrangedSubview(button)
@@ -147,15 +142,31 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
       }
       moreGrid.addArrangedSubview(row)
     }
-    panelView.addSubview(emojiStack); panelView.addSubview(moreGrid)
-    [emojiStack, moreGrid].forEach { stack in
+    panelView.addSubview(emojiPicker); panelView.addSubview(moreGrid)
+    [emojiPicker, moreGrid].forEach { stack in
       stack.translatesAutoresizingMaskIntoConstraints = false
       NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: panelView.leadingAnchor, constant: 16), stack.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -16), stack.centerYAnchor.constraint(equalTo: panelView.centerYAnchor)])
     }
-    emojiStack.heightAnchor.constraint(equalToConstant: 56).isActive = true
-    moreGrid.heightAnchor.constraint(equalToConstant: 96).isActive = true
+    emojiPicker.heightAnchor.constraint(equalToConstant: 112).isActive = true
+    moreGrid.heightAnchor.constraint(equalToConstant: 144).isActive = true
     moreGrid.isHidden = true
   }
+
+  private func rebuildMorePanel() {
+    guard moreGrid.superview != nil else { return }
+    moreButtons.removeAll(); moreGrid.arrangedSubviews.forEach { moreGrid.removeArrangedSubview($0); $0.removeFromSuperview() }
+    let actions: [PteIMUIAction] = [.image, .camera, .video, .location, .redPacket, .order, .file, .gift].filter { enabledActions.contains($0) }
+    stride(from: 0, to: actions.count, by: 4).forEach { index in
+      let row = UIStackView(); row.axis = .horizontal; row.distribution = .fillEqually; row.spacing = 8
+      actions[index..<min(index + 4, actions.count)].forEach { action in
+        let button = UIButton(type: .system); button.tag = actionIndex(action); button.setImage(skin.icons.image(for: iconKey(for: action), traitCollection: traitCollection), for: .normal); button.addTarget(self, action: #selector(selectMoreAction(_:)), for: .touchUpInside); row.addArrangedSubview(button); moreButtons.append((button, action))
+      }
+      moreGrid.addArrangedSubview(row)
+    }
+    applyCopy()
+  }
+
+  private func applySkin() { applyTheme() }
 
   private func applyTheme() {
     let palette = theme.palette(for: traitCollection)
@@ -170,7 +181,7 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
     holdToTalkButton.setTitleColor(palette.primaryTextColor, for: .normal)
     panelView.backgroundColor = palette.panelColor
     sendGradient.colors = [palette.outgoingGradientStartColor.cgColor, palette.outgoingGradientEndColor.cgColor]
-    emojiStack.arrangedSubviews.compactMap { $0 as? UIButton }.forEach { $0.tintColor = palette.iconColor; $0.backgroundColor = palette.panelItemColor; $0.layer.cornerRadius = 14 }
+    emojiPicker.skin = skin; emojiPicker.language = language
     moreButtons.forEach { button, _ in
       button.tintColor = palette.iconColor
       button.backgroundColor = palette.panelItemColor
@@ -184,7 +195,7 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
     sendButton.setTitle(PteIMUILocalization.value("发送", "Send", language: language), for: .normal)
     moreButtons.forEach { button, action in
       var configuration = UIButton.Configuration.plain()
-      configuration.image = UIImage(systemName: symbol(for: action))
+      configuration.image = skin.icons.image(for: iconKey(for: action), traitCollection: traitCollection)
       configuration.imagePlacement = .top
       configuration.imagePadding = 3
       configuration.baseForegroundColor = theme.palette(for: traitCollection).iconColor
@@ -198,15 +209,15 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
   private func updatePanel() {
     let isOpen = panel != .none
     panelView.isHidden = !isOpen
-    emojiStack.isHidden = panel != .emoji
+    emojiPicker.isHidden = panel != .emoji
     moreGrid.isHidden = panel != .more
-    panelView.constraints.first { $0.firstAttribute == .height }?.constant = isOpen ? 104 : 0
+    panelView.constraints.first { $0.firstAttribute == .height }?.constant = isOpen ? (panel == .more ? 170 : 150) : 0
     superview?.setNeedsLayout()
   }
 
   @objc private func toggleVoiceMode() {
     voiceMode.toggle(); input.isHidden = voiceMode; holdToTalkButton.isHidden = !voiceMode
-    voiceButton.setImage(UIImage(systemName: voiceMode ? "keyboard" : "mic"), for: .normal)
+    voiceButton.setImage(skin.icons.image(for: voiceMode ? .keyboard : .voice, traitCollection: traitCollection), for: .normal)
     panel = .none
   }
   @objc private func toggleEmoji() { endEditing(true); panel = panel == .emoji ? .none : .emoji }
@@ -218,8 +229,7 @@ public final class PteIMUIInputBar: UIView, UITextFieldDelegate {
   private func selectEmoji(_ emojiId: String) { panel = .none; onAction?(.emoji(packageId: "default", emojiId: emojiId)) }
   public func textFieldShouldReturn(_ textField: UITextField) -> Bool { sendTapped(); return false }
 
-  private func emojiGlyph(for id: String) -> String { switch id { case "smile_001": return "☺︎"; case "smile_002": return "✦"; case "wave_001": return "◌"; case "heart_001": return "♥"; case "thumb_001": return "✓"; default: return "✺" } }
-  private func actionIndex(_ action: PteIMUIAction) -> Int { switch action { case .image: return 0; case .video: return 1; case .location: return 2; case .gift: return 3; case .redPacket: return 4; case .order: return 5; case .voice: return -1 } }
-  private func actionForIndex(_ index: Int) -> PteIMUIAction? { switch index { case 0: return .image; case 1: return .video; case 2: return .location; case 3: return .gift; case 4: return .redPacket; case 5: return .order; default: return nil } }
-  private func symbol(for action: PteIMUIAction) -> String { switch action { case .image: return "photo"; case .video: return "video"; case .voice: return "mic"; case .location: return "location"; case .gift: return "gift"; case .redPacket: return "yensign.circle"; case .order: return "bag" } }
+  private func actionIndex(_ action: PteIMUIAction) -> Int { switch action { case .image: return 0; case .camera: return 1; case .video: return 2; case .location: return 3; case .redPacket: return 4; case .order: return 5; case .file: return 6; case .gift: return 7; case .voice: return -1 } }
+  private func actionForIndex(_ index: Int) -> PteIMUIAction? { switch index { case 0: return .image; case 1: return .camera; case 2: return .video; case 3: return .location; case 4: return .redPacket; case 5: return .order; case 6: return .file; case 7: return .gift; default: return nil } }
+  private func iconKey(for action: PteIMUIAction) -> PteIMUIIconKey { switch action { case .image: return .image; case .camera: return .camera; case .video: return .video; case .voice: return .voice; case .location: return .location; case .gift: return .gift; case .redPacket: return .redPacket; case .order: return .order; case .file: return .file } }
 }

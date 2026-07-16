@@ -34,6 +34,10 @@ export type PteIMAppearance = {
   themeMode: 'system' | 'light' | 'dark'
   language: 'system' | 'zh-CN' | 'en-US'
 }
+export type PteIMGender = 'unknown' | 'male' | 'female'
+export type PteIMUserProfile = { userId: number, nickname?: string, avatar?: string, gender: PteIMGender, birthday?: string, province?: string, city?: string, district?: string }
+/** Exactly one mutable profile property per request. */
+export type PteIMUserProfileUpdate = { field: 'nickname' | 'avatar' | 'gender' | 'birthday' | 'province' | 'city' | 'district', value: string }
 
 export type PteIMMedia = {
   url?: string
@@ -73,6 +77,8 @@ export interface PteIMSDKClient {
   updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance
   currentAppearance(): PteIMAppearance
   currentUserId(): string
+  fetchMyProfile(callback: (result: PteIMUserProfile | null, error: string | null) => void): void
+  updateMyProfile(update: PteIMUserProfileUpdate, callback: (result: PteIMUserProfile | null, error: string | null) => void): void
   syncNow(): void
   localMessages(conversationId: string, limit?: number): PteIMIncomingMessage[]
   localConversations(limit?: number): PteIMConversation[]

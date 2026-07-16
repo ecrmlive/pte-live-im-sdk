@@ -80,6 +80,19 @@ public final class PteIMSDK: NSObject {
   }
   public var currentUserId: String { config.userId }
 
+  /** Reads the server-authoritative profile for the authenticated UserSig identity. */
+  public func fetchMyProfile() async throws -> PteIMUserProfile {
+    try await sdkRequest(path: "v1/im/profile/me", body: [:], response: PteIMUserProfile.self)
+  }
+
+  /**
+   Updates exactly one profile property. Avatar must be a COS key or URL
+   accepted by the host API; the SDK never uploads profile media implicitly.
+   */
+  @discardableResult public func updateMyProfile(_ update: PteIMUserProfileUpdate) async throws -> PteIMUserProfile {
+    try await sdkRequest(path: "v1/im/profile/update", body: update.requestBody, response: PteIMUserProfile.self)
+  }
+
   @discardableResult public func sendText(conversationId: String, text: String) -> PteIMMessage {
     send(PteIMMessage(conversationId: conversationId, type: .text, text: text))
   }
@@ -107,11 +120,17 @@ public final class PteIMSDK: NSObject {
   @discardableResult public func sendOrder(conversationId: String, content: PteIMBusinessContent) -> PteIMMessage {
     send(PteIMMessage(conversationId: conversationId, type: .order, business: content))
   }
+  @discardableResult public func sendFile(conversationId: String, media: PteIMMedia) -> PteIMMessage {
+    send(PteIMMessage(conversationId: conversationId, type: .file, media: media))
+  }
   @discardableResult public func uploadAndSendImage(conversationId: String, fileURL: URL, progress: @escaping (Int64, Int64) -> Void = { _, _ in }) -> PteIMMessage {
     uploadAndSendMedia(conversationId: conversationId, fileURL: fileURL, type: .image, progress: progress)
   }
   @discardableResult public func uploadAndSendVideo(conversationId: String, fileURL: URL, progress: @escaping (Int64, Int64) -> Void = { _, _ in }) -> PteIMMessage {
     uploadAndSendMedia(conversationId: conversationId, fileURL: fileURL, type: .video, progress: progress)
+  }
+  @discardableResult public func uploadAndSendFile(conversationId: String, fileURL: URL, progress: @escaping (Int64, Int64) -> Void = { _, _ in }) -> PteIMMessage {
+    uploadAndSendMedia(conversationId: conversationId, fileURL: fileURL, type: .file, progress: progress)
   }
   @discardableResult public func uploadAndSendVoice(conversationId: String, fileURL: URL, durationMs: Int64, waveform: String? = nil, progress: @escaping (Int64, Int64) -> Void = { _, _ in }) -> PteIMMessage {
     precondition(durationMs > 0, "durationMs must be positive")
@@ -205,7 +224,14 @@ public final class PteIMSDK: NSObject {
         if type == .voice {
           guard let key = uploaded.url, let durationMs = voiceDurationMs, durationMs > 0 else { throw PteIMError.invalidResponse }
           message.voice = PteIMVoice(url: key, durationMs: durationMs, waveform: waveform, sizeBytes: uploaded.sizeBytes)
-        } else { message.media = uploaded }
+        } else {
+          var attachedMedia = uploaded
+          if type == .file {
+            attachedMedia.fileName = fileURL.lastPathComponent
+            attachedMedia.mimeType = self.cosContentType(for: fileURL, type: type)
+          }
+          message.media = attachedMedia
+        }
         message.state = .pending
         try self.store.replaceQueued(message)
         self.onMessageStateChanged?(message.clientMsgId, .pending)
@@ -371,9 +397,17 @@ public final class PteIMSDK: NSObject {
     case "m4a": return "audio/mp4"
     case "ogg": return "audio/ogg"
     case "wav": return "audio/wav"
+    case "pdf": return "application/pdf"
+    case "zip": return "application/zip"
+    case "doc": return "application/msword"
+    case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "xls": return "application/vnd.ms-excel"
+    case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    case "txt": return "text/plain"
     default:
       if type == .image { return "image/jpeg" }
       if type == .voice { return "audio/mpeg" }
+      if type == .file { return "application/octet-stream" }
       return "video/mp4"
     }
   }
@@ -459,7 +493,7 @@ extension PteIMMessage {
   var contentDictionary: [String: Any] {
     var content: [String: Any] = [:]
     if let text { content["text"] = text }; if let packageId { content["packageId"] = packageId }; if let emojiId { content["emojiId"] = emojiId }
-    if let media { if let url = media.url { content["url"] = url }; if let thumbnailUrl = media.thumbnailUrl { content["thumbnailUrl"] = thumbnailUrl }; if let coverUrl = media.coverUrl { content["coverUrl"] = coverUrl }; if let width = media.width { content["width"] = width }; if let height = media.height { content["height"] = height }; if let durationMs = media.durationMs { content["durationMs"] = durationMs }; if let sizeBytes = media.sizeBytes { content["sizeBytes"] = sizeBytes } }
+    if let media { if let url = media.url { content["url"] = url }; if let thumbnailUrl = media.thumbnailUrl { content["thumbnailUrl"] = thumbnailUrl }; if let coverUrl = media.coverUrl { content["coverUrl"] = coverUrl }; if let width = media.width { content["width"] = width }; if let height = media.height { content["height"] = height }; if let durationMs = media.durationMs { content["durationMs"] = durationMs }; if let sizeBytes = media.sizeBytes { content["sizeBytes"] = sizeBytes }; if let fileName = media.fileName { content["fileName"] = fileName }; if let mimeType = media.mimeType { content["mimeType"] = mimeType } }
     if let voice { content["url"] = voice.url; content["durationMs"] = voice.durationMs; if let waveform = voice.waveform { content["waveform"] = waveform }; if let sizeBytes = voice.sizeBytes { content["sizeBytes"] = sizeBytes } }
     if let location { content["latitude"] = location.latitude; content["longitude"] = location.longitude; content["name"] = location.name; if let address = location.address { content["address"] = address } }
     if let business { content["businessId"] = business.businessId; content["title"] = business.title; if let subtitle = business.subtitle { content["subtitle"] = subtitle }; if let actionURL = business.actionUrl { content["actionUrl"] = actionURL } }

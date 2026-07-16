@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
 import util from '@ohos.util'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMConversation, PteIMConversationPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMThemeMode, PteIMVoice, PteIMWireMessage } from './IMModels'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMConversation, PteIMConversationPage, PteIMGender, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage } from './IMModels'
 import { PteIMSqliteStore } from './IMSqliteStore'
 import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
@@ -31,6 +31,8 @@ class PteIMRequestBody {
   contentType: string = ''
   contentLength: number = 0
   serverMsgId: string = ''
+  field: string = ''
+  value: string = ''
 }
 
 class PteIMEnvelope {
@@ -175,6 +177,16 @@ export class PteIMSDK {
     const values = data['list'] as Object[]
     const items: PteIMRemoteConversation[] = values === undefined || values === null ? [] : values.map((value: Object) => this.remoteConversation(value as WireObject))
     return new PteIMConversationPage(this.numberValue(data, 'total'), items)
+  }
+
+  async fetchMyProfile(): Promise<PteIMUserProfile> {
+    return this.userProfile(await this.sdkRequest('/v1/im/profile/me', new PteIMRequestBody()))
+  }
+
+  /** The UserSig identity chooses the owner; update always has exactly one field. */
+  async updateMyProfile(update: PteIMUserProfileUpdate): Promise<PteIMUserProfile> {
+    const body = new PteIMRequestBody(); body.field = update.field; body.value = update.value
+    return this.userProfile(await this.sdkRequest('/v1/im/profile/update', body))
   }
 
   async openSingleConversation(peerUserId: number): Promise<PteIMRemoteConversation> {
@@ -413,6 +425,11 @@ export class PteIMSDK {
     } finally { request.destroy() }
   }
   private remoteConversation(value: WireObject): PteIMRemoteConversation { return new PteIMRemoteConversation(this.numberValue(value, 'id'), this.stringValue(value, 'type'), this.stringValue(value, 'title'), this.stringValue(value, 'avatar'), this.numberValue(value, 'last_message_seq'), this.stringValue(value, 'last_message_snapshot'), this.numberValue(value, 'last_message_at'), this.numberValue(value, 'unread_count')) }
+  private userProfile(value: WireObject): PteIMUserProfile {
+    const rawGender = this.stringValue(value, 'gender')
+    const gender = rawGender === 'male' ? PteIMGender.MALE : rawGender === 'female' ? PteIMGender.FEMALE : PteIMGender.UNKNOWN
+    return new PteIMUserProfile(this.numberValue(value, 'user_id'), this.stringValue(value, 'nickname'), this.stringValue(value, 'avatar'), gender, this.stringValue(value, 'birthday'), this.stringValue(value, 'province'), this.stringValue(value, 'city'), this.stringValue(value, 'district'))
+  }
   private remoteMessage(value: WireObject): PteIMRemoteMessage { return new PteIMRemoteMessage(this.numberValue(value, 'message_id'), this.numberValue(value, 'conversation_id'), this.numberValue(value, 'sender_id'), this.stringValue(value, 'client_msg_id'), this.stringValue(value, 'msg_type'), this.stringValue(value, 'content'), this.stringValue(value, 'payload'), this.numberValue(value, 'seq'), this.numberValue(value, 'sent_at'), this.numberValue(value, 'recalled_at')) }
   private apiRequestHeaders(): Map<string, string> {
     const headers = new Map<string, string>()

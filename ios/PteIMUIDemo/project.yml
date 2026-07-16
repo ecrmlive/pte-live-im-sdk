@@ -13,6 +13,8 @@ targets:
     type: application
     platform: iOS
     sources: [PteIMUIDemo]
+    resources:
+      - path: PteIMUIDemo/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ptelive.im.demo

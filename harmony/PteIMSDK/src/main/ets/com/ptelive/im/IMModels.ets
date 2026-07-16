@@ -6,6 +6,27 @@ export enum PteIMMessageType {
   LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order'
 }
 export enum PteIMSendState { PENDING = 'pending', UPLOADING = 'uploading', SENT = 'sent', FAILED = 'failed' }
+export enum PteIMGender { UNKNOWN = 'unknown', MALE = 'male', FEMALE = 'female' }
+
+export class PteIMUserProfile {
+  userId: number; nickname: string; avatar: string; gender: PteIMGender; birthday: string; province: string; city: string; district: string
+  constructor(userId: number, nickname: string = '', avatar: string = '', gender: PteIMGender = PteIMGender.UNKNOWN, birthday: string = '', province: string = '', city: string = '', district: string = '') {
+    this.userId = userId; this.nickname = nickname; this.avatar = avatar; this.gender = gender; this.birthday = birthday; this.province = province; this.city = city; this.district = district
+  }
+}
+
+/** Exactly one profile field is sent for each update request. */
+export class PteIMUserProfileUpdate {
+  field: string; value: string
+  constructor(field: string, value: string) { this.field = field; this.value = value }
+  static nickname(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('nickname', value) }
+  static avatar(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('avatar', value) }
+  static gender(value: PteIMGender): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('gender', value) }
+  static birthday(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('birthday', value) }
+  static province(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('province', value) }
+  static city(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('city', value) }
+  static district(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('district', value) }
+}
 
 /** Explicit wire models keep API 23 ArkTS serialization type-safe. */
 export class PteIMWireContent {

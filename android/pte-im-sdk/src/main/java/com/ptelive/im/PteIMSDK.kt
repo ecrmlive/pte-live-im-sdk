@@ -82,6 +82,15 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun currentAppearance(): PteIMAppearance = appearance
   fun currentUserId(): String = config.userId
 
+  fun fetchMyProfile(callback: (Result<PteIMUserProfile>) -> Unit) {
+    executor.execute { callback(runCatching { profileFromJson(postSdkJson("/v1/im/profile/me", JSONObject())) }) }
+  }
+
+  /** Sends one field only; the UserSig determines the profile owner. */
+  fun updateMyProfile(update: PteIMUserProfileUpdate, callback: (Result<PteIMUserProfile>) -> Unit) {
+    executor.execute { callback(runCatching { profileFromJson(postSdkJson("/v1/im/profile/update", JSONObject().put("field", update.field).put("value", update.value))) }) }
+  }
+
   fun sendText(conversationId: String, text: String): PteIMMessage = send(
     PteIMMessage(conversationId = conversationId, type = PteIMMessageType.TEXT, text = text),
   )
@@ -386,6 +395,14 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     check(root.optInt("code", 1) == 1) { root.optString("msg", "IM API request failed") }
     return root.opt("data") ?: JSONObject()
   }
+
+  private fun profileFromJson(value: JSONObject): PteIMUserProfile = PteIMUserProfile(
+    userId = value.getLong("user_id"), nickname = value.optString("nickname").takeIf { it.isNotEmpty() },
+    avatar = value.optString("avatar").takeIf { it.isNotEmpty() },
+    gender = runCatching { PteIMGender.valueOf(value.optString("gender", "unknown").uppercase()) }.getOrDefault(PteIMGender.UNKNOWN),
+    birthday = value.optString("birthday").takeIf { it.isNotEmpty() }, province = value.optString("province").takeIf { it.isNotEmpty() },
+    city = value.optString("city").takeIf { it.isNotEmpty() }, district = value.optString("district").takeIf { it.isNotEmpty() },
+  )
 
   /** The media-credential contract uses a { code: 0, data } envelope. */
   private fun postMediaCredentialJson(path: String, payload: JSONObject): JSONObject {

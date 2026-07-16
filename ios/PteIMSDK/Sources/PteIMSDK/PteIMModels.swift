@@ -49,8 +49,46 @@ public struct PteIMSessionConfig: Sendable {
 }
 
 public enum PteIMError: Error { case invalidApiDomain, invalidImDomain, invalidCredentials, invalidConversationId, disconnected, invalidResponse }
-public enum PteIMMessageType: String, Codable, Sendable { case text, emoji, image, video, voice, location, gift, red_packet, order }
+public enum PteIMMessageType: String, Codable, Sendable { case text, emoji, image, video, voice, location, gift, red_packet, order, file }
 public enum PteIMSendState: String, Codable, Sendable { case pending, uploading, sent, failed }
+
+/** Server-authoritative IM profile for the currently authenticated user. */
+public struct PteIMUserProfile: Codable, Sendable, Equatable {
+  public let userId: Int64
+  public var nickname: String?
+  public var avatar: String?
+  public var gender: PteIMGender
+  /** ISO-8601 calendar date (`YYYY-MM-DD`), if supplied by the business app. */
+  public var birthday: String?
+  public var province: String?
+  public var city: String?
+  public var district: String?
+  public init(userId: Int64, nickname: String? = nil, avatar: String? = nil, gender: PteIMGender = .unknown, birthday: String? = nil, province: String? = nil, city: String? = nil, district: String? = nil) {
+    self.userId = userId; self.nickname = nickname; self.avatar = avatar; self.gender = gender; self.birthday = birthday; self.province = province; self.city = city; self.district = district
+  }
+  enum CodingKeys: String, CodingKey { case userId = "user_id"; case nickname, avatar, gender, birthday, province, city, district }
+}
+
+public enum PteIMGender: String, Codable, Sendable { case unknown, male, female }
+
+/**
+ Exactly one mutable profile field. The type prevents accidental multi-field
+ writes and maps one-to-one to the `/v1/im/profile/update` API contract.
+ */
+public enum PteIMUserProfileUpdate: Sendable, Equatable {
+  case nickname(String), avatar(String), gender(PteIMGender), birthday(String), province(String), city(String), district(String)
+  internal var requestBody: [String: Any] {
+    switch self {
+    case let .nickname(value): return ["field": "nickname", "value": value]
+    case let .avatar(value): return ["field": "avatar", "value": value]
+    case let .gender(value): return ["field": "gender", "value": value.rawValue]
+    case let .birthday(value): return ["field": "birthday", "value": value]
+    case let .province(value): return ["field": "province", "value": value]
+    case let .city(value): return ["field": "city", "value": value]
+    case let .district(value): return ["field": "district", "value": value]
+    }
+  }
+}
 
 public struct PteIMMedia: Codable, Sendable {
   public var url: String?
@@ -60,8 +98,10 @@ public struct PteIMMedia: Codable, Sendable {
   public var height: Int?
   public var durationMs: Int64?
   public var sizeBytes: Int64?
-  public init(url: String? = nil, thumbnailUrl: String? = nil, coverUrl: String? = nil, width: Int? = nil, height: Int? = nil, durationMs: Int64? = nil, sizeBytes: Int64? = nil) {
-    self.url = url; self.thumbnailUrl = thumbnailUrl; self.coverUrl = coverUrl; self.width = width; self.height = height; self.durationMs = durationMs; self.sizeBytes = sizeBytes
+  public var fileName: String?
+  public var mimeType: String?
+  public init(url: String? = nil, thumbnailUrl: String? = nil, coverUrl: String? = nil, width: Int? = nil, height: Int? = nil, durationMs: Int64? = nil, sizeBytes: Int64? = nil, fileName: String? = nil, mimeType: String? = nil) {
+    self.url = url; self.thumbnailUrl = thumbnailUrl; self.coverUrl = coverUrl; self.width = width; self.height = height; self.durationMs = durationMs; self.sizeBytes = sizeBytes; self.fileName = fileName; self.mimeType = mimeType
   }
 }
 public struct PteIMVoice: Codable, Sendable {
@@ -128,7 +168,7 @@ public struct PteIMMessage: Codable, Sendable {
   }
 
   enum CodingKeys: String, CodingKey { case clientMsgId, serverMsgId, conversationId, senderId, type, createdAt, serverSeq, content }
-  enum ContentKeys: String, CodingKey { case text, packageId, emojiId, url, thumbnailUrl, coverUrl, width, height, durationMs, sizeBytes, waveform, latitude, longitude, name, address, businessId, title, subtitle, actionUrl }
+  enum ContentKeys: String, CodingKey { case text, packageId, emojiId, url, thumbnailUrl, coverUrl, width, height, durationMs, sizeBytes, fileName, mimeType, waveform, latitude, longitude, name, address, businessId, title, subtitle, actionUrl }
 
   public init(from decoder: Decoder) throws {
     let root = try decoder.container(keyedBy: CodingKeys.self)
@@ -137,7 +177,7 @@ public struct PteIMMessage: Codable, Sendable {
     createdAt = try root.decode(Int64.self, forKey: .createdAt); serverSeq = try root.decodeIfPresent(Int64.self, forKey: .serverSeq)
     let content = try root.nestedContainer(keyedBy: ContentKeys.self, forKey: .content)
     text = try content.decodeIfPresent(String.self, forKey: .text); packageId = try content.decodeIfPresent(String.self, forKey: .packageId); emojiId = try content.decodeIfPresent(String.self, forKey: .emojiId)
-    media = type == .image || type == .video ? PteIMMedia(url: try content.decodeIfPresent(String.self, forKey: .url), thumbnailUrl: try content.decodeIfPresent(String.self, forKey: .thumbnailUrl), coverUrl: try content.decodeIfPresent(String.self, forKey: .coverUrl), width: try content.decodeIfPresent(Int.self, forKey: .width), height: try content.decodeIfPresent(Int.self, forKey: .height), durationMs: try content.decodeIfPresent(Int64.self, forKey: .durationMs), sizeBytes: try content.decodeIfPresent(Int64.self, forKey: .sizeBytes)) : nil
+    media = type == .image || type == .video || type == .file ? PteIMMedia(url: try content.decodeIfPresent(String.self, forKey: .url), thumbnailUrl: try content.decodeIfPresent(String.self, forKey: .thumbnailUrl), coverUrl: try content.decodeIfPresent(String.self, forKey: .coverUrl), width: try content.decodeIfPresent(Int.self, forKey: .width), height: try content.decodeIfPresent(Int.self, forKey: .height), durationMs: try content.decodeIfPresent(Int64.self, forKey: .durationMs), sizeBytes: try content.decodeIfPresent(Int64.self, forKey: .sizeBytes), fileName: try content.decodeIfPresent(String.self, forKey: .fileName), mimeType: try content.decodeIfPresent(String.self, forKey: .mimeType)) : nil
     voice = type == .voice ? try content.decodeIfPresent(String.self, forKey: .url).map { PteIMVoice(url: $0, durationMs: try content.decode(Int64.self, forKey: .durationMs), waveform: try content.decodeIfPresent(String.self, forKey: .waveform), sizeBytes: try content.decodeIfPresent(Int64.self, forKey: .sizeBytes)) } : nil
     location = type == .location ? try content.decodeIfPresent(Double.self, forKey: .latitude).map { latitude in PteIMLocation(latitude: latitude, longitude: try content.decode(Double.self, forKey: .longitude), name: try content.decode(String.self, forKey: .name), address: try content.decodeIfPresent(String.self, forKey: .address)) } : nil
     business = (type == .gift || type == .red_packet || type == .order) ? try content.decodeIfPresent(String.self, forKey: .businessId).map { id in PteIMBusinessContent(businessId: id, title: try content.decode(String.self, forKey: .title), subtitle: try content.decodeIfPresent(String.self, forKey: .subtitle), actionUrl: try content.decodeIfPresent(String.self, forKey: .actionUrl)) } : nil
@@ -152,6 +192,7 @@ public struct PteIMMessage: Codable, Sendable {
     try content.encodeIfPresent(text, forKey: .text); try content.encodeIfPresent(packageId, forKey: .packageId); try content.encodeIfPresent(emojiId, forKey: .emojiId)
     try content.encodeIfPresent(media?.url, forKey: .url); try content.encodeIfPresent(media?.thumbnailUrl, forKey: .thumbnailUrl); try content.encodeIfPresent(media?.coverUrl, forKey: .coverUrl)
     try content.encodeIfPresent(media?.width, forKey: .width); try content.encodeIfPresent(media?.height, forKey: .height); try content.encodeIfPresent(media?.durationMs, forKey: .durationMs); try content.encodeIfPresent(media?.sizeBytes, forKey: .sizeBytes)
+    try content.encodeIfPresent(media?.fileName, forKey: .fileName); try content.encodeIfPresent(media?.mimeType, forKey: .mimeType)
     try content.encodeIfPresent(voice?.url, forKey: .url); try content.encodeIfPresent(voice?.durationMs, forKey: .durationMs); try content.encodeIfPresent(voice?.waveform, forKey: .waveform); try content.encodeIfPresent(voice?.sizeBytes, forKey: .sizeBytes)
     try content.encodeIfPresent(location?.latitude, forKey: .latitude); try content.encodeIfPresent(location?.longitude, forKey: .longitude); try content.encodeIfPresent(location?.name, forKey: .name); try content.encodeIfPresent(location?.address, forKey: .address)
     try content.encodeIfPresent(business?.businessId, forKey: .businessId); try content.encodeIfPresent(business?.title, forKey: .title); try content.encodeIfPresent(business?.subtitle, forKey: .subtitle); try content.encodeIfPresent(business?.actionUrl, forKey: .actionUrl)
@@ -161,7 +202,7 @@ public struct PteIMMessage: Codable, Sendable {
   public func contentJSON() -> String {
     var content: [String: Any] = [:]
     if let text { content["text"] = text }; if let packageId { content["packageId"] = packageId }; if let emojiId { content["emojiId"] = emojiId }
-    if let media { if let url = media.url { content["url"] = url }; if let thumbnailUrl = media.thumbnailUrl { content["thumbnailUrl"] = thumbnailUrl }; if let coverUrl = media.coverUrl { content["coverUrl"] = coverUrl }; if let width = media.width { content["width"] = width }; if let height = media.height { content["height"] = height }; if let durationMs = media.durationMs { content["durationMs"] = durationMs }; if let sizeBytes = media.sizeBytes { content["sizeBytes"] = sizeBytes } }
+    if let media { if let url = media.url { content["url"] = url }; if let thumbnailUrl = media.thumbnailUrl { content["thumbnailUrl"] = thumbnailUrl }; if let coverUrl = media.coverUrl { content["coverUrl"] = coverUrl }; if let width = media.width { content["width"] = width }; if let height = media.height { content["height"] = height }; if let durationMs = media.durationMs { content["durationMs"] = durationMs }; if let sizeBytes = media.sizeBytes { content["sizeBytes"] = sizeBytes }; if let fileName = media.fileName { content["fileName"] = fileName }; if let mimeType = media.mimeType { content["mimeType"] = mimeType } }
     if let voice { content["url"] = voice.url; content["durationMs"] = voice.durationMs; if let waveform = voice.waveform { content["waveform"] = waveform }; if let sizeBytes = voice.sizeBytes { content["sizeBytes"] = sizeBytes } }
     if let location { content["latitude"] = location.latitude; content["longitude"] = location.longitude; content["name"] = location.name; if let address = location.address { content["address"] = address } }
     if let business { content["businessId"] = business.businessId; content["title"] = business.title; if let subtitle = business.subtitle { content["subtitle"] = subtitle }; if let actionURL = business.actionUrl { content["actionUrl"] = actionURL } }

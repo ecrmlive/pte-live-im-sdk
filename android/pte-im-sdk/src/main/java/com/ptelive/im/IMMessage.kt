@@ -6,6 +6,30 @@ import java.util.UUID
 enum class PteIMMessageType { TEXT, EMOJI, IMAGE, VIDEO, VOICE, LOCATION, GIFT, RED_PACKET, ORDER }
 enum class PteIMSendState { PENDING, UPLOADING, SENT, FAILED }
 
+data class PteIMUserProfile(
+  val userId: Long,
+  val nickname: String? = null,
+  val avatar: String? = null,
+  val gender: PteIMGender = PteIMGender.UNKNOWN,
+  val birthday: String? = null,
+  val province: String? = null,
+  val city: String? = null,
+  val district: String? = null,
+)
+
+enum class PteIMGender { UNKNOWN, MALE, FEMALE }
+
+/** Exactly one profile field per server request. */
+sealed class PteIMUserProfileUpdate(val field: String, val value: String) {
+  class Nickname(value: String) : PteIMUserProfileUpdate("nickname", value)
+  class Avatar(value: String) : PteIMUserProfileUpdate("avatar", value)
+  class Gender(value: PteIMGender) : PteIMUserProfileUpdate("gender", value.name.lowercase())
+  class Birthday(value: String) : PteIMUserProfileUpdate("birthday", value)
+  class Province(value: String) : PteIMUserProfileUpdate("province", value)
+  class City(value: String) : PteIMUserProfileUpdate("city", value)
+  class District(value: String) : PteIMUserProfileUpdate("district", value)
+}
+
 data class PteIMMedia(
   val url: String? = null,
   val thumbnailUrl: String? = null,

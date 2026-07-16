@@ -65,6 +65,8 @@ For `send_message`, the client sends only routing metadata (`clientMsgId`, `conv
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /v1/im/sync` | Incremental changes after `syncCursor`; returns `nextCursor` and `hasMore` |
+| `POST /v1/im/profile/me` | UserSig-protected read of the caller's IM profile |
+| `POST /v1/im/profile/update` | UserSig-protected one-field profile update; body `{ field, value }` |
 | `POST /v1/im/conversations/open-single` | UserSig-protected open/create C2C; body `{ peerUserId }` |
 | `POST /v1/im/conversations/create-group` | UserSig-protected group creation; body `{ title, memberIds, avatar? }` |
 | `POST /v1/im/conversations/read` | UserSig-protected read cursor; body `{ conversationId, seq }`, with `seq: 0` meaning latest |
@@ -75,6 +77,8 @@ For `send_message`, the client sends only routing metadata (`clientMsgId`, `conv
 For the PteLive reference deployment, these requests are served by `api-im`. The SDK consumes the contract and does not depend on the service's internal deployment layout.
 
 For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authorization: Bearer`), `X-Pte-Sdk-AppId`, and `X-Pte-User-Id`. The host API verifies the UserSig, derives an object key in the verified user's namespace, and returns a short-lived COS `PUT` URL plus mandatory headers. The SDK performs the PUT, then persists/sends only `key` as `media.url` (or `voice.url`). Image/video dimensions and duration may be enriched by the host; `uploadAndSendVoice` requires the recording duration and accepts an optional waveform. `cosDomain` is used only to resolve a key for display. COS secrets are server-side YAML configuration and are never exposed to clients.
+
+`POST /v1/im/profile/update` accepts exactly one `field` from `nickname`, `avatar`, `gender`, `birthday`, `province`, `city`, or `district`, plus one corresponding `value`. `gender` is `unknown`, `male`, or `female`; `birthday` uses `YYYY-MM-DD`. The server derives `userId` exclusively from the verified UserSig and returns the complete updated profile. It must reject unknown fields and malformed values. `avatar` is an already uploaded COS key or an allowed HTTPS URL; no COS secret or direct credential is involved.
 
 ## Synchronization rules
 

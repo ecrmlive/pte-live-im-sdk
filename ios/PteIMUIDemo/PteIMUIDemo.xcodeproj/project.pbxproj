@@ -7,77 +7,101 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0AF99256841A8EF0A88E06A7 /* PteIMUIDemoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4BC4D11FA9238A9CAAB7DE1 /* PteIMUIDemoViewController.swift */; };
-		2B855ED0BDC3FB400419C024 /* PteIMUIDemoAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D3154FCC6EA3664CD865F0 /* PteIMUIDemoAppDelegate.swift */; };
-		49D59A739CA291A72DB19A8D /* PteIMUIkit in Frameworks */ = {isa = PBXBuildFile; productRef = 6CF5D4253DD19666EE378A4F /* PteIMUIkit */; };
-		5F49ABB73B3293C0BFEF33CE /* PteIMSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 7403C88942FFC8D05C1A7E8F /* PteIMSDK */; };
+		0E2D558D1EE4CE713679E38B /* PteIMUILogo@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */; };
+		1349FC69EBCB2996619E74E6 /* PteIMUILogo.png in Resources */ = {isa = PBXBuildFile; fileRef = BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */; };
+		29DDC39BC620393FC0F50701 /* PteIMSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 758FD234B46D2F5676A5D077 /* PteIMSDK */; };
+		3D37E50BF15004FF4B9E549C /* PteIMUILaunchBackground.png in Resources */ = {isa = PBXBuildFile; fileRef = 656D4E77EB64F7CB312F45EC /* PteIMUILaunchBackground.png */; };
+		7CB98B0A7F413F80EA486E95 /* PteIMUILogo@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = 0775C2F8C6A0411F32304BD5 /* PteIMUILogo@3x.png */; };
+		89D79E1C8301A65228B19C13 /* PteIMUIDemoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */; };
+		972C9DFBBB82FC421C2D9427 /* PteIMUIDemoAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */; };
+		C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */ = {isa = PBXBuildFile; fileRef = B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */; };
+		FF94628F820E023EC4935D1A /* PteIMUIkit in Frameworks */ = {isa = PBXBuildFile; productRef = 39B97C9073BB018DF864849E /* PteIMUIkit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		5580CEB39F0D69197246ED5E /* PteIMUIkit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMUIkit; path = ../PteIMUIkit; sourceTree = SOURCE_ROOT; };
-		99D3154FCC6EA3664CD865F0 /* PteIMUIDemoAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoAppDelegate.swift; sourceTree = "<group>"; };
-		B7F6A876C07F1C2A1F8A38AD /* PteIMUIDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PteIMUIDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E4BC4D11FA9238A9CAAB7DE1 /* PteIMUIDemoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoViewController.swift; sourceTree = "<group>"; };
-		EC54D7F306D3E9EB3D207AED /* PteIMSDK */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMSDK; path = ../PteIMSDK; sourceTree = SOURCE_ROOT; };
+		0775C2F8C6A0411F32304BD5 /* PteIMUILogo@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PteIMUILogo@3x.png"; sourceTree = "<group>"; };
+		25688A25F3B4BA75C71D9699 /* PteIMUIkit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMUIkit; path = ../PteIMUIkit; sourceTree = SOURCE_ROOT; };
+		36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoAppDelegate.swift; sourceTree = "<group>"; };
+		3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoViewController.swift; sourceTree = "<group>"; };
+		4EC58AA649AE46E6E6F8EEF1 /* PteIMSDK */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMSDK; path = ../PteIMSDK; sourceTree = SOURCE_ROOT; };
+		656D4E77EB64F7CB312F45EC /* PteIMUILaunchBackground.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchBackground.png; sourceTree = "<group>"; };
+		677C2BA61B20CAD3898358AA /* PteIMUIDemo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PteIMUIDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PteIMUILogo@2x.png"; sourceTree = "<group>"; };
+		B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchMark.png; sourceTree = "<group>"; };
+		BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILogo.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		5C4F28B2D3D4C5EAF6410AF5 /* Frameworks */ = {
+		E99C69F1BC7235E3387E0652 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5F49ABB73B3293C0BFEF33CE /* PteIMSDK in Frameworks */,
-				49D59A739CA291A72DB19A8D /* PteIMUIkit in Frameworks */,
+				29DDC39BC620393FC0F50701 /* PteIMSDK in Frameworks */,
+				FF94628F820E023EC4935D1A /* PteIMUIkit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		04624CD9BC79252FF29EB8B4 /* PteIMUIDemo */ = {
+		2C1390B4E11DCDACACD6E5F4 /* PteIMUIDemo */ = {
 			isa = PBXGroup;
 			children = (
-				99D3154FCC6EA3664CD865F0 /* PteIMUIDemoAppDelegate.swift */,
-				E4BC4D11FA9238A9CAAB7DE1 /* PteIMUIDemoViewController.swift */,
+				36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */,
+				3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */,
+				C591A0AA7B6D0C6859701810 /* Resources */,
 			);
 			path = PteIMUIDemo;
 			sourceTree = "<group>";
 		};
-		1FA07EA2B4553BD831782E74 /* Products */ = {
+		88B6FD8FF0A045976E87C61C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B7F6A876C07F1C2A1F8A38AD /* PteIMUIDemo.app */,
+				677C2BA61B20CAD3898358AA /* PteIMUIDemo.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		4FB804D47704EBEA32B6119A /* Packages */ = {
+		B332622D6093E9B2ED36E44E = {
 			isa = PBXGroup;
 			children = (
-				5580CEB39F0D69197246ED5E /* PteIMUIkit */,
-				EC54D7F306D3E9EB3D207AED /* PteIMSDK */,
+				CB2B7B3C9989615CEC00756C /* Packages */,
+				2C1390B4E11DCDACACD6E5F4 /* PteIMUIDemo */,
+				88B6FD8FF0A045976E87C61C /* Products */,
 			);
-			name = Packages;
 			sourceTree = "<group>";
 		};
-		9DE59266DBD39A6754F64506 = {
+		C591A0AA7B6D0C6859701810 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				4FB804D47704EBEA32B6119A /* Packages */,
-				04624CD9BC79252FF29EB8B4 /* PteIMUIDemo */,
-				1FA07EA2B4553BD831782E74 /* Products */,
+				656D4E77EB64F7CB312F45EC /* PteIMUILaunchBackground.png */,
+				B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */,
+				BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */,
+				ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */,
+				0775C2F8C6A0411F32304BD5 /* PteIMUILogo@3x.png */,
 			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		CB2B7B3C9989615CEC00756C /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				4EC58AA649AE46E6E6F8EEF1 /* PteIMSDK */,
+				25688A25F3B4BA75C71D9699 /* PteIMUIkit */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		530851A52C67777B4EFCF332 /* PteIMUIDemo */ = {
+		D7FB18CF470FECA0B66CA0C7 /* PteIMUIDemo */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 10907BF85BF384177C73806F /* Build configuration list for PBXNativeTarget "PteIMUIDemo" */;
+			buildConfigurationList = 5DCD9F058A73263490675AA7 /* Build configuration list for PBXNativeTarget "PteIMUIDemo" */;
 			buildPhases = (
-				1F5B18D6918D2C3A823F1B4B /* Sources */,
-				5C4F28B2D3D4C5EAF6410AF5 /* Frameworks */,
+				67A448C9001C0443849BF5CB /* Sources */,
+				D2AE43E31036C31B541158D2 /* Resources */,
+				E99C69F1BC7235E3387E0652 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -85,67 +109,154 @@
 			);
 			name = PteIMUIDemo;
 			packageProductDependencies = (
-				7403C88942FFC8D05C1A7E8F /* PteIMSDK */,
-				6CF5D4253DD19666EE378A4F /* PteIMUIkit */,
+				758FD234B46D2F5676A5D077 /* PteIMSDK */,
+				39B97C9073BB018DF864849E /* PteIMUIkit */,
 			);
 			productName = PteIMUIDemo;
-			productReference = B7F6A876C07F1C2A1F8A38AD /* PteIMUIDemo.app */;
+			productReference = 677C2BA61B20CAD3898358AA /* PteIMUIDemo.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		F427B60B7962914C308CDE1B /* Project object */ = {
+		50295013586C886F3C6A3A97 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
-			buildConfigurationList = 893E0F909EEECD80D626EA1D /* Build configuration list for PBXProject "PteIMUIDemo" */;
+			buildConfigurationList = 78D9E92CB6D40D11548C4184 /* Build configuration list for PBXProject "PteIMUIDemo" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
 				en,
 			);
-			mainGroup = 9DE59266DBD39A6754F64506;
+			mainGroup = B332622D6093E9B2ED36E44E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				813A466C47034E4F6E90DF0E /* XCLocalSwiftPackageReference "../PteIMUIkit" */,
-				8657A26254CA73AB6A85B161 /* XCLocalSwiftPackageReference "../PteIMSDK" */,
+				027FF5C69025C0E8FE98D15A /* XCLocalSwiftPackageReference "../PteIMSDK" */,
+				25129D19F649D1AF9D251373 /* XCLocalSwiftPackageReference "../PteIMUIkit" */,
 			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 1FA07EA2B4553BD831782E74 /* Products */;
+			productRefGroup = 88B6FD8FF0A045976E87C61C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				530851A52C67777B4EFCF332 /* PteIMUIDemo */,
+				D7FB18CF470FECA0B66CA0C7 /* PteIMUIDemo */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		D2AE43E31036C31B541158D2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3D37E50BF15004FF4B9E549C /* PteIMUILaunchBackground.png in Resources */,
+				C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */,
+				1349FC69EBCB2996619E74E6 /* PteIMUILogo.png in Resources */,
+				0E2D558D1EE4CE713679E38B /* PteIMUILogo@2x.png in Resources */,
+				7CB98B0A7F413F80EA486E95 /* PteIMUILogo@3x.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
-		1F5B18D6918D2C3A823F1B4B /* Sources */ = {
+		67A448C9001C0443849BF5CB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B855ED0BDC3FB400419C024 /* PteIMUIDemoAppDelegate.swift in Sources */,
-				0AF99256841A8EF0A88E06A7 /* PteIMUIDemoViewController.swift in Sources */,
+				972C9DFBBB82FC421C2D9427 /* PteIMUIDemoAppDelegate.swift in Sources */,
+				89D79E1C8301A65228B19C13 /* PteIMUIDemoViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		8012B972F0D7AF7CADF7735A /* Release */ = {
+		18F54FA5A2E4C83FB69ABFF3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		67A68177C5BEB602A68D139F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = Y6U3JL4BJQ;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIStatusBarHidden = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ptelive.im.demo;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A02B2CA168F5A5529B16EE9A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -157,7 +268,7 @@
 			};
 			name = Release;
 		};
-		A1312F7BDA15E151ADC8BA9E /* Debug */ = {
+		C5D8958E6506E60756D9C230 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -220,99 +331,23 @@
 			};
 			name = Debug;
 		};
-		D9DD9DC08AF395F341DF7992 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
-		EC582BDA902A3D0E666CBD45 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = Y6U3JL4BJQ;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIStatusBarHidden = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.ptelive.im.demo;
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.9;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		10907BF85BF384177C73806F /* Build configuration list for PBXNativeTarget "PteIMUIDemo" */ = {
+		5DCD9F058A73263490675AA7 /* Build configuration list for PBXNativeTarget "PteIMUIDemo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				EC582BDA902A3D0E666CBD45 /* Debug */,
-				8012B972F0D7AF7CADF7735A /* Release */,
+				67A68177C5BEB602A68D139F /* Debug */,
+				A02B2CA168F5A5529B16EE9A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		893E0F909EEECD80D626EA1D /* Build configuration list for PBXProject "PteIMUIDemo" */ = {
+		78D9E92CB6D40D11548C4184 /* Build configuration list for PBXProject "PteIMUIDemo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1312F7BDA15E151ADC8BA9E /* Debug */,
-				D9DD9DC08AF395F341DF7992 /* Release */,
+				C5D8958E6506E60756D9C230 /* Debug */,
+				18F54FA5A2E4C83FB69ABFF3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -320,26 +355,26 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		813A466C47034E4F6E90DF0E /* XCLocalSwiftPackageReference "../PteIMUIkit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../PteIMUIkit;
-		};
-		8657A26254CA73AB6A85B161 /* XCLocalSwiftPackageReference "../PteIMSDK" */ = {
+		027FF5C69025C0E8FE98D15A /* XCLocalSwiftPackageReference "../PteIMSDK" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../PteIMSDK;
+		};
+		25129D19F649D1AF9D251373 /* XCLocalSwiftPackageReference "../PteIMUIkit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../PteIMUIkit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		6CF5D4253DD19666EE378A4F /* PteIMUIkit */ = {
+		39B97C9073BB018DF864849E /* PteIMUIkit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PteIMUIkit;
 		};
-		7403C88942FFC8D05C1A7E8F /* PteIMSDK */ = {
+		758FD234B46D2F5676A5D077 /* PteIMSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PteIMSDK;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = F427B60B7962914C308CDE1B /* Project object */;
+	rootObject = 50295013586C886F3C6A3A97 /* Project object */;
 }
