@@ -1,0 +1,69 @@
+# PteIM 客户端技术基线
+
+PteIMSDK 是 Core SDK，PteIMUIKit 提供会话、联系人和聊天界面，PteIMUIDemo 展示业务登录后获取 UserSig 并进入 IM 的完整流程。所有端使用 `PteIMBaseConfig` 完成域名、皮肤和语言初始化，再使用 `PteIMLoginConfig` 登录。
+
+## iOS
+
+| 项目 | 标准 |
+| --- | --- |
+| 最低版本 | iOS 16.0 |
+| 语言 | Swift 6 |
+| UI | Swift + UIKit；不使用 SwiftUI |
+| 架构 | MVVM / Clean Architecture |
+| 网络 | URLSession |
+| 长连接 | URLSessionWebSocketTask |
+| 本地存储 | Core Data |
+| 并发 | async/await、Actor |
+| 依赖注入 | Factory |
+| 日志与监控 | OSLog + 崩溃采集 |
+| 推送 | 友盟+ U-Push |
+
+`PteIMSDK` 只放 Core、Core Data、E2EE、网络与同步能力；`PteIMUIKit` 只放 UIKit 页面及可配置视觉组件。Core Data 缓存按账号隔离，消息正文、Outbox 内容和同步游标保持 AES-256-GCM 加密，密钥位于 Keychain。
+
+## Android
+
+| 项目 | 标准 |
+| --- | --- |
+| 最低版本 | Android 12（API 31） |
+| 语言 | Kotlin |
+| UI | Jetpack Compose，兼容 View 宿主 |
+| 架构 | MVVM + Clean Architecture |
+| 网络 | OkHttp + Retrofit |
+| 长连接 | OkHttp WebSocket |
+| 本地存储 | Room |
+| 并发 | Coroutines、Flow |
+| 依赖注入 | Hilt |
+| 日志与监控 | Timber + 崩溃采集 |
+| 推送 | 友盟+ U-Push |
+
+Room 数据库按账号隔离，消息、会话、Outbox 和同步游标支持分页、索引、去重及持久化重试。加密密钥由 Android Keystore 管理。
+
+## OpenHarmony
+
+| 项目 | 标准 |
+| --- | --- |
+| 最低版本 | OpenHarmony API 23 |
+| 语言 | ArkTS |
+| UI | ArkUI |
+| 架构 | MVVM + Repository |
+| 网络 | ohos.net.http |
+| 长连接 | WebSocket API |
+| 本地存储 | ArkData RDB |
+| 并发 | Promise、TaskPool |
+| 依赖注入 | Provider |
+| 日志与监控 | HiLog + 崩溃采集 |
+| 推送 | 友盟+ U-Push |
+
+RDB 以账号命名空间存放会话、消息、Outbox 和同步游标，并启用系统加密等级。
+
+## uni-app x UTS
+
+| 项目 | 标准 |
+| --- | --- |
+| 开发工具 | HBuilderX 5.0+ |
+| 语言 | UTS / uvue |
+| 目标 | H5/Web、微信小程序 |
+| Core | `uni_modules/pte-im-sdk` |
+| UI | `uni_modules/pte-im-uikit` |
+
+UTS 模块使用宿主提供的 HTTPS、WSS 与本地安全存储能力。H5 必须运行在安全上下文；微信小程序必须配置 API 与 WSS 域名白名单。

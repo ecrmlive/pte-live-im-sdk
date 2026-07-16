@@ -1,6 +1,6 @@
 import { PteIMThemeMode, PteIMSDK } from '@ptelive/pte-im-sdk'
 
-/** Independently configurable colours for one PteIMUIkit appearance. */
+/** Independently configurable colours for one PteIMUIKit appearance. */
 export class PteIMUIThemePalette {
   background: string
   surface: string

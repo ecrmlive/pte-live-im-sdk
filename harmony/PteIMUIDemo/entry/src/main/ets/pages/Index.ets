@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { PteIMBaseConfig, PteIMBusinessContent, PteIMLocation, PteIMLoginConfig, PteIMThemeMode, PteIMSDK } from '@ptelive/pte-im-sdk'
 import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChat, PteIMUIConversationHandler, PteIMUIConversationList } from '@ptelive/pte-im-uikit'
 
-/** Business sample: business authentication returns a userId/UserSig, then PteIMSDK logs in and PteIMUIkit renders IM. */
+/** Business sample: business authentication returns a userId/UserSig, then PteIMSDK logs in and PteIMUIKit renders IM. */
 @Entry
 @Component
 struct Index {
@@ -40,7 +40,7 @@ struct Index {
   @Builder businessLogin() {
     Scroll() { Column({ space: 10 }) {
       Text('PteIMUIDemo · HarmonyOS').fontSize(24).fontColor('#1769AA').fontWeight(FontWeight.Bold)
-      Text('业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIkit。请替换示例输入为您的业务登录 API。').fontSize(13).fontColor('#666666')
+      Text('业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIKit。请替换示例输入为您的业务登录 API。').fontSize(13).fontColor('#666666')
       this.input('API domain', this.apiDomain, (value: string) => this.apiDomain = value)
       this.input('IM WSS URL', this.imDomain, (value: string) => this.imDomain = value)
       this.input('COS domain', this.cosDomain, (value: string) => this.cosDomain = value)
@@ -58,9 +58,9 @@ struct Index {
     Column({ space: 12 }) {
       Text('PteIMUIDemo').fontSize(24).fontColor('#1769AA').fontWeight(FontWeight.Bold)
       Text('业务层：好友关系、我的；IM UI：会话、聊天、群组。').fontSize(13).fontColor('#666666')
-      Button('会话列表（PteIMUIkit）').onClick(() => this.screen = 'conversations').width('100%')
+      Button('会话列表（PteIMUIKit）').onClick(() => this.screen = 'conversations').width('100%')
       Button('好友列表 / 关系').onClick(() => this.screen = 'friends').width('100%')
-      Button('创建群组并聊天（PteIMUIkit）').onClick(() => { this.openDemoGroupChat() }).width('100%')
+      Button('创建群组并聊天（PteIMUIKit）').onClick(() => { this.openDemoGroupChat() }).width('100%')
       Button('我的').onClick(() => this.screen = 'profile').width('100%')
       Button('退出登录').onClick(() => { this.client?.stop(); this.client = null; this.screen = 'login' }).width('100%')
     }.width('100%').padding(18)
@@ -69,7 +69,7 @@ struct Index {
   @Builder friendList() {
     Column({ space: 12 }) {
       Text('好友列表 / 关系示例').fontSize(22).fontWeight(FontWeight.Bold)
-      Text('添加、删除好友由业务 API 完成；PteIMUIkit 负责聊天界面。').fontSize(13).fontColor('#666666')
+      Text('添加、删除好友由业务 API 完成；PteIMUIKit 负责聊天界面。').fontSize(13).fontColor('#666666')
       Button('Alice (10002)').onClick(() => { this.openSingleChat(10002, 'Alice') }).width('100%')
       Button('Bob (10003)').onClick(() => { this.openSingleChat(10003, 'Bob') }).width('100%')
       Button('返回').onClick(() => this.screen = 'home').width('100%')

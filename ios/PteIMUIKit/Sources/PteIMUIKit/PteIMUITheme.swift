@@ -1,10 +1,15 @@
 import UIKit
 
+/** Resolves the platform-neutral Core appearance value from UIKit traits. */
+public func pteIMSystemTheme(for traits: UITraitCollection) -> PteIMTheme {
+  traits.userInterfaceStyle == .dark ? .dark : .light
+}
+
 /**
  A fully independent colour set for one appearance. Hosts may customise every
  visible PteIMUI component without deriving dark mode from light mode.
  */
-public struct PteIMUIThemePalette {
+@MainActor public struct PteIMUIThemePalette {
   public var backgroundColor: UIColor
   public var surfaceColor: UIColor
   public var composerColor: UIColor
@@ -54,10 +59,10 @@ public struct PteIMUIThemePalette {
 }
 
 /**
- PteIMUIkit appearance tokens. `light` and `dark` are explicit palettes, so a
+ PteIMUIKit appearance tokens. `light` and `dark` are explicit palettes, so a
  host can independently brand the composer, emoji panel and more panel.
  */
-public struct PteIMUITheme {
+@MainActor public struct PteIMUITheme {
   public var light: PteIMUIThemePalette
   public var dark: PteIMUIThemePalette
 

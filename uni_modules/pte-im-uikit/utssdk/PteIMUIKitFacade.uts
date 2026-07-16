@@ -1,0 +1,151 @@
+import { PteIMContact, PteIMContactPage, PteIMConversation, PteIMGroupPage, PteIMIncomingMessage, PteIMListener, PteIMSDKClient } from '../../pte-im-sdk/utssdk/interface.uts'
+
+/** Actions that require host application permissions, pickers, or business data. */
+export type PteIMUIAction = 'image' | 'camera' | 'video' | 'voice' | 'location' | 'gift' | 'red_packet' | 'order' | 'file'
+export type PteIMUIContactListMode = 'friends' | 'follows' | 'groups' | 'custom'
+export type PteIMUIContactPresentation = { identifier: string, title: string, subtitle: string, avatarText: string, isGroup: boolean }
+
+/** Explicit colours for one appearance. Light and dark palettes are never auto-inverted. */
+export type PteIMUIThemePalette = {
+  background: string; surface: string; composer: string; incoming: string; outgoingStart: string; outgoingEnd: string
+  text: string; muted: string; incomingText: string; outgoingText: string; icon: string; divider: string; panel: string; panelItem: string
+}
+
+/** Pass a custom instance to PteIMUIChat when the host needs per-component branding. */
+export class PteIMUITheme {
+  light: PteIMUIThemePalette
+  dark: PteIMUIThemePalette
+  constructor(light: PteIMUIThemePalette = PteIMUITheme.lightPalette(), dark: PteIMUIThemePalette = PteIMUITheme.darkPalette()) { this.light = light; this.dark = dark }
+  static lightPalette(): PteIMUIThemePalette { return { background: '#F7F9FF', surface: '#FFFFFF', composer: '#FFFFFF', incoming: '#EDF1FD', outgoingStart: '#335EF4', outgoingEnd: '#7D40EF', text: '#171C2E', muted: '#666D84', incomingText: '#171C2E', outgoingText: '#FFFFFF', icon: '#373E5A', divider: '#DDE2F2', panel: '#F4F6FF', panelItem: '#FFFFFF' } }
+  static darkPalette(): PteIMUIThemePalette { return { background: '#0E111C', surface: '#141827', composer: '#181D2F', incoming: '#252B43', outgoingStart: '#4467FF', outgoingEnd: '#8F4CFF', text: '#EFF2FF', muted: '#A4ADCB', incomingText: '#EFF2FF', outgoingText: '#FFFFFF', icon: '#CCD3F2', divider: '#313854', panel: '#191E30', panelItem: '#262D46' } }
+  static resolve(client: PteIMSDKClient, theme: PteIMUITheme = new PteIMUITheme(), systemDark: boolean = false): PteIMUIThemePalette {
+    const mode = client.currentAppearance().themeMode
+    return mode === 'dark' || (mode === 'system' && systemDark) ? theme.dark : theme.light
+  }
+  static cssVariables(palette: PteIMUIThemePalette): any {
+    return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem }
+  }
+}
+
+/** Dependency-free controller consumed by the PteIMUI uvue components or a custom UTS view. */
+export class PteIMUIChatController {
+  messages: PteIMIncomingMessage[] = []
+  onChanged: (() => void) | null = null
+  onActionRequested: ((action: PteIMUIAction) => void) | null = null
+  private active: boolean = true
+  private listener: PteIMListener
+
+  constructor(private client: PteIMSDKClient, readonly conversationId: string) {
+    this.listener = {
+      onMessage: (message: PteIMIncomingMessage): void => { if (this.active && message.conversationId == conversationId) this.refresh() },
+      onMessageStateChanged: (_event): void => { if (this.active) this.refresh() },
+      onThemeModeChanged: (_mode): void => { if (this.active) this.changed() },
+      onLanguageChanged: (_language): void => { if (this.active) this.changed() }
+    }
+    this.refresh()
+    client.addListener(this.listener)
+  }
+
+  refresh(): void { this.messages = this.client.localMessages(this.conversationId, 100); this.changed() }
+  sendText(text: string): void { if (text.trim().length > 0) { this.client.sendText(this.conversationId, text.trim()); this.refresh() } }
+  sendEmoji(packageId: string = 'default', emojiId: string = 'smile_001'): void { this.client.sendEmoji(this.conversationId, packageId, emojiId); this.refresh() }
+  requestAction(action: PteIMUIAction): void { this.onActionRequested?.(action) }
+  dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null; this.onActionRequested = null }
+  private changed(): void { this.onChanged?.() }
+}
+
+/** Cache-first conversation controller. Call refresh after an explicit sync when necessary. */
+export class PteIMUIConversationListController {
+  conversations: PteIMConversation[] = []
+  onChanged: (() => void) | null = null
+  private active: boolean = true
+  private listener: PteIMListener
+  constructor(private client: PteIMSDKClient) {
+    this.listener = {
+      onMessage: (_message): void => { if (this.active) this.refresh() },
+      onMessageStateChanged: (_event): void => { if (this.active) this.refresh() }
+    }
+    this.refresh()
+    client.addListener(this.listener)
+  }
+  refresh(): void { this.conversations = this.client.localConversations(100); this.onChanged?.() }
+  dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null }
+}
+
+/**
+ Cursor-paginated friend/follow/group directory for UTS targets. It exposes
+ data and callbacks rather than owning navigation, so H5, WeChat and native
+ hosts can reuse their own router and visual row component.
+ */
+export class PteIMUIContactListController {
+  contacts: PteIMUIContactPresentation[] = []
+  hasMore: boolean = false
+  loading: boolean = false
+  onChanged: (() => void) | null = null
+  onError: ((message: string) => void) | null = null
+  onConversationSelected: ((conversationId: string, title: string) => void) | null = null
+  private cursor: string = ''
+  private active: boolean = true
+  private listener: PteIMListener
+
+  constructor(private client: PteIMSDKClient, readonly mode: PteIMUIContactListMode = 'friends') {
+    this.listener = { onThemeModeChanged: (_mode): void => { if (this.active) this.changed() }, onLanguageChanged: (_language): void => { if (this.active) this.changed() } }
+    client.addListener(this.listener)
+  }
+
+  refresh(): void { this.cursor = ''; this.hasMore = false; if (this.mode === 'custom') { this.changed(); return }; this.loadNextPage(true) }
+  loadNextPage(replacing: boolean = false): void {
+    if (this.mode === 'custom' || this.loading || (!replacing && !this.hasMore && this.contacts.length > 0)) return
+    this.loading = true
+    const cursor = replacing ? '' : this.cursor
+    if (this.mode === 'groups') this.client.fetchGroups(cursor, 50, (page, error) => this.receiveGroups(page, error, replacing))
+    else if (this.mode === 'follows') this.client.fetchFollows(cursor, 50, (page, error) => this.receiveContacts(page, error, replacing))
+    else this.client.fetchFriends(cursor, 50, (page, error) => this.receiveContacts(page, error, replacing))
+  }
+  /** CUSTOM mode accepts host-owned rows and makes no SDK request. */
+  setCustomContacts(values: PteIMUIContactPresentation[]): void {
+    if (this.mode !== 'custom') { this.failed('setCustomContacts requires custom mode'); return }
+    this.contacts = values; this.cursor = ''; this.hasMore = false; this.changed()
+  }
+  dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null; this.onError = null; this.onConversationSelected = null }
+  select(item: PteIMUIContactPresentation): void {
+    if (item.isGroup) { this.onConversationSelected?.(item.identifier, item.title); return }
+    if (!/^[1-9][0-9]*$/.test(item.identifier)) { this.failed('invalid contact userId'); return }
+    const userId = Number(item.identifier)
+    this.client.openSingleConversation(userId, (conversation, error) => {
+      if (conversation == null || error != null) { this.failed(error ?? 'could not open conversation'); return }
+      this.onConversationSelected?.(String(conversation.id), item.title)
+    })
+  }
+  private receiveContacts(page: PteIMContactPage | null, error: string | null, replacing: boolean): void {
+    if (page == null || error != null) { this.failed(error ?? 'could not load contacts'); return }
+    const values = page.list.map((contact: PteIMContact): PteIMUIContactPresentation => {
+      const title = contact.remark.length > 0 ? contact.remark : (contact.nickname.length > 0 ? contact.nickname : contact.userId)
+      return { identifier: contact.userId, title, subtitle: contact.remark.length > 0 ? contact.nickname : '', avatarText: title.substring(0, 1), isGroup: false }
+    })
+    this.apply(values, page.nextCursor, page.hasMore, replacing)
+  }
+  private receiveGroups(page: PteIMGroupPage | null, error: string | null, replacing: boolean): void {
+    if (page == null || error != null) { this.failed(error ?? 'could not load groups'); return }
+    const values = page.list.map((group): PteIMUIContactPresentation => {
+      const identifier = String(group.id); const title = group.title.length > 0 ? group.title : identifier
+      return { identifier, title, subtitle: '', avatarText: title.substring(0, 1), isGroup: true }
+    })
+    this.apply(values, page.nextCursor, page.hasMore, replacing)
+  }
+  private apply(values: PteIMUIContactPresentation[], nextCursor: string, hasMore: boolean, replacing: boolean): void {
+    const source = replacing ? values : this.contacts.concat(values)
+    const unique: PteIMUIContactPresentation[] = []
+    source.forEach((item: PteIMUIContactPresentation) => { if (!unique.some((value: PteIMUIContactPresentation) => value.identifier === item.identifier && value.isGroup === item.isGroup)) unique.push(item) })
+    this.contacts = unique; this.cursor = nextCursor; this.hasMore = hasMore; this.loading = false; this.changed()
+  }
+  private failed(message: string): void { this.loading = false; this.onError?.(message); this.changed() }
+  private changed(): void { this.onChanged?.() }
+}
+
+/** Public UTS UI Kit entry point, independent from configuration and login. */
+export class PteIMUIKit {
+  static createChatController(client: PteIMSDKClient, conversationId: string): PteIMUIChatController { return new PteIMUIChatController(client, conversationId) }
+  static createConversationListController(client: PteIMSDKClient): PteIMUIConversationListController { return new PteIMUIConversationListController(client) }
+  static createContactListController(client: PteIMSDKClient, mode: PteIMUIContactListMode = 'friends'): PteIMUIContactListController { return new PteIMUIContactListController(client, mode) }
+}

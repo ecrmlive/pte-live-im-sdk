@@ -7,7 +7,7 @@
 	},
 	"BuildOptions":{
 		"SELECT_BUILD_PRODUCT":"default",
-		"BUNDLE_NAME":"com.ptelive.im.demo",
+		"BUNDLE_NAME":"com.ptelive.app.im.sdk.demo",
 		"BUILD_PATH":{
 			"OUTPUT_PATH":"/Users/daniel/Documents/GitHub/pte-live-im-sdk/harmony/PteIMUIDemo/build/outputs/default"
 		},

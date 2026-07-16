@@ -51,6 +51,15 @@ public struct PteIMSessionConfig: Sendable {
 public enum PteIMError: Error { case invalidApiDomain, invalidImDomain, invalidCredentials, invalidConversationId, disconnected, invalidResponse }
 public enum PteIMMessageType: String, Codable, Sendable { case text, emoji, image, video, voice, location, gift, red_packet, order, file }
 public enum PteIMSendState: String, Codable, Sendable { case pending, uploading, sent, failed }
+/** Provider/runtime selected by the host application when registering a push token. */
+public enum PteIMPushPlatform: String, Codable, Sendable { case android, ios, harmony, web, wechat }
+/** Token-free device registration result. The token is never retained in this value. */
+public struct PteIMPushDevice: Codable, Sendable, Equatable {
+  public let deviceId: String
+  public let platform: PteIMPushPlatform
+  public let notificationEnabled: Bool
+  public let lastSeenAt: Int64
+}
 
 /** Server-authoritative IM profile for the currently authenticated user. */
 public struct PteIMUserProfile: Codable, Sendable, Equatable {
@@ -70,6 +79,17 @@ public struct PteIMUserProfile: Codable, Sendable, Equatable {
 }
 
 public enum PteIMGender: String, Codable, Sendable { case unknown, male, female }
+
+public struct PteIMContact: Codable, Sendable, Equatable {
+  public let userId: String; public let remark: String; public let nickname: String; public let avatar: String; public let gender: PteIMGender; public let followedAt: Int64
+}
+public struct PteIMContactPage: Codable, Sendable, Equatable { public let list: [PteIMContact]; public let nextCursor: String; public let hasMore: Bool }
+public struct PteIMGroupPage: Codable, Sendable { public let list: [PteIMRemoteConversation]; public let nextCursor: String; public let hasMore: Bool }
+public struct PteIMMember: Codable, Sendable { public let userId: Int64; public let role: Int; public let alias: String; public let muteUntil: Int64; public let joinedAt: Int64; enum CodingKeys: String, CodingKey { case role, alias; case userId = "user_id"; case muteUntil = "mute_until"; case joinedAt = "joined_at" } }
+public struct PteIMMemberPage: Codable, Sendable { public let list: [PteIMMember]; public let nextCursor: String; public let hasMore: Bool }
+public struct PteIMStateChange: Codable, Sendable { public let id: String; public let entityType: String; public let entityId: String; public let operation: String; public let payload: [String: String]?; public let createdAt: Int64 }
+public struct PteIMStateChangePage: Codable, Sendable { public let changes: [PteIMStateChange]; public let nextCursor: String; public let hasMore: Bool }
+public struct PteIMDefaultSetting: Codable, Sendable { public let chatPrerequisite: String; public let notificationEnabled: Bool; public let groupJoinMode: String }
 
 /**
  Exactly one mutable profile field. The type prevents accidental multi-field

@@ -3,7 +3,7 @@
   "displayName": "PteIMSDK UTS",
   "version": "0.1.0-alpha.1",
   "description": "PteIMSDK UTS for H5/Web and WeChat mini-program applications",
-  "main": "utssdk/PteIMUIkit.uts",
+  "main": "utssdk/cross-platform.uts",
   "dependencies": {
     "@noble/ciphers": "2.0.1",
     "@noble/curves": "2.0.1",

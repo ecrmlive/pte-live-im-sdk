@@ -1,10 +1,10 @@
 import UIKit
 import ObjectiveC
-import PteIMUIkit
+import PteIMUIKit
 
 /**
  `PteIMUIDemo` is an application-layer example. Its business service signs a user in and
- returns a short-lived IM credential; only then does it create PteIMSDK and present PteIMUIkit.
+ returns a short-lived IM credential; only then does it create PteIMSDK and present PteIMUIKit.
  */
 final class PteIMUIDemoViewController: UIViewController {
   private let applicationSession: PteIMUIDemoApplicationSession
@@ -41,7 +41,7 @@ final class PteIMUIDemoViewController: UIViewController {
     userId.text = "123654"
     userSig.text = ""
 
-    let scrollView = UIScrollView(); scrollView.alwaysBounceVertical = true; scrollView.showsVerticalScrollIndicator = false
+    let scrollView = UIScrollView(); scrollView.alwaysBounceVertical = true; scrollView.showsVerticalScrollIndicator = false; scrollView.backgroundColor = view.backgroundColor
     let content = UIStackView(); content.axis = .vertical; content.spacing = 13
     view.addSubview(scrollView); scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
@@ -67,7 +67,7 @@ final class PteIMUIDemoViewController: UIViewController {
     card.addSubview(cardStack); cardStack.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 26), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24), login.heightAnchor.constraint(equalToConstant: 48)])
 
-    let privacy = PteIMUIDemoLabel("端到端加密 · SQLite 本地缓存 · 亮/暗模式", style: .footnote, color: .tertiaryLabel); privacy.textAlignment = .center
+    let privacy = PteIMUIDemoLabel("端到端加密 · Core Data 本地缓存 · 亮/暗模式", style: .footnote, color: .tertiaryLabel); privacy.textAlignment = .center
     content.addArrangedSubview(header); content.addArrangedSubview(brand); content.setCustomSpacing(30, after: header); content.setCustomSpacing(28, after: brand); content.addArrangedSubview(card); content.addArrangedSubview(privacy)
     NSLayoutConstraint.activate([
       scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor), scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -76,6 +76,15 @@ final class PteIMUIDemoViewController: UIViewController {
       content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
       content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -44),
     ])
+  }
+
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    // The demo is always a root screen. Make that explicit so it cannot
+    // inherit a sheet-style presentation from an embedding host.
+    modalPresentationStyle = .fullScreen
+    navigationController?.modalPresentationStyle = .fullScreen
+    navigationController?.setNavigationBarHidden(true, animated: false)
   }
 
   @objc private func toggleLoginAppearance() {
@@ -137,31 +146,21 @@ final class PteIMUIDemoViewController: UIViewController {
   /** Local-only UIKit inspection route. It never uses a business credential or calls `start()`. */
   @objc private func previewTapped() {
     do {
-      // A dedicated numeric account/conversation keeps visual fixtures separate
-      // from the host's normal offline SQLite cache.
       let login = try PteIMLoginConfig(sdkAppId: 1, userId: "990021", userSig: "local-ui-preview")
       let previewClient = try PteIMSDK.preview(baseConfig: applicationSession.baseConfig, loginConfig: login)
-      let chat = self.chat(client: previewClient, conversationId: "990210", title: "Alice")
-      let now = Int64(Date().timeIntervalSince1970 * 1000)
-      chat.append(message: PteIMMessage(conversationId: "990210", senderId: "990021", type: .text, text: "蓝紫渐变在暗色模式也很清晰。", createdAt: now - 120_000, state: .sent))
-      chat.append(message: PteIMMessage(conversationId: "990210", senderId: "990022", type: .emoji, packageId: "default", emojiId: "heart_001", createdAt: now - 60_000, state: .sent))
-      chat.append(message: PteIMMessage(conversationId: "990210", senderId: "990022", type: .location, location: PteIMLocation(latitude: 30.5728, longitude: 104.0668, name: "Pte Live 成都", address: "天府软件园"), createdAt: now - 15_000, state: .sent))
-      navigationController?.pushViewController(chat, animated: true)
+      let home = PteIMUIDemoHomeTabsController(client: previewClient, isPreview: true) { [weak self, weak previewClient] in
+        previewClient?.stop(); self?.navigationController?.popToRootViewController(animated: true)
+      }
+      home.modalPresentationStyle = .fullScreen
+      navigationController?.pushViewController(home, animated: true)
     } catch { status.text = "无法创建本地 UI 预览：\(error.localizedDescription)" }
   }
 
   private func showBusinessHome(session: PteIMUIDemoBusinessSession) {
-    let home = UITableViewController(style: .insetGrouped); home.title = "PteIMUIDemo"
-    let items = ["会话列表（PteIMUIkit）", "好友列表 / 关系", "群组聊天（PteIMUIkit）", "我的"]
-    let dataSource = PteIMUIDemoMenuDataSource(items: items) { [weak self, weak home] index in
-      guard let self, let home, let client = self.client else { return }
-      switch index {
-      case 0: home.navigationController?.pushViewController(PteIMUIkit.makeConversationListViewController(client: client), animated: true)
-      case 1: home.navigationController?.pushViewController(self.friendListController(client: client), animated: true)
-      case 2: self.openDemoGroupChat(client: client, presenter: home)
-      default: home.navigationController?.pushViewController(self.profileController(session: session), animated: true)
-      }
-    }; home.tableView.dataSource = dataSource; home.tableView.delegate = dataSource; objc_setAssociatedObject(home, "PteIMUIDemoMenuDataSource", dataSource, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    guard let client else { return }
+    let home = PteIMUIDemoHomeTabsController(client: client) { [weak self] in
+      self?.client?.stop(); self?.client = nil; self?.navigationController?.popToRootViewController(animated: true)
+    }
     navigationController?.pushViewController(home, animated: true)
   }
 
@@ -182,9 +181,9 @@ final class PteIMUIDemoViewController: UIViewController {
   }
 
   private func chat(client: PteIMSDK, conversationId: String, title: String) -> PteIMUIChatViewController {
-    let chat = PteIMUIkit.makeChatViewController(client: client, conversationId: conversationId, title: title)
+    let chat = PteIMUIKit.makeChatViewController(client: client, conversationId: conversationId, title: title)
     chat.onActionRequested = { action, controller in
-      let alert = UIAlertController(title: action.title(language: client.appearance.language), message: "请在宿主业务 App 中接入选择器、定位或支付流程，再调用 PteIMUIkit 的发送方法。", preferredStyle: .alert)
+      let alert = UIAlertController(title: action.title(language: client.appearance.language), message: "请在宿主业务 App 中接入选择器、定位或支付流程，再调用 PteIMUIKit 的发送方法。", preferredStyle: .alert)
       alert.addAction(UIAlertAction(title: "确定", style: .default)); controller.present(alert, animated: true)
     }
     chat.onVoiceRecordingChanged = { recording, controller in

@@ -1,6 +1,6 @@
 # Android Demo
 
-`PteIMUIDemo` is a dependency-free native Android business-sample app for `:pte-im-sdk` and `:pte-im-uikit` (Android 12 / API 31+). It demonstrates business login → short-lived UserSig → `PteIMSDK` login, friend relations, profile entry points, and reusable `PteIMUIkit` conversation/chat/group UI. It also exercises E2EE connection events, COS media upload, local cache/sync, and theme/language callbacks.
+`PteIMUIDemo` is a dependency-free native Android business-sample app for `:pte-im-sdk` and `:pte-im-uikit` (Android 12 / API 31+). It demonstrates business login → short-lived UserSig → `PteIMSDK` login, friend relations, profile entry points, and reusable `PteIMUIKit` conversation/chat/group UI. It also exercises E2EE connection events, COS media upload, local cache/sync, and theme/language callbacks.
 
 ```bash
 cd android

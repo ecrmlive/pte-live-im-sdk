@@ -1,13 +1,13 @@
 name: PteIMUIDemo
 options:
-  bundleIdPrefix: com.ptelive.im
+  bundleIdPrefix: com.ptelive.app.im
   deploymentTarget:
     iOS: '16.0'
 packages:
   PteIMSDK:
     path: ../PteIMSDK
-  PteIMUIkit:
-    path: ../PteIMUIkit
+  PteIMUIKit:
+    path: ../PteIMUIKit
 targets:
   PteIMUIDemo:
     type: application
@@ -17,12 +17,14 @@ targets:
       - path: PteIMUIDemo/Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ptelive.im.demo
+        PRODUCT_BUNDLE_IDENTIFIER: com.ptelive.app.im.sdk.demo
         GENERATE_INFOPLIST_FILE: YES
-        SWIFT_VERSION: '5.9'
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UILaunchStoryboardName: PteIMUILaunchScreen
+        SWIFT_VERSION: '6.0'
         TARGETED_DEVICE_FAMILY: '1,2'
     dependencies:
       - package: PteIMSDK
         product: PteIMSDK
-      - package: PteIMUIkit
-        product: PteIMUIkit
+      - package: PteIMUIKit
+        product: PteIMUIKit

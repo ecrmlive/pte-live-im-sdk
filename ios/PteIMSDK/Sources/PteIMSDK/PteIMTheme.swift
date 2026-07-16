@@ -1,7 +1,7 @@
-import UIKit
+import Foundation
 
-public enum PteIMTheme { case light, dark }
-
-public func pteIMSystemTheme(for traits: UITraitCollection) -> PteIMTheme {
-  traits.userInterfaceStyle == .dark ? .dark : .light
-}
+/**
+ A platform-neutral appearance value. UIKit trait handling belongs to
+ PteIMUIKit so the transport/storage SDK remains usable without a UI runtime.
+ */
+public enum PteIMTheme: Sendable { case light, dark }

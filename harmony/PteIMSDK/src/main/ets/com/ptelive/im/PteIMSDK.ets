@@ -3,8 +3,8 @@ import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
 import util from '@ohos.util'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMConversation, PteIMConversationPage, PteIMGender, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage } from './IMModels'
-import { PteIMSqliteStore } from './IMSqliteStore'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage } from './IMModels'
+import { PteIMRdbStore, PteIMStoredRemoteConversation } from './PteIMRdbStore'
 import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
 
@@ -33,6 +33,14 @@ class PteIMRequestBody {
   serverMsgId: string = ''
   field: string = ''
   value: string = ''
+  cursor: string = ''
+  targetUserId: number = 0
+  memberId: number = 0
+  remark: string = ''
+  deviceId: string = ''
+  platform: string = ''
+  token: string = ''
+  notificationEnabled: boolean = true
 }
 
 class PteIMEnvelope {
@@ -55,14 +63,15 @@ export class PteIMSDK {
   private reconnectTimer: number = -1
   private outboxTimer: number = -1
   private syncing: boolean = false
+  private conversationSyncing: boolean = false
   private appearance: PteIMAppearance
 
   private config: PteIMLoginConfig
   private base: PteIMBaseConfig
-  private store: PteIMSqliteStore
+  private store: PteIMRdbStore
   private e2ee: PteIME2EE
 
-  constructor(config: PteIMLoginConfig, base: PteIMBaseConfig, store: PteIMSqliteStore) {
+  constructor(config: PteIMLoginConfig, base: PteIMBaseConfig, store: PteIMRdbStore) {
     this.config = config
     this.base = base
     this.store = store
@@ -94,7 +103,9 @@ export class PteIMSDK {
     this.cancelTimers()
     const wasConnected = this.connected
     this.connected = false
-    if (this.socket !== null) this.socket.close()
+    try {
+      if (this.socket !== null) this.socket.close()
+    } catch (error) { this.emitError(new Error(`PteIM WebSocket close failed: ${String(error)}`)) }
     this.socket = null
     if (wasConnected) this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged(false))
   }
@@ -121,6 +132,8 @@ export class PteIMSDK {
   async sendEmoji(conversationId: string, packageId: string, emojiId: string): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.EMOJI, '', packageId, emojiId)) }
   async sendImage(conversationId: string, media: PteIMMedia): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.IMAGE, '', '', '', media)) }
   async sendVideo(conversationId: string, media: PteIMMedia): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.VIDEO, '', '', '', media)) }
+  /** Sends a file descriptor whose url is a durable COS key, not a temporary PUT URL. */
+  async sendFile(conversationId: string, media: PteIMMedia): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.FILE, '', '', '', media)) }
   /** Uploads an image through apiDomain, then enqueues it with a stable clientMsgId. */
   async uploadAndSendImage(conversationId: string, filePath: string, mimeType: string = 'image/jpeg'): Promise<PteIMMessage> {
     return await this.uploadAndSendMedia(conversationId, filePath, PteIMMessageType.IMAGE, mimeType)
@@ -128,6 +141,11 @@ export class PteIMSDK {
   /** Uploads a video through apiDomain, then enqueues it with a stable clientMsgId. */
   async uploadAndSendVideo(conversationId: string, filePath: string, mimeType: string = 'video/mp4'): Promise<PteIMMessage> {
     return await this.uploadAndSendMedia(conversationId, filePath, PteIMMessageType.VIDEO, mimeType)
+  }
+  /** mimeType must be one of the server allow-listed document/archive MIME types. */
+  async uploadAndSendFile(conversationId: string, filePath: string, mimeType: string): Promise<PteIMMessage> {
+    if (mimeType.length === 0) throw new Error('file mimeType is required')
+    return await this.uploadAndSendMedia(conversationId, filePath, PteIMMessageType.FILE, mimeType)
   }
   async uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform: string = '', mimeType: string = 'audio/mpeg'): Promise<PteIMMessage> {
     if (durationMs <= 0) throw new Error('durationMs must be positive')
@@ -159,6 +177,31 @@ export class PteIMSDK {
       this.syncing = false
     }
   }
+  async syncStateNow(): Promise<void> {
+    try {
+      const page = await this.syncState(await this.store.stateCursor(), 100)
+      await this.store.setStateCursor(page.nextCursor)
+      this.listeners.forEach((listener: PteIMListener) => listener.onStateChanges(page.changes))
+      if (page.hasMore) await this.syncStateNow()
+    } catch (error) { this.emitError(error) }
+  }
+  /** Pulls all cursor pages and persists the compact conversation summary cache in encrypted RDB. */
+  async syncConversationsNow(): Promise<void> {
+    if (this.conversationSyncing) return
+    this.conversationSyncing = true
+    try {
+      const body = new PteIMRequestBody(); body.cursor = await this.store.conversationCursor(); body.limit = 100
+      const payload = await this.sdkRequest('/v1/im/conversations/cursor', body)
+      const raw = payload['list'] as Object[]
+      const values: PteIMRemoteConversation[] = raw === undefined || raw === null ? [] : raw.map((item: Object) => this.remoteConversation(item as WireObject))
+      await this.store.applyRemoteConversations(values, this.stringValue(payload, 'nextCursor'))
+      if (this.boolValue(payload, 'hasMore')) {
+        this.conversationSyncing = false
+        await this.syncConversationsNow()
+      }
+    } catch (error) { this.emitError(error) }
+    finally { this.conversationSyncing = false }
+  }
 
   async localMessages(conversationId: string, beforeCreatedAt: number = 0, limit: number = 50): Promise<PteIMMessage[]> {
     const stored = await this.store.localMessages(conversationId, beforeCreatedAt, limit)
@@ -168,6 +211,12 @@ export class PteIMSDK {
   async localConversations(limit: number = 100): Promise<PteIMConversation[]> {
     const stored = await this.store.localConversations(limit)
     return stored.map((row) => new PteIMConversation(row.conversationId, this.messageFromJson(row.stored.payload, row.stored.serverMsgId, row.stored.serverSeq, row.stored.createdAt, row.stored.state), row.stored.createdAt))
+  }
+
+  /** Reads cursor-synced server conversation metadata from the encrypted local RDB cache. */
+  async localRemoteConversations(limit: number = 100): Promise<PteIMRemoteConversation[]> {
+    const stored = await this.store.localRemoteConversations(limit)
+    return stored.map((row: PteIMStoredRemoteConversation) => this.remoteConversation(JSON.parse(row.payload) as WireObject))
   }
 
   async fetchConversationPage(page: number = 1, pageSize: number = 50): Promise<PteIMConversationPage> {
@@ -188,6 +237,24 @@ export class PteIMSDK {
     const body = new PteIMRequestBody(); body.field = update.field; body.value = update.value
     return this.userProfile(await this.sdkRequest('/v1/im/profile/update', body))
   }
+  async fetchFriends(cursor: string = '', limit: number = 50): Promise<PteIMContactPage> { return await this.contactPage('/v1/im/friends', cursor, limit) }
+  async fetchFollows(cursor: string = '', limit: number = 50): Promise<PteIMContactPage> { return await this.contactPage('/v1/im/follows', cursor, limit) }
+  async follow(userId: number, remark: string = ''): Promise<void> { await this.contactAction('/v1/im/follows/follow', userId, remark) }
+  async unfollow(userId: number): Promise<void> { await this.contactAction('/v1/im/follows/unfollow', userId) }
+  async block(userId: number): Promise<void> { await this.contactAction('/v1/im/blocks/add', userId) }
+  async unblock(userId: number): Promise<void> { await this.contactAction('/v1/im/blocks/remove', userId) }
+  async fetchGroups(cursor: string = '', limit: number = 50): Promise<PteIMGroupPage> { const body = new PteIMRequestBody(); body.cursor = cursor; body.limit = limit; const data = await this.sdkRequest('/v1/im/groups', body); const out = new PteIMGroupPage(); out.nextCursor = this.stringValue(data, 'nextCursor'); out.hasMore = this.boolValue(data, 'hasMore'); const values = data['list'] as Object[]; if (values) out.list = values.map((v: Object) => this.remoteConversation(v as WireObject)); return out }
+  async fetchGroupMembers(conversationId: number, cursor: string = '', limit: number = 50): Promise<PteIMMemberPage> { const body = new PteIMRequestBody(); body.conversationId = conversationId; body.cursor = cursor; body.limit = limit; const data = await this.sdkRequest('/v1/im/groups/members', body); const out = new PteIMMemberPage(); out.nextCursor = this.stringValue(data, 'nextCursor'); out.hasMore = this.boolValue(data, 'hasMore'); const values = data['list'] as Object[]; if (values) out.list = values.map((v: Object) => { const x = v as WireObject; const m = new PteIMMember(); m.userId = this.numberValue(x, 'user_id'); m.role = this.numberValue(x, 'role'); m.alias = this.stringValue(x, 'alias'); m.muteUntil = this.numberValue(x, 'mute_until'); m.joinedAt = this.numberValue(x, 'joined_at'); return m }); return out }
+  async joinGroup(conversationId: number): Promise<void> { const body = new PteIMRequestBody(); body.conversationId = conversationId; await this.sdkRequest('/v1/im/groups/join', body) }
+  async inviteGroupMembers(conversationId: number, memberIds: number[]): Promise<void> { if (conversationId <= 0 || memberIds.length === 0 || memberIds.some((id: number): boolean => id <= 0)) throw new Error('invalid group members'); const body = new PteIMRequestBody(); body.conversationId = conversationId; body.memberIds = memberIds; await this.sdkRequest('/v1/im/groups/members/invite', body) }
+  async removeGroupMember(conversationId: number, memberId: number): Promise<void> { if (conversationId <= 0 || memberId <= 0) throw new Error('invalid group member'); const body = new PteIMRequestBody(); body.conversationId = conversationId; body.memberId = memberId; await this.sdkRequest('/v1/im/groups/members/remove', body) }
+  async leaveGroup(conversationId: number): Promise<void> { if (conversationId <= 0) throw new Error('invalid group'); const body = new PteIMRequestBody(); body.conversationId = conversationId; await this.sdkRequest('/v1/im/groups/leave', body) }
+  /** Stores only a server-side AES-GCM encrypted provider token. */
+  async registerPushDevice(deviceId: string, platform: PteIMPushPlatform, token: string, notificationEnabled: boolean = true): Promise<PteIMPushDevice> { if (deviceId.length < 8 || token.length < 16) throw new Error('invalid push device'); const body = new PteIMRequestBody(); body.deviceId = deviceId; body.platform = platform; body.token = token; body.notificationEnabled = notificationEnabled; return this.pushDevice(await this.sdkRequest('/v1/im/push/devices/register', body)) }
+  async setPushDeviceNotification(deviceId: string, platform: PteIMPushPlatform, enabled: boolean): Promise<PteIMPushDevice> { if (deviceId.length < 8) throw new Error('invalid push device'); const body = new PteIMRequestBody(); body.deviceId = deviceId; body.platform = platform; body.notificationEnabled = enabled; return this.pushDevice(await this.sdkRequest('/v1/im/push/devices/notification', body)) }
+  async unregisterPushDevice(deviceId: string, platform: PteIMPushPlatform): Promise<void> { if (deviceId.length < 8) throw new Error('invalid push device'); const body = new PteIMRequestBody(); body.deviceId = deviceId; body.platform = platform; await this.sdkRequest('/v1/im/push/devices/unregister', body) }
+  async syncState(cursor: string = '', limit: number = 100): Promise<PteIMStateChangePage> { const body = new PteIMRequestBody(); body.cursor = cursor; body.limit = limit; const data = await this.sdkRequest('/v1/im/state/sync', body); const out = new PteIMStateChangePage(); out.nextCursor = this.stringValue(data, 'nextCursor'); out.hasMore = this.boolValue(data, 'hasMore'); const values = data['changes'] as Object[]; if (values) out.changes = values.map((v: Object) => { const x = v as WireObject; const c = new PteIMStateChange(); c.id = this.stringValue(x, 'id'); c.entityType = this.stringValue(x, 'entityType'); c.entityId = this.stringValue(x, 'entityId'); c.operation = this.stringValue(x, 'operation'); c.createdAt = this.numberValue(x, 'createdAt'); return c }); return out }
+  async fetchDefaultSetting(): Promise<PteIMDefaultSetting> { const data = await this.sdkRequest('/v1/im/settings/default', new PteIMRequestBody()); const out = new PteIMDefaultSetting(); out.chatPrerequisite = this.stringValue(data, 'chatPrerequisite'); out.notificationEnabled = this.boolValue(data, 'notificationEnabled'); out.groupJoinMode = this.stringValue(data, 'groupJoinMode'); return out }
 
   async openSingleConversation(peerUserId: number): Promise<PteIMRemoteConversation> {
     if (peerUserId <= 0) throw new Error('peerUserId must be positive')
@@ -215,6 +282,9 @@ export class PteIMSDK {
     const items: PteIMRemoteMessage[] = values === undefined || values === null ? [] : values.map((value: Object) => this.remoteMessage(value as WireObject))
     return new PteIMMessagePage(items)
   }
+
+  private async contactPage(path: string, cursor: string, limit: number): Promise<PteIMContactPage> { const body = new PteIMRequestBody(); body.cursor = cursor; body.limit = limit; const data = await this.sdkRequest(path, body); const out = new PteIMContactPage(); out.nextCursor = this.stringValue(data, 'nextCursor'); out.hasMore = this.boolValue(data, 'hasMore'); const values = data['list'] as Object[]; if (values) out.list = values.map((v: Object) => { const x = v as WireObject; const c = new PteIMContact(); c.userId = this.stringValue(x, 'userId'); c.remark = this.stringValue(x, 'remark'); c.nickname = this.stringValue(x, 'nickname'); c.avatar = this.stringValue(x, 'avatar'); c.gender = this.stringValue(x, 'gender') as PteIMGender; c.followedAt = this.numberValue(x, 'followedAt'); return c }); return out }
+  private async contactAction(path: string, userId: number, remark: string = ''): Promise<void> { if (userId <= 0) throw new Error('userId must be positive'); const body = new PteIMRequestBody(); body.targetUserId = userId; body.remark = remark; await this.sdkRequest(path, body) }
 
   private async send(message: PteIMMessage): Promise<PteIMMessage> {
     if (!/^[1-9][0-9]*$/.test(message.conversationId)) throw new Error('conversationId must be a positive numeric string returned by openSingleConversation or createGroupConversation')
@@ -250,15 +320,16 @@ export class PteIMSDK {
   }
 
   private async uploadMedia(filePath: string, type: PteIMMessageType, mimeType: string): Promise<PteIMMedia> {
-    const bytes = this.readFile(filePath)
-    const body = new PteIMRequestBody(); body.mediaType = type; body.contentType = mimeType; body.contentLength = bytes.byteLength
-    const credential = await this.apiImRequest('/v1/im/media/put-url', body)
-    const key = this.stringValue(credential, 'key')
-    const uploadUrl = this.stringValue(credential, 'uploadUrl')
-    const headers = credential['headers'] as WireObject
-    if (key.length === 0 || uploadUrl.length === 0 || headers === undefined || headers === null) throw new Error('media credential response is invalid')
-    const request = http.createHttp()
     try {
+      const bytes = this.readFile(filePath)
+      const body = new PteIMRequestBody(); body.mediaType = type; body.contentType = mimeType; body.contentLength = bytes.byteLength
+      const credential = await this.apiImRequest('/v1/im/media/put-url', body)
+      const key = this.stringValue(credential, 'key')
+      const uploadUrl = this.stringValue(credential, 'uploadUrl')
+      const headers = credential['headers'] as WireObject
+      if (key.length === 0 || uploadUrl.length === 0 || headers === undefined || headers === null) throw new Error('media credential response is invalid')
+      const request = http.createHttp()
+      try {
       const requestHeaders = new Map<string, string>()
       requestHeaders.set('Content-Type', this.stringValue(headers, 'Content-Type'))
       const options: PteIMHttpRequestOptions = {
@@ -268,26 +339,34 @@ export class PteIMSDK {
       }
       const response = await request.request(uploadUrl, options)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`COS upload failed with HTTP ${response.responseCode}`)
-      return new PteIMMedia(key, '', '', 0, 0, 0, bytes.byteLength)
-    } finally { request.destroy() }
+      return new PteIMMedia(key, '', '', 0, 0, 0, bytes.byteLength, this.fileName(filePath, type), mimeType)
+      } finally { request.destroy() }
+    } catch (error) { throw new Error(`PteIM COS media upload failed: ${String(error)}`) }
   }
 
   private readFile(filePath: string): Uint8Array {
-    const file = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+    let file: fileIo.File | null = null
     try {
+      file = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
       const size = fileIo.statSync(file.fd).size
       if (size <= 0) throw new Error('media file is empty')
       const buffer = new ArrayBuffer(size)
       const read = fileIo.readSync(file.fd, buffer)
       if (read !== size) throw new Error('could not read the complete media file')
       return new Uint8Array(buffer)
-    } finally { fileIo.closeSync(file) }
+    } catch (error) { throw new Error(`PteIM media file read failed: ${String(error)}`) }
+    finally {
+      if (file !== null) {
+        try { fileIo.closeSync(file) }
+        catch (error) { throw new Error(`PteIM media file close failed: ${String(error)}`) }
+      }
+    }
   }
 
   private fileName(filePath: string, type: PteIMMessageType): string {
     const parts = filePath.split('/')
     const name = parts.length > 0 ? parts[parts.length - 1] : ''
-    return name.length > 0 ? name.replace(/"/g, '') : `media-${type === PteIMMessageType.IMAGE ? 'image' : 'video'}`
+    return name.length > 0 ? name.replace(/"/g, '') : `media-${type === PteIMMessageType.IMAGE ? 'image' : type === PteIMMessageType.VIDEO ? 'video' : 'file'}`
   }
 
   private connect(): void {
@@ -295,7 +374,7 @@ export class PteIMSDK {
     this.socket.on('open', () => { this.onOpen() })
     this.socket.on('message', (_error: Error | null, value: string | ArrayBuffer) => {
       if (typeof value === 'string') void this.handleInbound(value)
-      else void this.handleInbound(util.TextDecoder.create('utf-8').decode(new Uint8Array(value)))
+      else void this.handleInbound(util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(value)))
     })
     this.socket.on('close', () => { this.onClose() })
     this.socket.on('error', (error: Error) => { this.emitError(error); this.onClose() })
@@ -317,6 +396,8 @@ export class PteIMSDK {
     this.sendEnvelope('login', body)
     await this.flushOutbox()
     await this.syncNow()
+    await this.syncStateNow()
+    await this.syncConversationsNow()
   }
 
   private onClose(): void {
@@ -410,7 +491,8 @@ export class PteIMSDK {
       const root = await PteIMResponseCrypto.decryptResponse(JSON.parse(response.result.toString()) as WireObject, responseKey)
       if (this.numberValue(root, 'code') !== 1) throw new Error(this.stringValue(root, 'msg'))
       return root['data'] as WireObject
-    } finally { request.destroy() }
+    } catch (error) { throw new Error(`PteIM encrypted API request failed (${path}): ${String(error)}`) }
+    finally { request.destroy() }
   }
   private async apiImRequest(path: string, body: PteIMRequestBody): Promise<WireObject> {
     const request = http.createHttp()
@@ -422,9 +504,11 @@ export class PteIMSDK {
       const root = JSON.parse(response.result.toString()) as WireObject
       if (this.numberValue(root, 'code') !== 0) throw new Error(this.stringValue(root, 'msg'))
       return root['data'] as WireObject
-    } finally { request.destroy() }
+    } catch (error) { throw new Error(`PteIM API request failed (${path}): ${String(error)}`) }
+    finally { request.destroy() }
   }
   private remoteConversation(value: WireObject): PteIMRemoteConversation { return new PteIMRemoteConversation(this.numberValue(value, 'id'), this.stringValue(value, 'type'), this.stringValue(value, 'title'), this.stringValue(value, 'avatar'), this.numberValue(value, 'last_message_seq'), this.stringValue(value, 'last_message_snapshot'), this.numberValue(value, 'last_message_at'), this.numberValue(value, 'unread_count')) }
+  private pushDevice(value: WireObject): PteIMPushDevice { const out = new PteIMPushDevice(); out.deviceId = this.stringValue(value, 'deviceId'); const platform = this.stringValue(value, 'platform'); out.platform = platform === 'android' ? PteIMPushPlatform.ANDROID : platform === 'ios' ? PteIMPushPlatform.IOS : platform === 'web' ? PteIMPushPlatform.WEB : platform === 'wechat' ? PteIMPushPlatform.WECHAT : PteIMPushPlatform.HARMONY; out.notificationEnabled = this.boolValue(value, 'notificationEnabled'); out.lastSeenAt = this.numberValue(value, 'lastSeenAt'); return out }
   private userProfile(value: WireObject): PteIMUserProfile {
     const rawGender = this.stringValue(value, 'gender')
     const gender = rawGender === 'male' ? PteIMGender.MALE : rawGender === 'female' ? PteIMGender.FEMALE : PteIMGender.UNKNOWN
@@ -457,7 +541,7 @@ export class PteIMSDK {
   private messageFromWire(value: WireObject): PteIMMessage {
     const content = value['content'] as WireObject
     const type = this.stringValue(value, 'type') as PteIMMessageType
-    const media = type === PteIMMessageType.IMAGE || type === PteIMMessageType.VIDEO ? new PteIMMedia(this.resolveCosUrl(this.stringValue(content, 'url')), this.resolveCosUrl(this.stringValue(content, 'thumbnailUrl')), this.resolveCosUrl(this.stringValue(content, 'coverUrl')), this.numberValue(content, 'width'), this.numberValue(content, 'height'), this.numberValue(content, 'durationMs'), this.numberValue(content, 'sizeBytes')) : null
+    const media = type === PteIMMessageType.IMAGE || type === PteIMMessageType.VIDEO || type === PteIMMessageType.FILE ? new PteIMMedia(this.resolveCosUrl(this.stringValue(content, 'url')), this.resolveCosUrl(this.stringValue(content, 'thumbnailUrl')), this.resolveCosUrl(this.stringValue(content, 'coverUrl')), this.numberValue(content, 'width'), this.numberValue(content, 'height'), this.numberValue(content, 'durationMs'), this.numberValue(content, 'sizeBytes'), this.stringValue(content, 'fileName'), this.stringValue(content, 'mimeType')) : null
     const voice = type === PteIMMessageType.VOICE ? new PteIMVoice(this.resolveCosUrl(this.stringValue(content, 'url')), this.numberValue(content, 'durationMs'), this.stringValue(content, 'waveform'), this.numberValue(content, 'sizeBytes')) : null
     const location = type === PteIMMessageType.LOCATION ? new PteIMLocation(this.numberValue(content, 'latitude'), this.numberValue(content, 'longitude'), this.stringValue(content, 'name'), this.stringValue(content, 'address')) : null
     const business = type === PteIMMessageType.GIFT || type === PteIMMessageType.RED_PACKET || type === PteIMMessageType.ORDER ? new PteIMBusinessContent(this.stringValue(content, 'businessId'), this.stringValue(content, 'title'), this.stringValue(content, 'subtitle'), this.stringValue(content, 'actionUrl')) : null
@@ -489,7 +573,7 @@ export class PteIMSDKBootstrap {
   async login(loginConfig: PteIMLoginConfig): Promise<PteIMSDK> {
     this.baseConfig.validate(); loginConfig.validate()
     const storeName = `pte_live_im_${loginConfig.sdkAppId}_${loginConfig.userId.replace(/[^A-Za-z0-9_]/g, '_')}`
-    const client = new PteIMSDK(loginConfig, this.baseConfig, await PteIMSqliteStore.open(this.context, storeName))
+    const client = new PteIMSDK(loginConfig, this.baseConfig, await PteIMRdbStore.open(this.context, storeName))
     client.start()
     return client
   }

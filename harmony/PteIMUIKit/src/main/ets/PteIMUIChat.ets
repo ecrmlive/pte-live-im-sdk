@@ -1,5 +1,5 @@
 import { PteIMLanguage, PteIMListener, PteIMMessage, PteIMMessageType, PteIMSendState, PteIMThemeMode, PteIMSDK } from '@ptelive/pte-im-sdk'
-import { PteIMUIAction, PteIMUIActionHandler } from './PteIMUIkit'
+import { PteIMUIAction, PteIMUIActionHandler } from './PteIMUIKit'
 import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
 import { PteIMUIInputBar, PteIMUIInputCallbacks } from './PteIMUIInputBar'
 

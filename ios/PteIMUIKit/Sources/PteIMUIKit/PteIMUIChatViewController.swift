@@ -38,16 +38,21 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   /// The current ordered timeline. Subclasses receive items through the open
   /// cell hooks; keeping mutation private preserves Core/cache consistency.
   public private(set) var messages: [PteIMMessage] = []
-  private var previousMessageCallback: ((PteIMMessage) -> Void)?
-  private var previousStateCallback: ((String, PteIMSendState) -> Void)?
-  private var previousThemeCallback: ((PteIMThemeMode) -> Void)?
-  private var previousLanguageCallback: ((PteIMLanguage) -> Void)?
+  private let listener = PteIMListener()
+  private var messageSections: [[PteIMMessage]] {
+    let calendar = Calendar.current
+    let grouped = Dictionary(grouping: messages) { calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0.createdAt) / 1000)) }
+    return grouped.keys.sorted().map { grouped[$0]?.sorted { $0.createdAt < $1.createdAt } ?? [] }
+  }
 
   public init(client: PteIMSDK, conversationId: String, title: String? = nil, skin: PteIMUISkin = .default) {
     self.client = client; self.conversationId = conversationId; self.skin = skin; self.theme = skin.theme; self.language = client.appearance.language
     self.isOutgoing = { message in message.senderId == client.currentUserId }
     super.init(nibName: nil, bundle: nil)
     self.title = title ?? conversationId
+    // A chat owns the entire lower safe area. In a tab-hosted application it
+    // must replace, rather than compete with, the root tab navigation.
+    hidesBottomBarWhenPushed = true
   }
   public convenience init(client: PteIMSDK, conversationId: String, title: String? = nil, theme: PteIMUITheme) { self.init(client: client, conversationId: conversationId, title: title, skin: PteIMUISkin(theme: theme)) }
   required public init?(coder: NSCoder) { nil }
@@ -63,8 +68,12 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     // Once the table is in the view hierarchy, it is safe to reveal them.
     scrollToLatest()
   }
-  // Core callbacks are chained with weak UI references. They remain safe after dismissal and are not reset here,
-  // so an application that replaces a callback after presenting this controller is never overwritten on deinit.
+  public override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    navigationController?.setNavigationBarHidden(false, animated: animated)
+    configureNavigationBar()
+  }
+  deinit { client.removeListener(listener) }
 
   /**
    Buffers messages supplied before presentation. UIKit does not install the
@@ -90,7 +99,19 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public func sendFile(_ media: PteIMMedia) { append(message: client.sendFile(conversationId: conversationId, media: media)) }
 
   /** Override to add a title view, call buttons or group-management controls. */
-  open func configureNavigationBar() { navigationItem.largeTitleDisplayMode = .never }
+  open func configureNavigationBar() {
+    navigationItem.largeTitleDisplayMode = .never
+    let palette = skin.theme.palette(for: traitCollection)
+    let titleLabel = UILabel(); titleLabel.text = title; titleLabel.font = skin.chat.navigationTitleFont; titleLabel.textColor = skin.chat.navigationTitleColor ?? palette.primaryTextColor; titleLabel.textAlignment = .center
+    let subtitle = UILabel(); subtitle.text = PteIMUILocalization.value("在线", "Online", language: language); subtitle.font = skin.chat.navigationSubtitleFont; subtitle.textColor = palette.outgoingGradientStartColor; subtitle.textAlignment = .center
+    let stack = UIStackView(arrangedSubviews: [titleLabel, subtitle]); stack.axis = .vertical; stack.alignment = .center; stack.spacing = 1
+    navigationItem.titleView = stack
+    navigationItem.leftBarButtonItem = UIBarButtonItem(image: skin.icons.image(for: .back, traitCollection: traitCollection), style: .plain, target: self, action: #selector(backTapped))
+    let more = UIBarButtonItem(image: skin.icons.image(for: .more, traitCollection: traitCollection), style: .plain, target: self, action: #selector(moreTapped))
+    let video = UIBarButtonItem(image: skin.icons.image(for: .video, traitCollection: traitCollection), style: .plain, target: self, action: #selector(videoTapped))
+    navigationItem.rightBarButtonItems = [more, video]
+    navigationController?.navigationBar.tintColor = palette.iconColor
+  }
   /** Override and register custom cells such as gifts, red packets or business cards. */
   open func registerMessageCells(in tableView: UITableView) { tableView.register(PteIMUIMessageCell.self, forCellReuseIdentifier: PteIMUIMessageCell.reuseIdentifier) }
   open func messageCellReuseIdentifier(for message: PteIMMessage) -> String { PteIMUIMessageCell.reuseIdentifier }
@@ -133,11 +154,11 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     configureNavigationBar()
   }
   private func bindClient() {
-    previousMessageCallback = client.onMessage; previousStateCallback = client.onMessageStateChanged; previousThemeCallback = client.onThemeModeChanged; previousLanguageCallback = client.onLanguageChanged
-    client.onMessage = { [weak self] message in self?.previousMessageCallback?(message); guard message.conversationId == self?.conversationId else { return }; DispatchQueue.main.async { self?.append(message: message) } }
-    client.onMessageStateChanged = { [weak self] id, state in self?.previousStateCallback?(id, state); DispatchQueue.main.async { guard let self, let index = self.messages.firstIndex(where: { $0.clientMsgId == id }) else { return }; self.messages[index].state = state; self.tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none) } }
-    client.onThemeModeChanged = { [weak self] mode in self?.previousThemeCallback?(mode); DispatchQueue.main.async { self?.overrideUserInterfaceStyle = mode == .dark ? .dark : (mode == .light ? .light : .unspecified) } }
-    client.onLanguageChanged = { [weak self] language in self?.previousLanguageCallback?(language); DispatchQueue.main.async { self?.language = language; self?.applyLocalizedStrings() } }
+    listener.onMessage = { [weak self] message in guard message.conversationId == self?.conversationId else { return }; DispatchQueue.main.async { self?.append(message: message) } }
+    listener.onMessageStateChanged = { [weak self] id, state in DispatchQueue.main.async { guard let self, let index = self.messages.firstIndex(where: { $0.clientMsgId == id }) else { return }; self.messages[index].state = state; self.tableView.reloadData() } }
+    listener.onThemeModeChanged = { [weak self] mode in DispatchQueue.main.async { self?.overrideUserInterfaceStyle = mode == .dark ? .dark : (mode == .light ? .light : .unspecified) } }
+    listener.onLanguageChanged = { [weak self] language in DispatchQueue.main.async { self?.language = language; self?.applyLocalizedStrings() } }
+    client.addListener(listener)
   }
   private func reloadFromCache() {
     // Keep host-provided optimistic/preview messages. The local store may be
@@ -156,7 +177,9 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
       return
     }
     guard isViewLoaded, view.window != nil, tableView.dataSource != nil, !messages.isEmpty else { return }
-    let target = IndexPath(row: messages.count - 1, section: 0)
+    let sections = messageSections
+    guard let lastSection = sections.indices.last, let lastRow = sections[lastSection].indices.last else { return }
+    let target = IndexPath(row: lastRow, section: lastSection)
     tableView.layoutIfNeeded()
     guard tableView.numberOfSections > target.section,
           tableView.numberOfRows(inSection: target.section) > target.row else {
@@ -186,14 +209,46 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     applyTheme()
   }
   private func applyLocalizedStrings() { guard isViewLoaded else { return }; inputBar.language = language; tableView.reloadData() }
+  @objc private func backTapped() { navigationController?.popViewController(animated: true) }
+  @objc private func moreTapped() { didRequestAction(.gift) }
+  @objc private func videoTapped() { didRequestAction(.video) }
   public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) { super.traitCollectionDidChange(previousTraitCollection); if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle { applyTheme() } }
-  public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { messages.count }
+  public func numberOfSections(in tableView: UITableView) -> Int { messageSections.count }
+  public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { messageSections[section].count }
   open func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-    let message = messages[indexPath.row]
+    let message = messageSections[indexPath.section][indexPath.row]
     let cell = tableView.dequeueReusableCell(withIdentifier: messageCellReuseIdentifier(for: message), for: indexPath)
     configureMessageCell(cell, message: message, outgoing: isOutgoing(message), at: indexPath)
     configureAvatarAction(on: cell, message: message)
     return cell
   }
-  open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didTapMessage(messages[indexPath.row]) }
+  open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didTapMessage(messageSections[indexPath.section][indexPath.row]) }
+  open func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 34 }
+  open func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+    let header = PteIMUITimelineHeaderView()
+    header.configure(date: Date(timeIntervalSince1970: TimeInterval(messageSections[section].first?.createdAt ?? 0) / 1000), language: language, color: theme.palette(for: traitCollection).secondaryTextColor)
+    return header
+  }
+}
+
+private final class PteIMUITimelineHeaderView: UIView {
+  private let leading = UIView(); private let trailing = UIView(); private let label = UILabel()
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    [leading, trailing, label].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; addSubview($0) }
+    label.font = .systemFont(ofSize: 11, weight: .regular); label.textAlignment = .center
+    NSLayoutConstraint.activate([
+      label.centerXAnchor.constraint(equalTo: centerXAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor),
+      leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20), leading.trailingAnchor.constraint(equalTo: label.leadingAnchor, constant: -16), leading.centerYAnchor.constraint(equalTo: label.centerYAnchor), leading.heightAnchor.constraint(equalToConstant: 1),
+      trailing.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 16), trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20), trailing.centerYAnchor.constraint(equalTo: label.centerYAnchor), trailing.heightAnchor.constraint(equalToConstant: 1)
+    ])
+  }
+  required init?(coder: NSCoder) { nil }
+  func configure(date: Date, language: PteIMLanguage, color: UIColor) {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) { label.text = PteIMUILocalization.value("今天 · Today", "Today", language: language) }
+    else if calendar.isDateInYesterday(date) { label.text = PteIMUILocalization.value("昨天 · Yesterday", "Yesterday", language: language) }
+    else { let formatter = DateFormatter(); formatter.dateFormat = "MM/dd"; label.text = formatter.string(from: date) }
+    label.textColor = color; leading.backgroundColor = color.withAlphaComponent(0.20); trailing.backgroundColor = color.withAlphaComponent(0.20)
+  }
 }

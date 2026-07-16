@@ -83,6 +83,6 @@ For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authoriz
 ## Synchronization rules
 
 1. The client opens its account-scoped local store and reads `syncCursor`. The cursor is the globally monotonic `chat_message.id` represented as a decimal string, and is scoped to the authenticated app/user.
-2. It requests all deltas after that cursor, writes each page in one SQLite transaction, and advances the cursor only after commit.
+2. It requests all deltas after that cursor, writes each page in one platform-store transaction, and advances the cursor only after commit.
 3. Realtime events are committed before their ACK is sent. A missing `serverSeq` triggers an incremental sync.
-4. A server `cursor_expired` response triggers a controlled snapshot sync. The client never silently deletes an existing database.
+4. A server `cursor_expired` response triggers a controlled snapshot sync.

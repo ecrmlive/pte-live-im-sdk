@@ -1,7 +1,7 @@
 {
   "name": "@ptelive/pte-im-uikit",
   "version": "1.0.0",
-  "description": "PteIMUIkit native ArkUI components for HarmonyOS",
+  "description": "PteIMUIKit native ArkUI components for HarmonyOS",
   "main": "src/main/ets/index.ets",
   "author": "PteLive",
   "license": "Apache-2.0",

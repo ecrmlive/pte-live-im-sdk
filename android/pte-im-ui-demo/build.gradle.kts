@@ -1,6 +1,5 @@
 plugins {
   id("com.android.application")
-  kotlin("android")
 }
 
 android {
@@ -8,15 +7,17 @@ android {
   compileSdk = 36
 
   defaultConfig {
-    applicationId = "com.ptelive.im.uidemo"
+    applicationId = "com.ptelive.app.im.sdk.demo"
     minSdk = 31
     targetSdk = 36
     versionCode = 1
     versionName = "0.1.0-alpha"
   }
+  compileOptions {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+  }
 }
-
-kotlin { jvmToolchain(17) }
 
 dependencies {
   implementation(project(":pte-im-sdk"))

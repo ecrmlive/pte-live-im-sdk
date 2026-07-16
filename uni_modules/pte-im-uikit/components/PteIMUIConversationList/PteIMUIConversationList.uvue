@@ -1,0 +1,21 @@
+<template>
+  <scroll-view class="pte-im-ui-list" :style="themeStyle" scroll-y="true"><view v-for="conversation in conversations" :key="conversation.conversationId" class="pte-im-ui-row" @click="$emit('select', conversation.conversationId)"><text class="pte-im-ui-name">{{ conversation.conversationId }}</text><text class="pte-im-ui-preview">{{ preview(conversation.lastMessage) }}</text></view></scroll-view>
+</template>
+
+<script lang="uts">
+import { PteIMConversation, PteIMIncomingMessage, PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMUIConversationListController, PteIMUIKit, PteIMUITheme } from '../../utssdk/PteIMUIKitFacade.uts'
+export default {
+  props: { client: { type: Object, required: true }, theme: { type: Object, default: null } }, emits: ['select'],
+  data() { return { conversations: [] as PteIMConversation[], themeStyle: {} as any, controller: null as PteIMUIConversationListController | null } },
+  mounted() { const controller = PteIMUIKit.createConversationListController(this.client as PteIMSDKClient); controller.onChanged = () => { this.conversations = controller.conversations; this.applyTheme() }; this.controller = controller; controller.refresh(); this.applyTheme() },
+  beforeUnmount() { this.controller?.dispose() },
+  methods: { preview(message: PteIMIncomingMessage): string { const value = message.content as any; return message.type === 'text' ? String(value.text ?? '') : '[' + message.type + ']' }, applyTheme() { const client = this.client as PteIMSDKClient; const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const dark = client.currentAppearance().themeMode === 'dark' || (client.currentAppearance().themeMode === 'system' && uni.getSystemInfoSync().theme === 'dark'); this.themeStyle = PteIMUITheme.cssVariables(PteIMUITheme.resolve(client, theme, dark)) } },
+}
+</script>
+
+<style>
+.pte-im-ui-list { height: 100%; background-color: var(--pte-im-ui-background); }
+.pte-im-ui-row { display: flex; flex-direction: column; padding: 26rpx; border-bottom: 1px solid var(--pte-im-ui-divider); background-color: var(--pte-im-ui-surface); }
+.pte-im-ui-name { font-size: 30rpx; color: var(--pte-im-ui-text); }.pte-im-ui-preview { margin-top: 8rpx; font-size: 25rpx; color: var(--pte-im-ui-muted); }
+</style>

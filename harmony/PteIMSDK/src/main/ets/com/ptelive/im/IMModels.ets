@@ -3,10 +3,13 @@ export enum PteIMThemeMode { SYSTEM = 'system', LIGHT = 'light', DARK = 'dark' }
 export enum PteIMLanguage { SYSTEM = 'system', ZH_CN = 'zh-CN', EN_US = 'en-US' }
 export enum PteIMMessageType {
   TEXT = 'text', EMOJI = 'emoji', IMAGE = 'image', VIDEO = 'video', VOICE = 'voice',
-  LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order'
+  LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order', FILE = 'file'
 }
 export enum PteIMSendState { PENDING = 'pending', UPLOADING = 'uploading', SENT = 'sent', FAILED = 'failed' }
 export enum PteIMGender { UNKNOWN = 'unknown', MALE = 'male', FEMALE = 'female' }
+export enum PteIMPushPlatform { ANDROID = 'android', IOS = 'ios', HARMONY = 'harmony', WEB = 'web', WECHAT = 'wechat' }
+/** Token-free acknowledgement returned by the encrypted push-device API. */
+export class PteIMPushDevice { deviceId: string = ''; platform: PteIMPushPlatform = PteIMPushPlatform.HARMONY; notificationEnabled: boolean = true; lastSeenAt: number = 0 }
 
 export class PteIMUserProfile {
   userId: number; nickname: string; avatar: string; gender: PteIMGender; birthday: string; province: string; city: string; district: string
@@ -27,6 +30,14 @@ export class PteIMUserProfileUpdate {
   static city(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('city', value) }
   static district(value: string): PteIMUserProfileUpdate { return new PteIMUserProfileUpdate('district', value) }
 }
+export class PteIMContact { userId: string = ''; remark: string = ''; nickname: string = ''; avatar: string = ''; gender: PteIMGender = PteIMGender.UNKNOWN; followedAt: number = 0 }
+export class PteIMContactPage { list: PteIMContact[] = []; nextCursor: string = ''; hasMore: boolean = false }
+export class PteIMMember { userId: number = 0; role: number = 0; alias: string = ''; muteUntil: number = 0; joinedAt: number = 0 }
+export class PteIMMemberPage { list: PteIMMember[] = []; nextCursor: string = ''; hasMore: boolean = false }
+export class PteIMGroupPage { list: PteIMRemoteConversation[] = []; nextCursor: string = ''; hasMore: boolean = false }
+export class PteIMStateChange { id: string = ''; entityType: string = ''; entityId: string = ''; operation: string = ''; createdAt: number = 0 }
+export class PteIMStateChangePage { changes: PteIMStateChange[] = []; nextCursor: string = ''; hasMore: boolean = false }
+export class PteIMDefaultSetting { chatPrerequisite: string = ''; notificationEnabled: boolean = true; groupJoinMode: string = '' }
 
 /** Explicit wire models keep API 23 ArkTS serialization type-safe. */
 export class PteIMWireContent {
@@ -40,6 +51,8 @@ export class PteIMWireContent {
   height: number = 0
   durationMs: number = 0
   sizeBytes: number = 0
+  fileName: string = ''
+  mimeType: string = ''
   waveform: string = ''
   latitude: number = 0
   longitude: number = 0
@@ -120,9 +133,11 @@ export class PteIMMedia {
   height: number
   durationMs: number
   sizeBytes: number
+  fileName: string
+  mimeType: string
 
   constructor(url: string = '', thumbnailUrl: string = '', coverUrl: string = '',
-    width: number = 0, height: number = 0, durationMs: number = 0, sizeBytes: number = 0) {
+    width: number = 0, height: number = 0, durationMs: number = 0, sizeBytes: number = 0, fileName: string = '', mimeType: string = '') {
     this.url = url
     this.thumbnailUrl = thumbnailUrl
     this.coverUrl = coverUrl
@@ -130,6 +145,8 @@ export class PteIMMedia {
     this.height = height
     this.durationMs = durationMs
     this.sizeBytes = sizeBytes
+    this.fileName = fileName
+    this.mimeType = mimeType
   }
 }
 export class PteIMVoice {
@@ -220,6 +237,7 @@ export class PteIMMessage {
     if (this.media !== null) {
       content.url = this.media.url; content.thumbnailUrl = this.media.thumbnailUrl; content.coverUrl = this.media.coverUrl
       content.width = this.media.width; content.height = this.media.height; content.durationMs = this.media.durationMs; content.sizeBytes = this.media.sizeBytes
+      content.fileName = this.media.fileName; content.mimeType = this.media.mimeType
     }
     if (this.voice !== null) {
       content.url = this.voice.url; content.durationMs = this.voice.durationMs; content.waveform = this.voice.waveform; content.sizeBytes = this.voice.sizeBytes
@@ -313,6 +331,7 @@ export class PteIMMessagePage {
 /** Subclass this object or assign callbacks to receive SDK lifecycle events. */
 export class PteIMListener {
   onConnectionChanged(_connected: boolean): void {}
+  onStateChanges(_changes: PteIMStateChange[]): void {}
   onMessage(_message: PteIMMessage): void {}
   onMessageStateChanged(_clientMsgId: string, _state: PteIMSendState): void {}
   onUserSigWillExpire(): void {}

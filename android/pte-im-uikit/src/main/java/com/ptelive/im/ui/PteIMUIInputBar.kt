@@ -77,7 +77,7 @@ class PteIMUIInputBar(context: Context, private var palette: PteIMUIThemePalette
     panel.visibility = if (current == null) GONE else VISIBLE
     val params = panel.layoutParams; params.height = if (current == null) 0 else dp(108); panel.layoutParams = params
     if (current == null) return
-    val values = if (current == "emoji") listOf("☺" to "smile_001", "✦" to "smile_002", "◌" to "wave_001", "♥" to "heart_001", "✓" to "thumb_001", "✺" to "party_001") else listOf("图片" to "image", "视频" to "video", "位置" to "location", "礼物" to "gift", "红包" to "red_packet", "订单" to "order")
+    val values = if (current == "emoji") listOf("☺" to "smile_001", "✦" to "smile_002", "◌" to "wave_001", "♥" to "heart_001", "✓" to "thumb_001", "✺" to "party_001") else listOf("图片" to "image", "拍摄" to "camera", "视频" to "video", "位置" to "location", "文件" to "file", "礼物" to "gift", "红包" to "red_packet", "订单" to "order")
     values.forEach { (title, id) ->
       panel.addView(Button(context).apply {
         text = title; isAllCaps = false; textSize = 12f; setTextColor(palette.icon); background = rounded(palette.panelItem, palette.divider, 14)
@@ -89,7 +89,7 @@ class PteIMUIInputBar(context: Context, private var palette: PteIMUIThemePalette
     }
   }
 
-  private fun actionFor(id: String): PteIMUIAction? = when (id) { "image" -> PteIMUIAction.IMAGE; "video" -> PteIMUIAction.VIDEO; "location" -> PteIMUIAction.LOCATION; "gift" -> PteIMUIAction.GIFT; "red_packet" -> PteIMUIAction.RED_PACKET; "order" -> PteIMUIAction.ORDER; else -> null }
+  private fun actionFor(id: String): PteIMUIAction? = when (id) { "image" -> PteIMUIAction.IMAGE; "camera" -> PteIMUIAction.CAMERA; "video" -> PteIMUIAction.VIDEO; "location" -> PteIMUIAction.LOCATION; "file" -> PteIMUIAction.FILE; "gift" -> PteIMUIAction.GIFT; "red_packet" -> PteIMUIAction.RED_PACKET; "order" -> PteIMUIAction.ORDER; else -> null }
   private fun iconButton(label: String) = Button(context).apply { text = label; textSize = 12f; isAllCaps = false; background = null }
   private fun rounded(fill: Int, stroke: Int, radius: Int) = GradientDrawable().apply { setColor(fill); setStroke(dp(1), stroke); cornerRadius = dp(radius).toFloat() }
   private fun gradient(start: Int, end: Int, radius: Int) = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(start, end)).apply { cornerRadius = dp(radius).toFloat() }

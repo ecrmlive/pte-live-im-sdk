@@ -2,7 +2,7 @@
 
 `@ptelive/pte-im-sdk` is an independent ArkTS SDK for HarmonyOS. It is not part of the uni-app x UTS plugin.
 
-The SDK uses platform WebSocket and relational-store (SQLite) APIs only. Add `ohos.permission.INTERNET` and configure the production API/WebSocket domains in the host application's network-security configuration.
+The SDK uses the platform WebSocket API and ArkData RDB. Add `ohos.permission.INTERNET` and configure the production API/WebSocket domains in the host application's network-security configuration.
 
 ```ts
 const base = new PteIMBaseConfig(

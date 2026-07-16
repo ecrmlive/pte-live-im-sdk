@@ -10,8 +10,20 @@ open class PteIMUIConversationListViewController: UITableViewController {
   public var skin: PteIMUISkin { didSet { applySkin() } }
   public var onConversationSelected: ((PteIMUIConversationPresentation, PteIMUIConversationListViewController) -> Void)?
   public var onAvatarTapped: ((PteIMUIConversationPresentation, PteIMUIConversationListViewController) -> Void)?
+  public var onAddRequested: ((PteIMUIConversationListViewController) -> Void)?
+  /**
+   Optional host-owned rows. Set this when a business directory already has
+   names, avatars and unread counts; Core cursor/cache sync stays untouched.
+   Set `nil` to return to the built-in local-conversation source.
+   */
+  public var hostPresentations: [PteIMUIConversationPresentation]? {
+    didSet { guard isViewLoaded else { return }; reloadConversations() }
+  }
   private var conversations: [PteIMConversation] = []
-  private var previousMessageCallback: ((PteIMMessage) -> Void)?
+  private var visiblePresentations: [PteIMUIConversationPresentation] = []
+  private var filteredPresentations: [PteIMUIConversationPresentation] = []
+  private let listener = PteIMListener()
+  private lazy var chrome = PteIMUIListChrome(title: title ?? "Chats")
 
   public init(client: PteIMSDK, skin: PteIMUISkin = .default) {
     self.client = client; self.skin = skin; super.init(style: .plain)
@@ -19,17 +31,43 @@ open class PteIMUIConversationListViewController: UITableViewController {
   }
   public convenience init(client: PteIMSDK, theme: PteIMUITheme) { self.init(client: client, skin: PteIMUISkin(theme: theme)) }
   required public init?(coder: NSCoder) { nil }
+  deinit { client.removeListener(listener) }
 
   open override func viewDidLoad() {
     super.viewDidLoad()
     tableView.register(PteIMUIConversationCell.self, forCellReuseIdentifier: PteIMUIConversationCell.reuseIdentifier)
     tableView.separatorStyle = .none
+    tableView.tableHeaderView = chrome
+    chrome.onSearchChanged = { [weak self] query in self?.filterConversations(query) }
+    chrome.onAppearanceTapped = { [weak self] in self?.toggleAppearance() }
+    chrome.onLanguageTapped = { [weak self] in self?.toggleLanguage() }
+    chrome.onAddTapped = { [weak self] in guard let self else { return }; self.onAddRequested?(self) }
     refreshControl = UIRefreshControl(); refreshControl?.addTarget(self, action: #selector(refresh), for: .valueChanged)
     bindClient(); reloadConversations(); applySkin()
   }
+  open override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    navigationController?.setNavigationBarHidden(true, animated: animated)
+  }
+  open override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    layoutChromeIfNeeded()
+  }
 
   @objc open func refresh() { client.syncNow(); reloadConversations(); refreshControl?.endRefreshing() }
-  open func reloadConversations() { conversations = (try? client.localConversations(limit: 100)) ?? []; tableView.reloadData() }
+  open func reloadConversations() {
+    if let hostPresentations {
+      conversations = []
+      visiblePresentations = hostPresentations
+      filteredPresentations = hostPresentations
+      tableView.reloadData()
+      return
+    }
+    conversations = (try? client.localConversations(limit: 100)) ?? []
+    visiblePresentations = conversations.map { presentation(for: $0) }
+    filteredPresentations = visiblePresentations
+    tableView.reloadData()
+  }
 
   /** Override to use your member/group directory for nickname, avatar and unread count. */
   open func presentation(for conversation: PteIMConversation) -> PteIMUIConversationPresentation {
@@ -53,24 +91,51 @@ open class PteIMUIConversationListViewController: UITableViewController {
   }
 
   private func bindClient() {
-    previousMessageCallback = client.onMessage
-    client.onMessage = { [weak self] message in self?.previousMessageCallback?(message); DispatchQueue.main.async { self?.reloadConversations() } }
+    listener.onMessage = { [weak self] _ in DispatchQueue.main.async { self?.reloadConversations() } }
+    listener.onMessageStateChanged = { [weak self] _, _ in DispatchQueue.main.async { self?.reloadConversations() } }
+    client.addListener(listener)
   }
   private func applySkin() {
     guard isViewLoaded else { return }
     let palette = skin.theme.palette(for: traitCollection)
     tableView.backgroundColor = palette.backgroundColor; tableView.rowHeight = skin.list.rowHeight
     refreshControl?.tintColor = palette.outgoingGradientStartColor; navigationController?.navigationBar.tintColor = palette.iconColor
+    chrome.apply(palette: palette, title: title ?? "Chats", language: client.appearance.language)
+    layoutChromeIfNeeded(force: true)
     tableView.reloadData()
   }
   open override func traitCollectionDidChange(_ previous: UITraitCollection?) { super.traitCollectionDidChange(previous); if previous?.userInterfaceStyle != traitCollection.userInterfaceStyle { applySkin() } }
-  open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { conversations.count }
+  open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredPresentations.count }
   open override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
     let cell = tableView.dequeueReusableCell(withIdentifier: PteIMUIConversationCell.reuseIdentifier, for: indexPath) as! PteIMUIConversationCell
-    let item = presentation(for: conversations[indexPath.row]); configure(cell: cell, presentation: item, at: indexPath)
+    let item = filteredPresentations[indexPath.row]; configure(cell: cell, presentation: item, at: indexPath)
     cell.onAvatarTapped = { [weak self] in self?.didTapAvatar(item) }; return cell
   }
-  open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didSelectConversation(presentation(for: conversations[indexPath.row])) }
+  open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didSelectConversation(filteredPresentations[indexPath.row]) }
+
+  private func filterConversations(_ query: String) {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    filteredPresentations = trimmed.isEmpty ? visiblePresentations : visiblePresentations.filter {
+      $0.title.localizedCaseInsensitiveContains(trimmed) || ($0.subtitle?.localizedCaseInsensitiveContains(trimmed) ?? false)
+    }
+    tableView.reloadData()
+  }
+  private func layoutChromeIfNeeded(force: Bool = false) {
+    let size = CGSize(width: tableView.bounds.width, height: 122)
+    guard force || chrome.frame.size != size else { return }
+    chrome.frame = CGRect(origin: .zero, size: size)
+    tableView.tableHeaderView = chrome
+  }
+  private func toggleAppearance() {
+    let mode: PteIMThemeMode = traitCollection.userInterfaceStyle == .dark ? .light : .dark
+    client.updateAppearance(themeMode: mode, language: client.appearance.language)
+  }
+  private func toggleLanguage() {
+    let language: PteIMLanguage = client.appearance.language == .enUS ? .zhCN : .enUS
+    client.updateAppearance(themeMode: client.appearance.themeMode, language: language)
+    title = PteIMUILocalization.value("会话", "Chats", language: language)
+    applySkin()
+  }
 }
 
 open class PteIMUIConversationCell: UITableViewCell {
@@ -108,11 +173,13 @@ open class PteIMUIConversationCell: UITableViewCell {
   required public init?(coder: NSCoder) { nil }
   @objc private func tapAvatar() { onAvatarTapped?() }
   open func configure(presentation: PteIMUIConversationPresentation, style: PteIMUIListStyle, palette: PteIMUIThemePalette, icons: PteIMUIIconProvider = PteIMUISystemIconProvider()) {
-    contentView.backgroundColor = style.cellBackgroundColor ?? palette.surfaceColor; contentView.layer.cornerRadius = style.cellCornerRadius
+    // The reference skin keeps list rows on the page's lavender canvas. Hosts
+    // that need card rows can still supply `cellBackgroundColor` explicitly.
+    contentView.backgroundColor = style.cellBackgroundColor ?? palette.backgroundColor; contentView.layer.cornerRadius = style.cellCornerRadius
     avatarButton.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
     avatarButton.layer.cornerRadius = style.avatarSize / 2; avatarButton.clipsToBounds = true
     avatarImageView.image = presentation.avatarImage; avatarImageView.isHidden = presentation.avatarImage == nil
-    avatarLabel.isHidden = presentation.avatarImage != nil; avatarLabel.text = presentation.avatarText; avatarLabel.font = style.avatarFont; avatarLabel.textColor = style.avatarTextColor; avatarLabel.backgroundColor = palette.outgoingGradientEndColor
+    avatarLabel.isHidden = presentation.avatarImage != nil; avatarLabel.text = presentation.avatarText; avatarLabel.font = style.avatarFont; avatarLabel.textColor = style.avatarTextColor; avatarLabel.backgroundColor = presentation.avatarBackgroundColor ?? palette.outgoingGradientEndColor
     titleLabel.text = presentation.title; titleLabel.font = style.titleFont; titleLabel.textColor = style.titleColor ?? palette.primaryTextColor
     subtitleLabel.text = presentation.subtitle; subtitleLabel.font = style.subtitleFont; subtitleLabel.textColor = style.subtitleColor ?? palette.secondaryTextColor
     timeLabel.text = presentation.updatedAt.map { Self.timeFormatter.string(from: $0) }; timeLabel.font = style.timeFont; timeLabel.textColor = style.timeColor ?? palette.secondaryTextColor

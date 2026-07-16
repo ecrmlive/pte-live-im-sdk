@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.ptelive.im.demo",
+    "bundleName": "com.ptelive.app.im.sdk.demo",
     "vendor": "PteLive",
     "icon": "$media:PteIMUIAppIcon",
     "label": "$string:PteIMUIAppName",

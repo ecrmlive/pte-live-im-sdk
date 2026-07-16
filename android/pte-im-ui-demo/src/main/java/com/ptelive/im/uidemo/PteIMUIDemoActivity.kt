@@ -17,11 +17,11 @@ import com.ptelive.im.PteIMMessageType
 import com.ptelive.im.PteIMSDK
 import com.ptelive.im.ui.PteIMUIAction
 import com.ptelive.im.ui.PteIMUIChatView
-import com.ptelive.im.ui.PteIMUIkit
+import com.ptelive.im.ui.PteIMUIKit
 
 /**
  * Business-shell sample: the host authenticates its user, obtains a short-lived UserSig,
- * then logs PteIMSDK in and embeds PteIMUIkit screens. No credential is persisted.
+ * then logs PteIMSDK in and embeds PteIMUIKit screens. No credential is persisted.
  */
 class PteIMUIDemoActivity : Activity() {
   private var client: PteIMSDK? = null
@@ -46,7 +46,7 @@ class PteIMUIDemoActivity : Activity() {
     conversationId = field("Active conversation ID", "")
     conversationId.isEnabled = false
     root.addView(title("PteIMUIDemo · Android"))
-    root.addView(note("示例业务流程：业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → 使用 PteIMUIkit。请替换 demo 账号校验为您的业务 API；UserSig 不写入磁盘。"))
+    root.addView(note("示例业务流程：业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → 使用 PteIMUIKit。请替换 demo 账号校验为您的业务 API；UserSig 不写入磁盘。"))
     listOf(api, im, cos, appId, account, password, userId, userSig, conversationId).forEach(root::addView)
     root.addView(button("业务登录并进入 IM") {
       val session = PteIMUIDemoBusinessSession(account.text.toString(), userId.text.toString(), userSig.text.toString())
@@ -67,9 +67,9 @@ class PteIMUIDemoActivity : Activity() {
     val root = column()
     root.addView(title("PteIMUIDemo"))
     root.addView(note("业务层：好友关系、我的；IM UI：会话、聊天、群组。"))
-    root.addView(button("会话列表（PteIMUIkit）") { openConversationList() })
+    root.addView(button("会话列表（PteIMUIKit）") { openConversationList() })
     root.addView(button("好友列表 / 关系") { setContentView(friendListView()) })
-    root.addView(button("创建群组并聊天（PteIMUIkit）") { openDemoGroupChat() })
+    root.addView(button("创建群组并聊天（PteIMUIKit）") { openDemoGroupChat() })
     root.addView(button("我的") { setContentView(profileView()) })
     root.addView(button("退出登录") { client?.stop(); client = null; setContentView(businessLoginView()) })
     return root
@@ -77,11 +77,11 @@ class PteIMUIDemoActivity : Activity() {
 
   private fun openConversationList() {
     val value = client ?: return
-    setContentView(PteIMUIkit.createConversationListView(this, value) { id -> openChat(id, id) })
+    setContentView(PteIMUIKit.createConversationListView(this, value) { id -> openChat(id, id) })
   }
 
   private fun friendListView(): View {
-    val root = column(); root.addView(title("好友列表 / 关系示例")); root.addView(note("添加、删除好友属于业务 API；聊天页面由 PteIMUIkit 提供。"))
+    val root = column(); root.addView(title("好友列表 / 关系示例")); root.addView(note("添加、删除好友属于业务 API；聊天页面由 PteIMUIKit 提供。"))
     friends.forEach { friend -> root.addView(button(friend) {
       openSingleChat(friend.substringAfter('(').substringBefore(')').toLong(), friend.substringBefore(' '))
     }) }
@@ -100,7 +100,7 @@ class PteIMUIDemoActivity : Activity() {
   private fun openChat(id: String, title: String) {
     val value = client ?: return
     conversationId.setText(id)
-    chat = PteIMUIkit.createChatView(this, value, id, title).also { it.onActionRequested = ::handleAction }
+    chat = PteIMUIKit.createChatView(this, value, id, title).also { it.onActionRequested = ::handleAction }
     setContentView(chat)
   }
 
@@ -122,10 +122,17 @@ class PteIMUIDemoActivity : Activity() {
 
   private fun handleAction(action: PteIMUIAction) {
     when (action) {
-      PteIMUIAction.IMAGE, PteIMUIAction.VIDEO, PteIMUIAction.VOICE -> {
+      PteIMUIAction.IMAGE, PteIMUIAction.CAMERA, PteIMUIAction.VIDEO, PteIMUIAction.VOICE, PteIMUIAction.FILE -> {
         pendingAction = action
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-          type = when (action) { PteIMUIAction.IMAGE -> "image/*"; PteIMUIAction.VIDEO -> "video/*"; else -> "audio/*" }
+          // A production host may replace CAMERA with its camera/permission flow
+          // and then provide the captured Uri. UIKit intentionally owns neither.
+          type = when (action) {
+            PteIMUIAction.IMAGE, PteIMUIAction.CAMERA -> "image/*"
+            PteIMUIAction.VIDEO -> "video/*"
+            PteIMUIAction.VOICE -> "audio/*"
+            PteIMUIAction.FILE -> "*/*"
+          }
           addCategory(Intent.CATEGORY_OPENABLE)
         }, 7)
       }
@@ -142,8 +149,10 @@ class PteIMUIDemoActivity : Activity() {
     val uri: Uri = data?.data ?: return
     when (pendingAction) {
       PteIMUIAction.IMAGE -> client?.uploadAndSendImage(conversationId.text.toString(), uri)
+      PteIMUIAction.CAMERA -> client?.uploadAndSendImage(conversationId.text.toString(), uri)
       PteIMUIAction.VIDEO -> client?.uploadAndSendVideo(conversationId.text.toString(), uri)
       PteIMUIAction.VOICE -> client?.uploadAndSendVoice(conversationId.text.toString(), uri, 1_000)
+      PteIMUIAction.FILE -> client?.uploadAndSendFile(conversationId.text.toString(), uri)
       else -> Unit
     }
   }

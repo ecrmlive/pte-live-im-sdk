@@ -38,6 +38,18 @@ export type PteIMGender = 'unknown' | 'male' | 'female'
 export type PteIMUserProfile = { userId: number, nickname?: string, avatar?: string, gender: PteIMGender, birthday?: string, province?: string, city?: string, district?: string }
 /** Exactly one mutable profile property per request. */
 export type PteIMUserProfileUpdate = { field: 'nickname' | 'avatar' | 'gender' | 'birthday' | 'province' | 'city' | 'district', value: string }
+export type PteIMContact = { userId: string, remark: string, nickname: string, avatar: string, gender: PteIMGender, followedAt: number }
+export type PteIMContactPage = { list: PteIMContact[], nextCursor: string, hasMore: boolean }
+export type PteIMMember = { userId: number, role: number, alias: string, muteUntil: number, joinedAt: number }
+export type PteIMMemberPage = { list: PteIMMember[], nextCursor: string, hasMore: boolean }
+export type PteIMGroupPage = { list: PteIMRemoteConversation[], nextCursor: string, hasMore: boolean }
+export type PteIMStateChange = { id: string, entityType: string, entityId: string, operation: string, createdAt: number }
+export type PteIMStateChangePage = { changes: PteIMStateChange[], nextCursor: string, hasMore: boolean }
+export type PteIMDefaultSetting = { chatPrerequisite: string, notificationEnabled: boolean, groupJoinMode: string }
+/** Platform label is future-compatible: U-Push uses android/ios/harmony; web and WeChat await their own push providers. */
+export type PteIMPushPlatform = 'android' | 'ios' | 'harmony' | 'web' | 'wechat'
+/** Registration acknowledgement deliberately never includes the provider token. */
+export type PteIMPushDevice = { deviceId: string, platform: PteIMPushPlatform, notificationEnabled: boolean, lastSeenAt: number }
 
 export type PteIMMedia = {
   url?: string
@@ -47,6 +59,8 @@ export type PteIMMedia = {
   height?: number
   durationMs?: number
   sizeBytes?: number
+  fileName?: string
+  mimeType?: string
 }
 
 export type PteIMVoice = { url: string, durationMs: number, waveform?: string, sizeBytes?: number }
@@ -64,6 +78,21 @@ export type PteIMIncomingMessage = {
   content: any
 }
 export type PteIMMessageStateChange = { clientMsgId: string, state: PteIMSendState }
+/**
+ * Independently registered Core event receiver. Keep the listener owned by the
+ * host or UI controller and remove it when the owner is disposed.
+ */
+export type PteIMListener = {
+  onConnectionChanged?: (connected: boolean) => void
+  onMessage?: (message: PteIMIncomingMessage) => void
+  onMessageStateChanged?: (event: PteIMMessageStateChange) => void
+  onUserSigWillExpire?: () => void
+  onUserSigExpired?: () => void
+  onThemeModeChanged?: (themeMode: 'system' | 'light' | 'dark') => void
+  onLanguageChanged?: (language: 'system' | 'zh-CN' | 'en-US') => void
+  onError?: (message: string) => void
+  onStateChanges?: (changes: PteIMStateChange[]) => void
+}
 export type PteIMConversation = { conversationId: string, lastMessage: PteIMIncomingMessage, updatedAt: number }
 export type PteIMRemoteConversation = { id: number, type: string, title: string, avatar?: string, lastMessageSeq: number, lastMessageSnapshot?: string, lastMessageAt: number, unreadCount: number }
 export type PteIMConversationPage = { total: number, items: PteIMRemoteConversation[] }
@@ -79,9 +108,29 @@ export interface PteIMSDKClient {
   currentUserId(): string
   fetchMyProfile(callback: (result: PteIMUserProfile | null, error: string | null) => void): void
   updateMyProfile(update: PteIMUserProfileUpdate, callback: (result: PteIMUserProfile | null, error: string | null) => void): void
+  fetchFriends(cursor: string, limit: number, callback: (result: PteIMContactPage | null, error: string | null) => void): void
+  fetchFollows(cursor: string, limit: number, callback: (result: PteIMContactPage | null, error: string | null) => void): void
+  follow(userId: number, remark: string | null, callback: (error: string | null) => void): void
+  unfollow(userId: number, callback: (error: string | null) => void): void
+  block(userId: number, callback: (error: string | null) => void): void
+  unblock(userId: number, callback: (error: string | null) => void): void
+  fetchGroups(cursor: string, limit: number, callback: (result: PteIMGroupPage | null, error: string | null) => void): void
+  fetchGroupMembers(conversationId: number, cursor: string, limit: number, callback: (result: PteIMMemberPage | null, error: string | null) => void): void
+  joinGroup(conversationId: number, callback: (error: string | null) => void): void
+  inviteGroupMembers(conversationId: number, memberIds: number[], callback: (error: string | null) => void): void
+  removeGroupMember(conversationId: number, memberId: number, callback: (error: string | null) => void): void
+  leaveGroup(conversationId: number, callback: (error: string | null) => void): void
+  registerPushDevice(deviceId: string, platform: PteIMPushPlatform, token: string, notificationEnabled: boolean, callback: (result: PteIMPushDevice | null, error: string | null) => void): void
+  setPushDeviceNotification(deviceId: string, platform: PteIMPushPlatform, enabled: boolean, callback: (result: PteIMPushDevice | null, error: string | null) => void): void
+  unregisterPushDevice(deviceId: string, platform: PteIMPushPlatform, callback: (error: string | null) => void): void
+  syncState(cursor: string, limit: number, callback: (result: PteIMStateChangePage | null, error: string | null) => void): void
+  fetchDefaultSetting(callback: (result: PteIMDefaultSetting | null, error: string | null) => void): void
   syncNow(): void
+  /** Cursor-syncs server conversation summaries into encrypted local platform storage. */
+  syncConversationsNow(): void
   localMessages(conversationId: string, limit?: number): PteIMIncomingMessage[]
   localConversations(limit?: number): PteIMConversation[]
+  localRemoteConversations(limit?: number): PteIMRemoteConversation[]
   fetchConversationPage(page: number, pageSize: number, callback: (result: PteIMConversationPage | null, error: string | null) => void): void
   openSingleConversation(peerUserId: number, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
   createGroupConversation(title: string, memberIds: number[], avatar: string | null, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
@@ -91,22 +140,18 @@ export interface PteIMSDKClient {
   sendEmoji(conversationId: string, packageId: string, emojiId: string): string
   sendImage(conversationId: string, media: PteIMMedia): string
   sendVideo(conversationId: string, media: PteIMMedia): string
+  sendFile(conversationId: string, media: PteIMMedia): string
   uploadAndSendImage(conversationId: string, filePath: string): string
   uploadAndSendVideo(conversationId: string, filePath: string): string
+  uploadAndSendFile(conversationId: string, filePath: string): string
   uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform?: string): string
   sendVoice(conversationId: string, voice: PteIMVoice): string
   sendLocation(conversationId: string, location: PteIMLocation): string
   sendGift(conversationId: string, content: PteIMBusinessContent): string
   sendRedPacket(conversationId: string, content: PteIMBusinessContent): string
   sendOrder(conversationId: string, content: PteIMBusinessContent): string
-  onConnectionChanged(callback: (connected: boolean) => void): void
-  onMessage(callback: (message: PteIMIncomingMessage) => void): void
-  onMessageStateChanged(callback: (event: PteIMMessageStateChange) => void): void
-  onUserSigWillExpire(callback: () => void): void
-  onUserSigExpired(callback: () => void): void
-  onThemeModeChanged(callback: (themeMode: 'system' | 'light' | 'dark') => void): void
-  onLanguageChanged(callback: (language: 'system' | 'zh-CN' | 'en-US') => void): void
-  onError(callback: (message: string) => void): void
+  addListener(listener: PteIMListener): void
+  removeListener(listener: PteIMListener): void
 }
 
 export interface PteIMSDKBootstrap {

@@ -23,6 +23,7 @@ interface PteIMListener {
   fun onThemeModeChanged(themeMode: PteIMThemeMode) {}
   fun onLanguageChanged(language: PteIMLanguage) {}
   fun onError(error: Throwable) {}
+  fun onStateChanges(changes: List<PteIMStateChange>) {}
 }
 
 /** Public native Android SDK entry point. */
@@ -30,7 +31,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   private val executor = Executors.newSingleThreadExecutor()
   private val reconnectExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
   private var config = initialConfig
-  private var store = PteIMSqliteStore(appContext, initialConfig.storeKey())
+  private var store = PteIMRoomStore(appContext, initialConfig.storeKey())
   private val e2ee = PteIME2EE(appContext, initialConfig.storeKey(), initialConfig.sdkAppId, initialConfig.userId.toLong())
   private var transport: WssTransport? = null
   @Volatile private var stopRequested = false
@@ -91,6 +92,34 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     executor.execute { callback(runCatching { profileFromJson(postSdkJson("/v1/im/profile/update", JSONObject().put("field", update.field).put("value", update.value))) }) }
   }
 
+  fun fetchFriends(cursor: String = "", limit: Int = 50, callback: (Result<PteIMContactPage>) -> Unit) = contactPage("/v1/im/friends", cursor, limit, callback)
+  fun fetchFollows(cursor: String = "", limit: Int = 50, callback: (Result<PteIMContactPage>) -> Unit) = contactPage("/v1/im/follows", cursor, limit, callback)
+  fun follow(userId: Long, remark: String? = null, callback: (Result<Unit>) -> Unit) = contactAction("/v1/im/follows/follow", userId, remark, callback)
+  fun unfollow(userId: Long, callback: (Result<Unit>) -> Unit) = contactAction("/v1/im/follows/unfollow", userId, null, callback)
+  fun block(userId: Long, callback: (Result<Unit>) -> Unit) = contactAction("/v1/im/blocks/add", userId, null, callback)
+  fun unblock(userId: Long, callback: (Result<Unit>) -> Unit) = contactAction("/v1/im/blocks/remove", userId, null, callback)
+  fun fetchGroups(cursor: String = "", limit: Int = 50, callback: (Result<PteIMGroupPage>) -> Unit) { executor.execute { callback(runCatching { val root = postSdkJson("/v1/im/groups", JSONObject().put("cursor", cursor).put("limit", limit)); val list = root.optJSONArray("list") ?: JSONArray(); PteIMGroupPage((0 until list.length()).map { remoteConversationFromJson(list.getJSONObject(it)) }, root.optString("nextCursor"), root.optBoolean("hasMore")) }) } }
+  fun fetchGroupMembers(conversationId: Long, cursor: String = "", limit: Int = 50, callback: (Result<PteIMMemberPage>) -> Unit) { executor.execute { callback(runCatching { val root = postSdkJson("/v1/im/groups/members", JSONObject().put("conversationId", conversationId).put("cursor", cursor).put("limit", limit)); val list = root.optJSONArray("list") ?: JSONArray(); PteIMMemberPage((0 until list.length()).map { i -> list.getJSONObject(i).let { PteIMMember(it.getLong("user_id"), it.optInt("role"), it.optString("alias"), it.optLong("mute_until"), it.optLong("joined_at")) } }, root.optString("nextCursor"), root.optBoolean("hasMore")) }) } }
+  fun joinGroup(conversationId: Long, callback: (Result<Unit>) -> Unit) { executor.execute { callback(runCatching { postSdkJson("/v1/im/groups/join", JSONObject().put("conversationId", conversationId)); Unit }) } }
+  fun inviteGroupMembers(conversationId: Long, memberIds: List<Long>, callback: (Result<Unit>) -> Unit) { require(conversationId > 0 && memberIds.isNotEmpty() && memberIds.all { it > 0 }); executor.execute { callback(runCatching { postSdkJson("/v1/im/groups/members/invite", JSONObject().put("conversationId", conversationId).put("memberIds", JSONArray(memberIds))); Unit }) } }
+  fun removeGroupMember(conversationId: Long, memberId: Long, callback: (Result<Unit>) -> Unit) { require(conversationId > 0 && memberId > 0); executor.execute { callback(runCatching { postSdkJson("/v1/im/groups/members/remove", JSONObject().put("conversationId", conversationId).put("memberId", memberId)); Unit }) } }
+  fun leaveGroup(conversationId: Long, callback: (Result<Unit>) -> Unit) { require(conversationId > 0); executor.execute { callback(runCatching { postSdkJson("/v1/im/groups/leave", JSONObject().put("conversationId", conversationId)); Unit }) } }
+  /** Registers a U-Push/APNs/runtime token; the SDK does not persist this token locally. */
+  fun registerPushDevice(deviceId: String, platform: PteIMPushPlatform, token: String, notificationEnabled: Boolean = true, callback: (Result<PteIMPushDevice>) -> Unit) {
+    require(deviceId.length >= 8 && token.length >= 16) { "invalid push device" }
+    executor.execute { callback(runCatching { pushDeviceFromJson(postSdkJson("/v1/im/push/devices/register", JSONObject().put("deviceId", deviceId).put("platform", platform.name.lowercase()).put("token", token).put("notificationEnabled", notificationEnabled))) }) }
+  }
+  fun setPushDeviceNotification(deviceId: String, platform: PteIMPushPlatform, enabled: Boolean, callback: (Result<PteIMPushDevice>) -> Unit) {
+    require(deviceId.length >= 8) { "invalid push device" }
+    executor.execute { callback(runCatching { pushDeviceFromJson(postSdkJson("/v1/im/push/devices/notification", JSONObject().put("deviceId", deviceId).put("platform", platform.name.lowercase()).put("notificationEnabled", enabled))) }) }
+  }
+  fun unregisterPushDevice(deviceId: String, platform: PteIMPushPlatform, callback: (Result<Unit>) -> Unit) {
+    require(deviceId.length >= 8) { "invalid push device" }
+    executor.execute { callback(runCatching { postSdkJson("/v1/im/push/devices/unregister", JSONObject().put("deviceId", deviceId).put("platform", platform.name.lowercase())); Unit }) }
+  }
+  fun syncState(cursor: String = "", limit: Int = 100, callback: (Result<PteIMStateChangePage>) -> Unit) { executor.execute { callback(runCatching { val root = postSdkJson("/v1/im/state/sync", JSONObject().put("cursor", cursor).put("limit", limit)); val list = root.optJSONArray("changes") ?: JSONArray(); PteIMStateChangePage((0 until list.length()).map { i -> list.getJSONObject(i).let { PteIMStateChange(it.getString("id"), it.getString("entityType"), it.getString("entityId"), it.getString("operation"), it.optLong("createdAt")) } }, root.optString("nextCursor"), root.optBoolean("hasMore")) }) } }
+  fun fetchDefaultSetting(callback: (Result<PteIMDefaultSetting>) -> Unit) { executor.execute { callback(runCatching { postSdkJson("/v1/im/settings/default", JSONObject()).let { PteIMDefaultSetting(it.optString("chatPrerequisite"), it.optBoolean("notificationEnabled"), it.optString("groupJoinMode")) } }) } }
+
   fun sendText(conversationId: String, text: String): PteIMMessage = send(
     PteIMMessage(conversationId = conversationId, type = PteIMMessageType.TEXT, text = text),
   )
@@ -107,6 +136,11 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   /** Sends a media descriptor obtained by the host application. */
   fun sendVideo(conversationId: String, media: PteIMMedia): PteIMMessage = send(
     PteIMMessage(conversationId, PteIMMessageType.VIDEO, media = media),
+  )
+
+  /** Sends a file descriptor. Persist a COS key in [PteIMMedia.url], never a short-lived PUT URL. */
+  fun sendFile(conversationId: String, media: PteIMMedia): PteIMMessage = send(
+    PteIMMessage(conversationId, PteIMMessageType.FILE, media = media),
   )
 
   fun sendVoice(conversationId: String, voice: PteIMVoice): PteIMMessage = send(
@@ -137,6 +171,10 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun uploadAndSendVideo(conversationId: String, uri: Uri, onProgress: (Long, Long?) -> Unit = { _, _ -> }): PteIMMessage =
     uploadAndSendMedia(conversationId, uri, PteIMMessageType.VIDEO, onProgress)
 
+  /** Uploads an allowed document/archive through the one-object COS PUT URL, then sends its key. */
+  fun uploadAndSendFile(conversationId: String, uri: Uri, onProgress: (Long, Long?) -> Unit = { _, _ -> }): PteIMMessage =
+    uploadAndSendMedia(conversationId, uri, PteIMMessageType.FILE, onProgress)
+
   /** Uploads voice bytes to COS. The caller provides recording duration and optional waveform metadata. */
   fun uploadAndSendVoice(conversationId: String, uri: Uri, durationMs: Long, waveform: String? = null, onProgress: (Long, Long?) -> Unit = { _, _ -> }): PteIMMessage {
     require(durationMs > 0) { "durationMs must be positive" }
@@ -158,8 +196,22 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       } catch (error: Throwable) { listeners.forEach { it.onError(error) } }
     }
   }
+  fun syncStateNow(): Unit { executor.execute { try { val root = postSdkJson("/v1/im/state/sync", JSONObject().put("cursor", store.stateCursor()).put("limit", 100)); val list = root.optJSONArray("changes") ?: JSONArray(); val page = PteIMStateChangePage((0 until list.length()).map { i -> list.getJSONObject(i).let { PteIMStateChange(it.getString("id"), it.getString("entityType"), it.getString("entityId"), it.getString("operation"), it.optLong("createdAt")) } }, root.optString("nextCursor"), root.optBoolean("hasMore")); store.setStateCursor(page.nextCursor); listeners.forEach { it.onStateChanges(page.changes) }; if (page.hasMore) syncStateNow() } catch (error: Throwable) { listeners.forEach { it.onError(error) } } } }
 
-  /** Reads the account-isolated SQLite cache. Call [syncNow] first when fresh server state is required. */
+  /** Cursor-based, server-authoritative conversation sync. Pages are merged into the encrypted Room cache. */
+  fun syncConversationsNow(): Unit {
+    executor.execute {
+      try {
+        val root = postSdkJson("/v1/im/conversations/cursor", JSONObject().put("cursor", store.conversationCursor()).put("limit", 100))
+        val list = root.optJSONArray("list") ?: JSONArray()
+        val values = (0 until list.length()).map { remoteConversationFromJson(list.getJSONObject(it)) }
+        store.applyRemoteConversations(values, root.optString("nextCursor"))
+        if (root.optBoolean("hasMore")) syncConversationsNow()
+      } catch (error: Throwable) { listeners.forEach { it.onError(error) } }
+    }
+  }
+
+  /** Reads the account-isolated Room cache. Call [syncNow] first when fresh server state is required. */
   fun localMessages(conversationId: String, beforeCreatedAt: Long? = null, limit: Int = 50): List<PteIMMessage> =
     store.localMessages(conversationId, beforeCreatedAt, limit).map(::storedMessageToModel)
 
@@ -167,6 +219,10 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun localConversations(limit: Int = 100): List<PteIMConversation> = store.localConversations(limit).map { entry ->
     PteIMConversation(entry.conversationId, storedMessageToModel(entry.lastMessage), entry.updatedAt)
   }
+
+  /** Returns encrypted-cache conversation metadata after [syncConversationsNow] has run. */
+  fun localRemoteConversations(limit: Int = 100): List<PteIMRemoteConversation> =
+    store.localRemoteConversations(limit).map { remoteConversationFromJson(JSONObject(it.payload)) }
 
   /** Loads a server-authoritative conversation page using the current UserSig session. */
   fun fetchConversationPage(page: Int = 1, pageSize: Int = 50, callback: (Result<PteIMConversationPage>) -> Unit) {
@@ -262,7 +318,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     listeners.forEach { it.onConnectionChanged(true) }
     sendEnvelope("login", JSONObject().put("syncCursor", store.cursor()))
     flushOutbox()
-    syncNow()
+    syncNow(); syncStateNow(); syncConversationsNow()
   }
 
   override fun onText(text: String) {
@@ -404,6 +460,9 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     city = value.optString("city").takeIf { it.isNotEmpty() }, district = value.optString("district").takeIf { it.isNotEmpty() },
   )
 
+  private fun contactPage(path: String, cursor: String, limit: Int, callback: (Result<PteIMContactPage>) -> Unit) { executor.execute { callback(runCatching { val root = postSdkJson(path, JSONObject().put("cursor", cursor).put("limit", limit)); val list = root.optJSONArray("list") ?: JSONArray(); PteIMContactPage((0 until list.length()).map { i -> list.getJSONObject(i).let { PteIMContact(it.getString("userId"), it.optString("remark"), it.optString("nickname"), it.optString("avatar"), runCatching { PteIMGender.valueOf(it.optString("gender", "unknown").uppercase()) }.getOrDefault(PteIMGender.UNKNOWN), it.optLong("followedAt")) } }, root.optString("nextCursor"), root.optBoolean("hasMore")) }) } }
+  private fun contactAction(path: String, userId: Long, remark: String?, callback: (Result<Unit>) -> Unit) { require(userId > 0); executor.execute { callback(runCatching { postSdkJson(path, JSONObject().put("targetUserId", userId).apply { remark?.let { put("remark", it) } }); Unit }) } }
+
   /** The media-credential contract uses a { code: 0, data } envelope. */
   private fun postMediaCredentialJson(path: String, payload: JSONObject): JSONObject {
     val connection = URL(config.apiDomain.trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -431,12 +490,14 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       PteIMMessageType.IMAGE -> "image"
       PteIMMessageType.VIDEO -> "video"
       PteIMMessageType.VOICE -> "voice"
+      PteIMMessageType.FILE -> "file"
       else -> error("unsupported upload message type")
     }
     val contentType = resolver.getType(uri)?.takeUnless { it.endsWith("/*") } ?: when (type) {
       PteIMMessageType.IMAGE -> "image/jpeg"
       PteIMMessageType.VIDEO -> "video/mp4"
       PteIMMessageType.VOICE -> "audio/mpeg"
+      PteIMMessageType.FILE -> contentTypeForFileName(appContext.displayName(uri) ?: "")
       else -> error("unsupported upload message type")
     }
     val credential = postMediaCredentialJson("/v1/im/media/put-url", JSONObject().apply {
@@ -461,7 +522,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
         } ?: error("Cannot read media URI")
       }
       check(connection.responseCode in 200..299) { "COS upload failed with HTTP ${connection.responseCode}" }
-      PteIMMedia(url = key, sizeBytes = total)
+      PteIMMedia(url = key, sizeBytes = total, fileName = appContext.displayName(uri), mimeType = contentType)
     } finally { connection.disconnect() }
   }
 }
@@ -480,18 +541,18 @@ class PteIMSDKBootstrap internal constructor(private val context: Context, priva
   fun clearLocalCache(loginConfig: PteIMLoginConfig) {
     val session = PteIMSessionConfig(baseConfig, loginConfig)
     session.validate()
-    PteIMSqliteStore.clear(context, session.storeKey())
+    PteIMRoomStore.clear(context, session.storeKey())
   }
 }
 
 private fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
   val content = json.optJSONObject("content") ?: JSONObject()
   val type = PteIMMessageType.valueOf(json.getString("type").uppercase())
-  val media = if (type in setOf(PteIMMessageType.IMAGE, PteIMMessageType.VIDEO)) PteIMMedia(
+  val media = if (type in setOf(PteIMMessageType.IMAGE, PteIMMessageType.VIDEO, PteIMMessageType.FILE)) PteIMMedia(
     url = resolveCosUrl(cosDomain, content.optNullableString("url")), thumbnailUrl = resolveCosUrl(cosDomain, content.optNullableString("thumbnailUrl")),
     coverUrl = resolveCosUrl(cosDomain, content.optNullableString("coverUrl")), width = content.optInt("width").takeIf { it > 0 },
     height = content.optInt("height").takeIf { it > 0 }, durationMs = content.optLong("durationMs").takeIf { it > 0 },
-    sizeBytes = content.optLong("sizeBytes").takeIf { it > 0 },
+    sizeBytes = content.optLong("sizeBytes").takeIf { it > 0 }, fileName = content.optNullableString("fileName"), mimeType = content.optNullableString("mimeType"),
   ) else null
   val voice = if (type == PteIMMessageType.VOICE) content.optNullableString("url")?.let { url -> PteIMVoice(
     url = resolveCosUrl(cosDomain, url) ?: url,
@@ -528,6 +589,13 @@ private fun remoteConversationFromJson(json: JSONObject): PteIMRemoteConversatio
   lastMessageAt = json.optLong("last_message_at"), unreadCount = json.optLong("unread_count"),
 )
 
+private fun pushDeviceFromJson(json: JSONObject): PteIMPushDevice = PteIMPushDevice(
+  deviceId = json.getString("deviceId"),
+  platform = PteIMPushPlatform.valueOf(json.getString("platform").uppercase()),
+  notificationEnabled = json.optBoolean("notificationEnabled", true),
+  lastSeenAt = json.optLong("lastSeenAt"),
+)
+
 private fun remoteMessageFromJson(json: JSONObject): PteIMRemoteMessage = PteIMRemoteMessage(
   messageId = json.getLong("message_id"), conversationId = json.getLong("conversation_id"), senderId = json.getLong("sender_id"),
   clientMsgId = json.optString("client_msg_id"), type = json.optString("msg_type"), content = json.optString("content"),
@@ -536,6 +604,16 @@ private fun remoteMessageFromJson(json: JSONObject): PteIMRemoteMessage = PteIMR
 )
 
 private fun messageExtension(type: PteIMMessageType): String = if (type == PteIMMessageType.IMAGE) "image" else "video"
+
+private fun Context.displayName(uri: Uri): String? = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+  cursor.takeIf { it.moveToFirst() }?.getString(0)?.takeIf(String::isNotBlank)
+}
+
+private fun contentTypeForFileName(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+  "pdf" -> "application/pdf"; "txt" -> "text/plain"; "csv" -> "text/csv"; "json" -> "application/json"; "zip" -> "application/zip"; "7z" -> "application/x-7z-compressed"
+  "doc" -> "application/msword"; "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; "xls" -> "application/vnd.ms-excel"; "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; "ppt" -> "application/vnd.ms-powerpoint"; "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  else -> throw IllegalArgumentException("Unsupported file content type; provide a URI with a supported MIME type")
+}
 
 private fun resolveCosUrl(cosDomain: String, value: String?): String? = value?.let {
   val uri = Uri.parse(it)

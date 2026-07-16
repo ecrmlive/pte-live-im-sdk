@@ -36,7 +36,6 @@ internal class PteIMLocalCipher(storeKey: String) {
     return cipher.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
   }
 
-  fun needsMigration(value: String): Boolean = !value.startsWith("pte2:")
   private fun loadOrCreate(): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     (store.getKey(alias, null) as? SecretKey)?.let { return it }

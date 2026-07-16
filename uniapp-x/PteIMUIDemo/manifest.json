@@ -1,7 +1,7 @@
 {
 	"name": "PteIMUIDemo",
 	"appid": "__UNI__9B20802",
-	"description": "PteIMSDK and PteIMUIkit uni-app x UTS business demo",
+	"description": "PteIMSDK and PteIMUIKit uni-app x UTS business demo",
 	"versionName": "0.1.0-alpha",
 	"versionCode": 100,
 	"uni-app-x": {

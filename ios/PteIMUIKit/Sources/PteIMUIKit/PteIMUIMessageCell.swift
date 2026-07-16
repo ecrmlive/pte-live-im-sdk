@@ -4,7 +4,7 @@ import PteIMSDK
 /**
  A compact, UIKit-only message bubble. It deliberately renders every Core
  message type without reaching out to a remote image loader, so the host can
- attach its own media cache without making PteIMUIkit depend on a third party.
+ attach its own media cache without making PteIMUIKit depend on a third party.
  */
 open class PteIMUIMessageCell: UITableViewCell {
   public static let reuseIdentifier = "PteIMUIMessageCell"
@@ -19,6 +19,8 @@ open class PteIMUIMessageCell: UITableViewCell {
   private var avatarTrailing: NSLayoutConstraint!
   private var bubbleLeading: NSLayoutConstraint!
   private var bubbleTrailing: NSLayoutConstraint!
+  private var stateLeading: NSLayoutConstraint?
+  private var stateTrailing: NSLayoutConstraint?
 
   public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -42,21 +44,24 @@ open class PteIMUIMessageCell: UITableViewCell {
     bubble.layer.insertSublayer(outgoingGradient, at: 0)
     contentView.addSubview(bubble)
 
-    let stack = UIStackView(arrangedSubviews: [typeLabel, bodyLabel, stateLabel])
+    let stack = UIStackView(arrangedSubviews: [typeLabel, bodyLabel])
     stack.axis = .vertical
     stack.spacing = 4
     bubble.addSubview(stack)
+    stateLabel.translatesAutoresizingMaskIntoConstraints = false
+    contentView.addSubview(stateLabel)
     stack.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 13),
       stack.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -13),
       stack.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 8),
-      stack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -7),
+      stack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -9),
       avatar.widthAnchor.constraint(equalToConstant: 34),
       avatar.heightAnchor.constraint(equalToConstant: 34),
       avatar.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 1),
       bubble.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5),
-      bubble.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5)
+      stateLabel.topAnchor.constraint(equalTo: bubble.bottomAnchor, constant: 3),
+      stateLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5)
     ])
 
     typeLabel.font = .preferredFont(forTextStyle: .caption1)
@@ -112,17 +117,19 @@ open class PteIMUIMessageCell: UITableViewCell {
     avatar.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
     avatar.constraints.filter { $0.firstAttribute == .height }.first?.constant = style.avatarSize
 
-    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing].forEach { $0?.isActive = false }
+    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing, stateLeading, stateTrailing].forEach { $0?.isActive = false }
     if outgoing {
       avatarTrailing = avatar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
       bubbleLeading = bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 76)
       bubbleTrailing = bubble.trailingAnchor.constraint(equalTo: avatar.leadingAnchor, constant: -9)
+      stateTrailing = stateLabel.trailingAnchor.constraint(equalTo: bubble.trailingAnchor)
     } else {
       avatarLeading = avatar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
       bubbleLeading = bubble.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 9)
       bubbleTrailing = bubble.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -76)
+      stateLeading = stateLabel.leadingAnchor.constraint(equalTo: bubble.leadingAnchor)
     }
-    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing].forEach { $0?.isActive = true }
+    [avatarLeading, avatarTrailing, bubbleLeading, bubbleTrailing, stateLeading, stateTrailing].forEach { $0?.isActive = true }
   }
 }
 
@@ -175,7 +182,7 @@ public enum PteIMUIMessageText {
     let time = timeFormatter.string(from: date)
     guard outgoing else { return time }
     switch message.state {
-    case .sent: return time
+    case .sent: return "\(time)  ✓✓"
     case .pending, .uploading: return "\(time) · \(PteIMUILocalization.value("发送中", "Sending", language: language))"
     case .failed: return "\(time) · \(PteIMUILocalization.value("发送失败", "Failed", language: language))"
     }

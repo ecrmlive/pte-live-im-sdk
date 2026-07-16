@@ -37,12 +37,17 @@ build/
 *.key
 *.crt
 *.cer
+*.p7b
+*.p7c
 *.p12
 *.pfx
 *.jks
 *.keystore
 *.mobileprovision
 *.provisionprofile
+*.profile
+**/.signing/
+**/signing/
 *.xcarchive
 **/google-services.json
 **/GoogleService-Info.plist

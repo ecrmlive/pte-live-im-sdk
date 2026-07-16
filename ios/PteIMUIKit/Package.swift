@@ -1,14 +1,14 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
-  name: "PteIMUIkit",
+  name: "PteIMUIKit",
   platforms: [.iOS(.v16)],
-  products: [.library(name: "PteIMUIkit", targets: ["PteIMUIkit"])],
+  products: [.library(name: "PteIMUIKit", targets: ["PteIMUIKit"])],
   dependencies: [.package(path: "../PteIMSDK")],
   targets: [.target(
-    name: "PteIMUIkit",
+    name: "PteIMUIKit",
     dependencies: [.product(name: "PteIMSDK", package: "PteIMSDK")],
-    path: "Sources/PteIMUIkit"
+    path: "Sources/PteIMUIKit"
   )]
 )

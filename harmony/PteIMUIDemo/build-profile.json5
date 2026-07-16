@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "OpenHarmony",
+        "material": {
+          "storeFile": "./.signing/PteIMUIDemoLocalDebug.p12",
+          "storePassword": "000000167fadcaf4b3b84ba83cc796fdc3da48ff69a1481392a15972f262b8f25734ed93d8b1",
+          "keyAlias": "pte-app",
+          "keyPassword": "000000167fadcaf4b3b84ba83cc796fdc3da48ff69a1481392a15972f262b8f25734ed93d8b1",
+          "signAlg": "SHA256withECDSA",
+          "profile": "./.signing/PteIMUIDemoLocalDebugProfile.p7b",
+          "certpath": "./.signing/PteIMUIDemoLocalAppCertChain.cer"
+        }
+      }
+    ],
     "products": [{
       "name": "default",
       "signingConfig": "default",
@@ -24,7 +38,7 @@
     },
     {
       "name": "pte_im_uikit",
-      "srcPath": "../PteIMUIkit",
+      "srcPath": "../PteIMUIKit",
       "targets": [{ "name": "default", "applyToProducts": ["default"] }]
     }
   ]

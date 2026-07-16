@@ -8,7 +8,7 @@ public enum PteIMUIInputBarAction {
 }
 
 /**
- Reusable UIKit input accessory for PteIMUIkit. It owns presentation and
+ Reusable UIKit input accessory for PteIMUIKit. It owns presentation and
  interaction only; recording, pickers and business flows remain host-owned.
  */
 open class PteIMUIInputBar: UIView, UITextFieldDelegate {

@@ -1,0 +1,47 @@
+<template>
+  <scroll-view class="pte-im-ui-contact-list" :style="themeStyle" scroll-y="true" @scrolltolower="loadMore">
+    <view v-for="item in contacts" :key="itemKey(item)" class="pte-im-ui-contact-row">
+      <view class="pte-im-ui-contact-avatar" @click="avatar(item)"><text>{{ item.avatarText }}</text></view>
+      <view class="pte-im-ui-contact-copy" @click="select(item)"><text class="pte-im-ui-contact-title">{{ item.title }}</text><text v-if="item.subtitle" class="pte-im-ui-contact-subtitle">{{ item.subtitle }}</text></view>
+    </view>
+  </scroll-view>
+</template>
+
+<script lang="uts">
+import { PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMUIContactListController, PteIMUIContactListMode, PteIMUIContactPresentation, PteIMUIKit, PteIMUITheme } from '../../utssdk/PteIMUIKitFacade.uts'
+
+/**
+ * Drop-in friend/follow/group list. It exposes select/error events so the
+ * host controls navigation and error presentation in every UTS runtime.
+ */
+export default {
+  props: { client: { type: Object, required: true }, mode: { type: String, default: 'friends' }, theme: { type: Object, default: null } },
+  emits: ['select', 'avatar', 'error'],
+  data() { return { contacts: [] as PteIMUIContactPresentation[], themeStyle: {} as any, controller: null as PteIMUIContactListController | null } },
+  mounted() {
+    const controller = PteIMUIKit.createContactListController(this.client as PteIMSDKClient, this.mode as PteIMUIContactListMode)
+    controller.onChanged = () => { this.contacts = controller.contacts; this.applyTheme() }
+    controller.onError = (message: string) => this.$emit('error', message)
+    controller.onConversationSelected = (conversationId: string, title: string) => this.$emit('select', { conversationId, title })
+    this.controller = controller; controller.refresh(); this.applyTheme()
+  },
+  beforeUnmount() { this.controller?.dispose(); this.controller = null },
+  methods: {
+    loadMore() { this.controller?.loadNextPage() },
+    select(item: PteIMUIContactPresentation) { this.controller?.select(item) },
+    avatar(item: PteIMUIContactPresentation) { this.$emit('avatar', item) },
+    itemKey(item: PteIMUIContactPresentation): string { return (item.isGroup ? 'g:' : 'u:') + item.identifier },
+    applyTheme() { const client = this.client as PteIMSDKClient; const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const dark = client.currentAppearance().themeMode === 'dark' || (client.currentAppearance().themeMode === 'system' && uni.getSystemInfoSync().theme === 'dark'); this.themeStyle = PteIMUITheme.cssVariables(PteIMUITheme.resolve(client, theme, dark)) },
+  },
+}
+</script>
+
+<style>
+.pte-im-ui-contact-list { height: 100%; background-color: var(--pte-im-ui-background, #F7F9FF); }
+.pte-im-ui-contact-row { display: flex; align-items: center; min-height: 112rpx; padding: 16rpx 28rpx; border-bottom: 1px solid var(--pte-im-ui-divider, #DDE2F2); background-color: var(--pte-im-ui-surface, #FFFFFF); box-sizing: border-box; }
+.pte-im-ui-contact-avatar { display: flex; align-items: center; justify-content: center; width: 72rpx; height: 72rpx; margin-right: 20rpx; border-radius: 36rpx; color: #FFFFFF; background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start, #335EF4), var(--pte-im-ui-outgoing-end, #7D40EF)); font-size: 28rpx; }
+.pte-im-ui-contact-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.pte-im-ui-contact-title { overflow: hidden; color: var(--pte-im-ui-text, #171C2E); font-size: 30rpx; text-overflow: ellipsis; white-space: nowrap; }
+.pte-im-ui-contact-subtitle { margin-top: 6rpx; overflow: hidden; color: var(--pte-im-ui-muted, #666D84); font-size: 24rpx; text-overflow: ellipsis; white-space: nowrap; }
+</style>

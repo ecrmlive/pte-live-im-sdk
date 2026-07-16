@@ -7,7 +7,11 @@ final class PteIMUIDemoAppDelegate: UIResponder, UIApplicationDelegate {
   private var applicationSession: PteIMUIDemoApplicationSession?
   func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
     let window = UIWindow(frame: UIScreen.main.bounds)
+    // Paint the root window during the launch-to-login handoff. This prevents
+    // an uncoloured navigation container from exposing black bands.
+    window.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
     let splash = PteIMUIDemoLaunchViewController()
+    splash.modalPresentationStyle = .fullScreen
     window.rootViewController = splash
     window.makeKeyAndVisible(); self.window = window
     do {
@@ -18,8 +22,13 @@ final class PteIMUIDemoAppDelegate: UIResponder, UIApplicationDelegate {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
         guard let self, let session = self.applicationSession else { return }
         let home = UINavigationController(rootViewController: PteIMUIDemoViewController(applicationSession: session))
-        home.modalTransitionStyle = .crossDissolve
-        self.window?.rootViewController = home
+        home.view.backgroundColor = self.window?.backgroundColor
+        home.setNavigationBarHidden(true, animated: false)
+        home.modalPresentationStyle = .fullScreen
+        guard let window = self.window else { return }
+        UIView.transition(with: window, duration: 0.24, options: .transitionCrossDissolve) {
+          window.rootViewController = home
+        }
       }
     } catch {
       splash.showConfigurationError(error.localizedDescription)

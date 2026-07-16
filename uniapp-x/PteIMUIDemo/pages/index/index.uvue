@@ -1,7 +1,7 @@
 <template>
   <view v-if="screen === 'login'" class="page"><view class="card">
     <text class="title">PteIMUIDemo · uni-app x</text>
-    <text class="hint">业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIkit。请将示例输入替换为您的业务 API。</text>
+    <text class="hint">业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIKit。请将示例输入替换为您的业务 API。</text>
     <input v-model="apiDomain" class="input" placeholder="API domain" /><input v-model="imDomain" class="input" placeholder="IM WSS URL" /><input v-model="cosDomain" class="input" placeholder="COS domain" />
     <input v-model="sdkAppId" class="input" type="number" placeholder="SDK App ID" /><input v-model="account" class="input" placeholder="Business account" /><input v-model="password" class="input" password="true" placeholder="Business password (demo only)" />
     <input v-model="userId" class="input" type="number" placeholder="IM user ID returned by business login" /><input v-model="userSig" class="input" password="true" placeholder="Short-lived UserSig returned by business login" />
@@ -9,12 +9,9 @@
   </view></view>
   <view v-else-if="screen === 'home'" class="page"><view class="card">
     <text class="title">PteIMUIDemo</text><text class="hint">业务层：好友关系、我的；IM UI：会话、聊天、群组。</text>
-    <button @click="screen = 'conversations'">会话列表（PteIMUIkit）</button><button @click="screen = 'friends'">好友列表 / 关系</button><button @click="openDemoGroup">创建群组并聊天（PteIMUIkit）</button><button @click="screen = 'profile'">我的</button><button @click="logout">退出登录</button>
+    <button @click="screen = 'conversations'">会话列表（PteIMUIKit）</button><button @click="screen = 'friends'">好友列表 / 关系</button><button @click="openDemoGroup">创建群组并聊天（PteIMUIKit）</button><button @click="screen = 'profile'">我的</button><button @click="logout">退出登录</button>
   </view></view>
-  <view v-else-if="screen === 'friends'" class="page"><view class="card">
-    <text class="title">好友列表 / 关系示例</text><text class="hint">添加、删除好友由业务 API 完成；PteIMUIkit 负责聊天界面。</text>
-    <button @click="openSingleChat(10002)">Alice (10002)</button><button @click="openSingleChat(10003)">Bob (10003)</button><button @click="screen = 'home'">返回</button>
-  </view></view>
+  <view v-else-if="screen === 'friends'" class="chat-page"><PteIMUIContactList :client="client" mode="friends" @select="openContactChat" @error="contactError" /></view>
   <view v-else-if="screen === 'profile'" class="page"><view class="card">
     <text class="title">我的</text><text class="hint">业务账号：{{ account }}\nIM 用户：{{ userId }}\n\n个人资料、好友关系、主题和语言由业务 App 管理；调用 PteIMSDK.updateAppearance(...) 可即时更新 UI。</text><button @click="screen = 'home'">返回</button>
   </view></view>
@@ -23,10 +20,11 @@
 </template>
 
 <script lang="uts">
-import PteIMUIChat from '../../../../uni_modules/pte-im-sdk/components/PteIMUIChat/PteIMUIChat.uvue'
-import PteIMUIConversationList from '../../../../uni_modules/pte-im-sdk/components/PteIMUIConversationList/PteIMUIConversationList.uvue'
+import PteIMUIChat from '../../../../uni_modules/pte-im-uikit/components/PteIMUIChat/PteIMUIChat.uvue'
+import PteIMUIConversationList from '../../../../uni_modules/pte-im-uikit/components/PteIMUIConversationList/PteIMUIConversationList.uvue'
+import PteIMUIContactList from '../../../../uni_modules/pte-im-uikit/components/PteIMUIContactList/PteIMUIContactList.uvue'
 import { PteIMBusinessContent, PteIMLocation } from '../../../../uni_modules/pte-im-sdk/utssdk/interface.uts'
-import { PteIMUIAction } from '../../../../uni_modules/pte-im-sdk/utssdk/PteIMUIkit.uts'
+import { PteIMUIAction } from '../../../../uni_modules/pte-im-uikit/utssdk/PteIMUIKitFacade.uts'
 // #ifdef WEB
 import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/web/index.uts'
 // #endif
@@ -35,7 +33,7 @@ import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/mp-wei
 // #endif
 
 export default {
-  components: { PteIMUIChat, PteIMUIConversationList },
+  components: { PteIMUIChat, PteIMUIConversationList, PteIMUIContactList },
   data() { return { apiDomain: 'https://api.example.com', imDomain: 'wss://im.example.com/ws', cosDomain: 'https://cos.example.com', sdkAppId: '1400000001', account: 'demo-user', password: '', userId: '10001', userSig: '', conversationId: '', status: '未登录；不会保存 UserSig', screen: 'login', client: null as any } },
   methods: {
     businessLogin() {
@@ -46,6 +44,8 @@ export default {
       } catch (error) { this.status = `登录错误：${error instanceof Error ? error.message : String(error)}` }
     },
     openChat(conversationId: string) { this.conversationId = conversationId; this.screen = 'chat' },
+    openContactChat(payload: any) { this.openChat(String(payload.conversationId)) },
+    contactError(message: string) { this.status = `联系人加载失败：${message}` },
     openSingleChat(peerUserId: number) {
       if (this.client == null) return
       this.client.openSingleConversation(peerUserId, (conversation: any, error: string | null) => {
@@ -63,7 +63,8 @@ export default {
     logout() { if (this.client != null) this.client.stop(); this.client = null; this.screen = 'login' },
     handleAction(action: PteIMUIAction) {
       if (this.client == null) return
-      if (action === 'image' || action === 'video' || action === 'voice') { this.pickMedia(action); return }
+      if (action === 'image' || action === 'camera' || action === 'video' || action === 'voice') { this.pickMedia(action === 'camera' ? 'image' : action); return }
+      if (action === 'file') { this.status = '请由宿主选择文件后调用 uploadAndSendFile。'; return }
       if (action === 'location') this.client.sendLocation(this.conversationId, { latitude: 31.2304, longitude: 121.4737, name: 'Shanghai', address: 'PteIMUIDemo' } as PteIMLocation)
       else { const content = { businessId: `demo-${Date.now()}`, title: action } as PteIMBusinessContent; if (action === 'gift') this.client.sendGift(this.conversationId, content); else if (action === 'red_packet') this.client.sendRedPacket(this.conversationId, content); else this.client.sendOrder(this.conversationId, content) }
     },

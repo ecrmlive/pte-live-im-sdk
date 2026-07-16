@@ -1,4 +1,4 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
 
 type PteIMOutboxMessage = {
@@ -24,18 +24,15 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   private outboxRetryTimer: number | null = null
   private outbox: PteIMOutboxMessage[] = []
   private messages: PteIMIncomingMessage[] = []
+  private remoteConversations: PteIMRemoteConversation[] = []
   private syncCursor: string = ''
+  private stateSyncCursor: string = ''
+  private conversationSyncCursor: string = ''
   private syncInFlight: boolean = false
+  private conversationSyncInFlight: boolean = false
   private e2ee: PteIME2EE
   private encryptingOutboxIds: string[] = []
-  private connectionCallback: ((connected: boolean) => void) | null = null
-  private messageCallback: ((message: PteIMIncomingMessage) => void) | null = null
-  private messageStateCallback: ((event: PteIMMessageStateChange) => void) | null = null
-  private userSigWillExpireCallback: (() => void) | null = null
-  private userSigExpiredCallback: (() => void) | null = null
-  private themeModeCallback: ((themeMode: 'system' | 'light' | 'dark') => void) | null = null
-  private languageCallback: ((language: 'system' | 'zh-CN' | 'en-US') => void) | null = null
-  private errorCallback: ((message: string) => void) | null = null
+  private listeners: PteIMListener[] = []
 
   constructor(base: PteIMBaseConfig, loginConfig: PteIMLoginConfig) {
     this.base = base
@@ -43,7 +40,9 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     this.e2ee = new PteIME2EE(base, loginConfig)
     this.loadOutbox()
     this.loadSyncCursor()
+    this.loadStateSyncCursor()
     this.loadMessages()
+    this.loadRemoteConversations()
   }
 
   start(): void {
@@ -63,7 +62,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     this.connected = false
     if (this.socket != null) this.socket.close()
     this.socket = null
-    if (wasConnected) this.connectionCallback?.(false)
+    if (wasConnected) this.notifyConnection(false)
   }
   renewUserSig(userSig: string): void {
     if (userSig.length == 0) throw new Error('userSig is required')
@@ -76,8 +75,8 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     if (themeMode != null) this.base.themeMode = themeMode
     if (language != null) this.base.language = language
     const result: PteIMAppearance = { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' }
-    if (result.themeMode != previousTheme) this.themeModeCallback?.(result.themeMode)
-    if (result.language != previousLanguage) this.languageCallback?.(result.language)
+    if (result.themeMode != previousTheme) this.listeners.forEach((listener: PteIMListener) => listener.onThemeModeChanged?.(result.themeMode))
+    if (result.language != previousLanguage) this.listeners.forEach((listener: PteIMListener) => listener.onLanguageChanged?.(result.language))
     return result
   }
   currentAppearance(): PteIMAppearance { return { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' } }
@@ -94,6 +93,24 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       callback(profileFromWire(data), null)
     })
   }
+  fetchFriends(cursor: string, limit: number, callback: (result: PteIMContactPage | null, error: string | null) => void): void { this.contactPage('/v1/im/friends', cursor, limit, callback) }
+  fetchFollows(cursor: string, limit: number, callback: (result: PteIMContactPage | null, error: string | null) => void): void { this.contactPage('/v1/im/follows', cursor, limit, callback) }
+  follow(userId: number, remark: string | null, callback: (error: string | null) => void): void { this.contactAction('/v1/im/follows/follow', userId, remark, callback) }
+  unfollow(userId: number, callback: (error: string | null) => void): void { this.contactAction('/v1/im/follows/unfollow', userId, null, callback) }
+  block(userId: number, callback: (error: string | null) => void): void { this.contactAction('/v1/im/blocks/add', userId, null, callback) }
+  unblock(userId: number, callback: (error: string | null) => void): void { this.contactAction('/v1/im/blocks/remove', userId, null, callback) }
+  fetchGroups(cursor: string, limit: number, callback: (result: PteIMGroupPage | null, error: string | null) => void): void { this.sdkRequest('/v1/im/groups', { cursor, limit }, (data, error) => { if (data == null || error != null) { callback(null, error); return }; const raw = data['list'] as any[]; callback({ list: raw == null ? [] : raw.map((item: any) => remoteConversationFromWire(item)), nextCursor: String(data['nextCursor'] ?? ''), hasMore: Boolean(data['hasMore']) }, null) }) }
+  fetchGroupMembers(conversationId: number, cursor: string, limit: number, callback: (result: PteIMMemberPage | null, error: string | null) => void): void { this.sdkRequest('/v1/im/groups/members', { conversationId, cursor, limit }, (data, error) => { if (data == null || error != null) { callback(null, error); return }; const raw = data['list'] as any[]; callback({ list: raw == null ? [] : raw.map((x: any) => ({ userId: Number(x.user_id), role: Number(x.role), alias: String(x.alias), muteUntil: Number(x.mute_until), joinedAt: Number(x.joined_at) })), nextCursor: String(data['nextCursor'] ?? ''), hasMore: Boolean(data['hasMore']) }, null) }) }
+  joinGroup(conversationId: number, callback: (error: string | null) => void): void { this.sdkRequest('/v1/im/groups/join', { conversationId }, (_data, error) => callback(error)) }
+  inviteGroupMembers(conversationId: number, memberIds: number[], callback: (error: string | null) => void): void { if (conversationId <= 0 || memberIds.length == 0 || memberIds.some((id: number): boolean => id <= 0)) { callback('invalid group members'); return }; this.sdkRequest('/v1/im/groups/members/invite', { conversationId, memberIds }, (_data, error) => callback(error)) }
+  removeGroupMember(conversationId: number, memberId: number, callback: (error: string | null) => void): void { if (conversationId <= 0 || memberId <= 0) { callback('invalid group member'); return }; this.sdkRequest('/v1/im/groups/members/remove', { conversationId, memberId }, (_data, error) => callback(error)) }
+  leaveGroup(conversationId: number, callback: (error: string | null) => void): void { if (conversationId <= 0) { callback('invalid group'); return }; this.sdkRequest('/v1/im/groups/leave', { conversationId }, (_data, error) => callback(error)) }
+  /** Registers a platform provider token; server persistence is AES-GCM encrypted. */
+  registerPushDevice(deviceId: string, platform: PteIMPushPlatform, token: string, notificationEnabled: boolean, callback: (result: PteIMPushDevice | null, error: string | null) => void): void { if (deviceId.length < 8 || token.length < 16) { callback(null, 'invalid push device'); return }; this.sdkRequest('/v1/im/push/devices/register', { deviceId, platform, token, notificationEnabled }, (data, error) => { if (data == null || error != null) { callback(null, error ?? 'register push device failed'); return }; callback({ deviceId: String(data['deviceId']), platform: String(data['platform']) as PteIMPushPlatform, notificationEnabled: Boolean(data['notificationEnabled']), lastSeenAt: Number(data['lastSeenAt']) }, null) }) }
+  setPushDeviceNotification(deviceId: string, platform: PteIMPushPlatform, enabled: boolean, callback: (result: PteIMPushDevice | null, error: string | null) => void): void { if (deviceId.length < 8) { callback(null, 'invalid push device'); return }; this.sdkRequest('/v1/im/push/devices/notification', { deviceId, platform, notificationEnabled: enabled }, (data, error) => { if (data == null || error != null) { callback(null, error ?? 'update push device failed'); return }; callback({ deviceId: String(data['deviceId']), platform: String(data['platform']) as PteIMPushPlatform, notificationEnabled: Boolean(data['notificationEnabled']), lastSeenAt: Number(data['lastSeenAt']) }, null) }) }
+  unregisterPushDevice(deviceId: string, platform: PteIMPushPlatform, callback: (error: string | null) => void): void { if (deviceId.length < 8) { callback('invalid push device'); return }; this.sdkRequest('/v1/im/push/devices/unregister', { deviceId, platform }, (_data, error) => callback(error)) }
+  syncState(cursor: string, limit: number, callback: (result: PteIMStateChangePage | null, error: string | null) => void): void { this.sdkRequest('/v1/im/state/sync', { cursor, limit }, (data, error) => { if (data == null || error != null) { callback(null, error); return }; const raw = data['changes'] as any[]; callback({ changes: raw == null ? [] : raw.map((x: any) => ({ id: String(x.id), entityType: String(x.entityType), entityId: String(x.entityId), operation: String(x.operation), createdAt: Number(x.createdAt) })), nextCursor: String(data['nextCursor'] ?? ''), hasMore: Boolean(data['hasMore']) }, null) }) }
+  fetchDefaultSetting(callback: (result: PteIMDefaultSetting | null, error: string | null) => void): void { this.sdkRequest('/v1/im/settings/default', {}, (data, error) => { if (data == null || error != null) { callback(null, error); return }; callback({ chatPrerequisite: String(data['chatPrerequisite']), notificationEnabled: Boolean(data['notificationEnabled']), groupJoinMode: String(data['groupJoinMode']) }, null) }) }
   syncNow(): void {
     if (this.syncInFlight) return
     this.syncInFlight = true
@@ -109,6 +126,22 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
           if ((payload['hasMore'] as boolean) == true) this.syncNow()
         })
       } catch (syncError) { this.emitError(syncError) }
+    })
+  }
+  syncStateNow(): void { this.sdkRequest('/v1/im/state/sync', { cursor: this.stateSyncCursor, limit: 100 }, (data, error) => { if (data == null || error != null) { this.emitError(error ?? 'state sync failed'); return }; const raw = data['changes'] as any[]; const changes: PteIMStateChange[] = raw == null ? [] : raw.map((x: any) => ({ id: String(x.id), entityType: String(x.entityType), entityId: String(x.entityId), operation: String(x.operation), createdAt: Number(x.createdAt) })); this.stateSyncCursor = String(data['nextCursor'] ?? ''); this.persistStateSyncCursor(); this.listeners.forEach((listener: PteIMListener) => listener.onStateChanges?.(changes)); if (Boolean(data['hasMore'])) this.syncStateNow() }) }
+  syncConversationsNow(): void {
+    if (this.conversationSyncInFlight) return
+    this.conversationSyncInFlight = true
+    this.sdkRequest('/v1/im/conversations/cursor', { cursor: this.conversationSyncCursor, limit: 100 }, (data, error) => {
+      this.conversationSyncInFlight = false
+      if (data == null || error != null) { this.emitError(error ?? 'conversation sync failed'); return }
+      const raw = data['list'] as any[]
+      const values = raw == null ? [] : raw.map((item: any) => remoteConversationFromWire(item))
+      values.forEach((value: PteIMRemoteConversation) => this.mergeRemoteConversation(value))
+      this.conversationSyncCursor = String(data['nextCursor'] ?? '')
+      this.persistConversationSyncCursor()
+      this.persistRemoteConversations()
+      if (Boolean(data['hasMore'])) this.syncConversationsNow()
     })
   }
   localMessages(conversationId: string, limit: number = 50): PteIMIncomingMessage[] {
@@ -129,6 +162,9 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       values.push({ conversationId: message.conversationId, lastMessage: message, updatedAt: message.createdAt })
     }
     return values
+  }
+  localRemoteConversations(limit: number = 100): PteIMRemoteConversation[] {
+    return this.remoteConversations.slice(0, Math.min(Math.max(limit, 1), 200))
   }
   fetchConversationPage(page: number, pageSize: number, callback: (result: PteIMConversationPage | null, error: string | null) => void): void {
     if (page <= 0 || pageSize <= 0 || pageSize > 200) { callback(null, 'invalid conversation page'); return }
@@ -170,8 +206,10 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   sendEmoji(conversationId: string, packageId: string, emojiId: string): string { return this.sendMessage(conversationId, 'emoji', { packageId, emojiId }) }
   sendImage(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'image', mediaContent(media)) }
   sendVideo(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'video', mediaContent(media)) }
+  sendFile(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'file', mediaContent(media)) }
   uploadAndSendImage(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'image') }
   uploadAndSendVideo(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'video') }
+  uploadAndSendFile(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'file') }
   uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform: string = ''): string {
     if (durationMs <= 0) throw new Error('durationMs must be positive')
     return this.uploadAndSendMedia(conversationId, filePath, 'voice', durationMs, waveform)
@@ -181,14 +219,13 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   sendGift(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'gift', content) }
   sendRedPacket(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'red_packet', content) }
   sendOrder(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'order', content) }
-  onConnectionChanged(callback: (connected: boolean) => void): void { this.connectionCallback = callback }
-  onMessage(callback: (message: PteIMIncomingMessage) => void): void { this.messageCallback = callback }
-  onMessageStateChanged(callback: (event: PteIMMessageStateChange) => void): void { this.messageStateCallback = callback }
-  onUserSigWillExpire(callback: () => void): void { this.userSigWillExpireCallback = callback }
-  onUserSigExpired(callback: () => void): void { this.userSigExpiredCallback = callback }
-  onThemeModeChanged(callback: (themeMode: 'system' | 'light' | 'dark') => void): void { this.themeModeCallback = callback }
-  onLanguageChanged(callback: (language: 'system' | 'zh-CN' | 'en-US') => void): void { this.languageCallback = callback }
-  onError(callback: (message: string) => void): void { this.errorCallback = callback }
+  addListener(listener: PteIMListener): void {
+    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener)
+  }
+  removeListener(listener: PteIMListener): void {
+    const index = this.listeners.indexOf(listener)
+    if (index >= 0) this.listeners.splice(index, 1)
+  }
 
   private sendMessage(conversationId: string, type: string, content: any): string {
     if (!/^[1-9][0-9]*$/.test(conversationId)) throw new Error('conversationId must be a positive numeric string returned by openSingleConversation or createGroupConversation')
@@ -196,7 +233,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     const clientMsgId = requestId()
     this.outbox.push({ clientMsgId, conversationId, senderId: this.loginConfig.userId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
     this.persistOutbox()
-    this.messageStateCallback?.({ clientMsgId, state: 'pending' })
+    this.notifyMessageState({ clientMsgId, state: 'pending' })
     this.flushOutbox()
     return clientMsgId
   }
@@ -213,16 +250,19 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     })).catch((error) => callback(null, error instanceof Error ? error.message : String(error)))
   }
 
+  private contactPage(path: string, cursor: string, limit: number, callback: (result: PteIMContactPage | null, error: string | null) => void): void { this.sdkRequest(path, { cursor, limit }, (data, error) => { if (data == null || error != null) { callback(null, error); return }; const raw = data['list'] as any[]; callback({ list: raw == null ? [] : raw.map((x: any) => ({ userId: String(x.userId), remark: String(x.remark), nickname: String(x.nickname), avatar: String(x.avatar), gender: String(x.gender) as PteIMGender, followedAt: Number(x.followedAt) })), nextCursor: String(data['nextCursor'] ?? ''), hasMore: Boolean(data['hasMore']) }, null) }) }
+  private contactAction(path: string, userId: number, remark: string | null, callback: (error: string | null) => void): void { if (userId <= 0) { callback('userId must be positive'); return }; const body: any = { targetUserId: userId }; if (remark != null) body.remark = remark; this.sdkRequest(path, body, (_data, error) => callback(error)) }
+
   /**
    * Reads the selected file and PUTs it to the one-object COS URL issued by
    * host API. `uni.uploadFile` is intentionally not used: it always sends a
    * multipart POST, whereas COS credentials are scoped to an HTTP PUT.
    */
-  private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice', durationMs: number = 0, waveform: string = ''): string {
+  private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice' | 'file', durationMs: number = 0, waveform: string = ''): string {
     if (!/^[1-9][0-9]*$/.test(conversationId)) throw new Error('conversationId must be a positive numeric string returned by openSingleConversation or createGroupConversation')
     if (filePath.length == 0) throw new Error('filePath is required')
     const clientMsgId = requestId()
-    this.messageStateCallback?.({ clientMsgId, state: 'uploading' })
+    this.notifyMessageState({ clientMsgId, state: 'uploading' })
     this.readFileBytes(filePath, (bytes) => {
       const contentType = mediaContentType(filePath, type)
       this.apiImRequest('/v1/im/media/put-url', { mediaType: type, contentType, contentLength: bytes.byteLength }, (credential, credentialError) => {
@@ -239,7 +279,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
           header: headers,
           success: (response) => {
             if (response.statusCode < 200 || response.statusCode >= 300) { this.failUpload(clientMsgId, 'COS upload failed with HTTP ' + response.statusCode.toString()); return }
-            const content = type == 'voice' ? { url: key, durationMs, waveform, sizeBytes: bytes.byteLength } : { url: key, sizeBytes: bytes.byteLength }
+            const content = type == 'voice' ? { url: key, durationMs, waveform, sizeBytes: bytes.byteLength } : type == 'file' ? { url: key, sizeBytes: bytes.byteLength, fileName: fileNameFromPath(filePath), mimeType: contentType } : { url: key, sizeBytes: bytes.byteLength }
             this.queueMessage(clientMsgId, conversationId, type, content)
           },
           fail: (error) => this.failUpload(clientMsgId, error.message as string ?? String(error)),
@@ -273,19 +313,19 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   }
 
   private failUpload(clientMsgId: string, message: string): void {
-    this.messageStateCallback?.({ clientMsgId, state: 'failed' })
+    this.notifyMessageState({ clientMsgId, state: 'failed' })
     this.emitError(new Error(message))
   }
 
   private queueMessage(clientMsgId: string, conversationId: string, type: string, content: any): void {
     if (this.outbox.length >= 200) {
-      this.messageStateCallback?.({ clientMsgId, state: 'failed' })
+      this.notifyMessageState({ clientMsgId, state: 'failed' })
       this.emitError(new Error('IM outbox limit reached'))
       return
     }
     this.outbox.push({ clientMsgId, conversationId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
     this.persistOutbox()
-    this.messageStateCallback?.({ clientMsgId, state: 'pending' })
+    this.notifyMessageState({ clientMsgId, state: 'pending' })
     this.flushOutbox()
   }
 
@@ -302,10 +342,12 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       if (this.socket != socket || this.stopped) return
       this.connected = true
       this.reconnectAttempt = 0
-      this.connectionCallback?.(true)
+      this.notifyConnection(true)
       try { this.sendEnvelope('login', {}) } catch (error) { this.emitError(error) }
       this.flushOutbox()
       this.syncNow()
+      this.syncStateNow()
+      this.syncConversationsNow()
     })
     socket.onMessage((event: any) => this.handleInbound(event))
     socket.onError((error: any) => {
@@ -318,7 +360,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       this.socket = null
       this.connected = false
       if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
-      if (wasConnected) this.connectionCallback?.(false)
+      if (wasConnected) this.notifyConnection(false)
       this.scheduleReconnect()
     })
   }
@@ -348,11 +390,11 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       } else if (action == 'ack') {
         const clientMsgId = payload.clientMsgId as string
         this.removeOutbox(clientMsgId)
-        this.messageStateCallback?.({ clientMsgId, state: 'sent' })
+        this.notifyMessageState({ clientMsgId, state: 'sent' })
       } else if (action == 'user_sig_will_expire') {
-        this.userSigWillExpireCallback?.()
+        this.listeners.forEach((listener: PteIMListener) => listener.onUserSigWillExpire?.())
       } else if (action == 'user_sig_expired') {
-        this.userSigExpiredCallback?.()
+        this.listeners.forEach((listener: PteIMListener) => listener.onUserSigExpired?.())
       } else if (action == 'sync_required') {
         this.syncNow()
       }
@@ -429,7 +471,15 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       if (this.messages.length > 1000) this.messages.splice(0, this.messages.length - 1000)
     }
     this.persistMessages()
-    if (emit) this.messageCallback?.(message)
+    if (emit) this.listeners.forEach((listener: PteIMListener) => listener.onMessage?.(message))
+  }
+
+  private mergeRemoteConversation(value: PteIMRemoteConversation): void {
+    const index = this.remoteConversations.findIndex((item: PteIMRemoteConversation): boolean => item.id == value.id)
+    if (index >= 0) this.remoteConversations[index] = value
+    else this.remoteConversations.push(value)
+    this.remoteConversations.sort((left: PteIMRemoteConversation, right: PteIMRemoteConversation): number => right.lastMessageAt - left.lastMessageAt || right.id - left.id)
+    if (this.remoteConversations.length > 1000) this.remoteConversations.splice(1000)
   }
 
   private materializeMessages(values: any[], callback: (messages: PteIMIncomingMessage[]) => void): void {
@@ -459,16 +509,22 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       if (typeof value == 'string') this.syncCursor = value
     } catch (_) { this.syncCursor = '' }
   }
+  private loadStateSyncCursor(): void { if (this.base.localStorageCipher == null) return; try { const value = this.decryptStorage(uni.getStorageSync(this.stateSyncCursorStorageKey()) as string); if (typeof value == 'string') this.stateSyncCursor = value } catch (_) { this.stateSyncCursor = '' } }
+  private loadConversationSyncCursor(): void { if (this.base.localStorageCipher == null) return; try { const value = this.decryptStorage(uni.getStorageSync(this.conversationSyncCursorStorageKey()) as string); if (typeof value == 'string') this.conversationSyncCursor = value } catch (_) { this.conversationSyncCursor = '' } }
 
   private persistSyncCursor(): void {
     if (this.base.localStorageCipher == null) return
     try { uni.setStorageSync(this.syncCursorStorageKey(), this.encryptStorage(this.syncCursor)) }
     catch (error) { this.emitError(error) }
   }
+  private persistStateSyncCursor(): void { if (this.base.localStorageCipher == null) return; try { uni.setStorageSync(this.stateSyncCursorStorageKey(), this.encryptStorage(this.stateSyncCursor)) } catch (error) { this.emitError(error) } }
+  private persistConversationSyncCursor(): void { if (this.base.localStorageCipher == null) return; try { uni.setStorageSync(this.conversationSyncCursorStorageKey(), this.encryptStorage(this.conversationSyncCursor)) } catch (error) { this.emitError(error) } }
 
   private syncCursorStorageKey(): string {
     return 'pte_live_im_cursor:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
   }
+  private stateSyncCursorStorageKey(): string { return 'pte_live_im_state_cursor:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId }
+  private conversationSyncCursorStorageKey(): string { return 'pte_live_im_conversation_cursor:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId }
 
   private loadMessages(): void {
     if (this.base.localStorageCipher == null) return
@@ -486,10 +542,27 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     try { uni.setStorageSync(this.messageStorageKey(), this.encryptStorage(JSON.stringify(this.messages))) }
     catch (error) { this.emitError(error) }
   }
+  private loadRemoteConversations(): void {
+    this.loadConversationSyncCursor()
+    if (this.base.localStorageCipher == null) return
+    try {
+      const raw = this.decryptStorage(uni.getStorageSync(this.remoteConversationStorageKey()) as string)
+      if (typeof raw == 'string' && raw.length > 0) {
+        const parsed = JSON.parse(raw) as any
+        if (Array.isArray(parsed)) this.remoteConversations = parsed as PteIMRemoteConversation[]
+      }
+    } catch (_) { this.remoteConversations = [] }
+  }
+  private persistRemoteConversations(): void {
+    if (this.base.localStorageCipher == null) return
+    try { uni.setStorageSync(this.remoteConversationStorageKey(), this.encryptStorage(JSON.stringify(this.remoteConversations))) }
+    catch (error) { this.emitError(error) }
+  }
 
   private messageStorageKey(): string {
     return 'pte_live_im_messages:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId
   }
+  private remoteConversationStorageKey(): string { return 'pte_live_im_remote_conversations:' + this.base.apiDomain + '|' + this.base.imDomain + '|' + this.base.cosDomain + '|' + this.loginConfig.sdkAppId.toString() + '|' + this.loginConfig.userId }
 
   private encryptStorage(value: string): string {
     const cipher = this.base.localStorageCipher
@@ -509,14 +582,22 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
 
   private emitError(error: any): void {
     const message = error != null && error.message != null ? error.message as string : String(error)
-    this.errorCallback?.(message)
+    this.listeners.forEach((listener: PteIMListener) => listener.onError?.(message))
+  }
+
+  private notifyConnection(connected: boolean): void {
+    this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged?.(connected))
+  }
+
+  private notifyMessageState(event: PteIMMessageStateChange): void {
+    this.listeners.forEach((listener: PteIMListener) => listener.onMessageStateChanged?.(event))
   }
 }
 
 function mediaContent(media: PteIMMedia): any {
   return {
     url: media.url, thumbnailUrl: media.thumbnailUrl, coverUrl: media.coverUrl,
-    width: media.width, height: media.height, durationMs: media.durationMs, sizeBytes: media.sizeBytes,
+    width: media.width, height: media.height, durationMs: media.durationMs, sizeBytes: media.sizeBytes, fileName: media.fileName, mimeType: media.mimeType,
   }
 }
 
@@ -530,7 +611,7 @@ function profileFromWire(value: any): PteIMUserProfile {
   return { userId: Number(value.user_id), nickname: String(value.nickname ?? ''), avatar: String(value.avatar ?? ''), gender, birthday: String(value.birthday ?? ''), province: String(value.province ?? ''), city: String(value.city ?? ''), district: String(value.district ?? '') }
 }
 
-function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice'): string {
+function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice' | 'file'): string {
   const suffix = filePath.toLowerCase().split('.').pop() ?? ''
   if (suffix == 'jpg' || suffix == 'jpeg') return 'image/jpeg'
   if (suffix == 'png') return 'image/png'
@@ -543,9 +624,24 @@ function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice'): 
   if (suffix == 'm4a') return 'audio/mp4'
   if (suffix == 'ogg') return 'audio/ogg'
   if (suffix == 'wav') return 'audio/wav'
+  if (suffix == 'pdf') return 'application/pdf'
+  if (suffix == 'txt') return 'text/plain'
+  if (suffix == 'csv') return 'text/csv'
+  if (suffix == 'json') return 'application/json'
+  if (suffix == 'zip') return 'application/zip'
+  if (suffix == '7z') return 'application/x-7z-compressed'
+  if (suffix == 'doc') return 'application/msword'
+  if (suffix == 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (suffix == 'xls') return 'application/vnd.ms-excel'
+  if (suffix == 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (suffix == 'ppt') return 'application/vnd.ms-powerpoint'
+  if (suffix == 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
   if (type == 'image') return 'image/jpeg'
+  if (type == 'file') throw new Error('unsupported file extension')
   return type == 'voice' ? 'audio/mpeg' : 'video/mp4'
 }
+
+function fileNameFromPath(filePath: string): string { const parts = filePath.split('/'); return parts.length == 0 ? 'file' : parts[parts.length - 1] }
 
 function resolveCosUrl(cosDomain: string, value?: string): string | null {
   if (value == null) return null

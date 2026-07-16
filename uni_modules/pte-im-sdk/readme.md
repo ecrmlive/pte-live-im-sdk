@@ -24,24 +24,29 @@ const im = bootstrap.login({
 im.start()
 ```
 
-H5、微信小程序目标已实现 `onConnectionChanged`、`onMessage`、`onMessageStateChanged`、UserSig 过期和错误事件，并在断线后以 1–30 秒退避重连、收到消息后发送 ACK。默认不将消息、Outbox 或 `syncCursor` 写入 `uni` storage，避免明文缓存；需要重启恢复时，宿主必须在 `PteIMBaseConfig.localStorageCipher` 提供同步加解密器，且密钥不得写入 source 或 `uni` storage。`userSig` 永不写入 storage。配置了加密器后，SDK 会持久化 `syncCursor` 与最新 1,000 条已确认消息，提供 `localMessages()`、`localConversations()` 缓存读取，并在连接成功或服务端发出 `sync_required` 时调用 `syncNow()`；同步消息通过 `onMessage` 分发。
+H5、微信小程序目标通过 `PteIMListener` 提供连接、消息、消息状态、UserSig 过期、外观变化、状态同步和错误事件；`addListener` 支持业务层与多个 UIKit 页面并行订阅，页面销毁时调用 `removeListener`。SDK 在断线后以 1–30 秒退避重连、收到消息后发送 ACK。默认不将消息、Outbox 或 `syncCursor` 写入 `uni` storage，避免明文缓存；需要重启恢复时，宿主必须在 `PteIMBaseConfig.localStorageCipher` 提供同步加解密器，且密钥不得写入 source 或 `uni` storage。`userSig` 永不写入 storage。配置了加密器后，SDK 会持久化 `syncCursor` 与最新 1,000 条已确认消息，提供 `localMessages()`、`localConversations()` 缓存读取，并在连接成功或服务端发出 `sync_required` 时调用 `syncNow()`；同步消息通过 listener 分发。该实现是加密热缓存，不是海量本地数据库；完整历史必须继续使用服务端游标分页。四端容量、加密与迁移规范见 [本地存储基线](../../docs/local-storage-contract.md)。
 
 图片、视频和语音可直接上传并发送：`uploadAndSendImage(conversationId, filePath)`、`uploadAndSendVideo(conversationId, filePath)`、`uploadAndSendVoice(conversationId, filePath, durationMs, waveform?)`。它们先调用 `POST /v1/im/media/put-url`，再以 `uni.request` 的二进制 `PUT` 上传到返回的 Tencent COS URL；消息和 Outbox 只保存返回的 object key。上传期间发送 `uploading` 状态，成功后使用相同的 `clientMsgId` 转为 `pending` 并进入持久化 Outbox，失败则发送 `failed`。H5 的 `filePath` 应来自当前页面选择的本地文件，微信小程序应传递其文件选择 API 返回的临时路径；COS 必须允许对应站点的 `PUT`、`Content-Type` 跨域请求。
 
 主题和语言可在不重新登录的情况下更新：
 
 ```uts
-im.onThemeModeChanged((mode) => refreshTheme(mode))
-im.onLanguageChanged((language) => reloadCopy(language))
+const listener = {
+  onThemeModeChanged: (mode) => refreshTheme(mode),
+  onLanguageChanged: (language) => reloadCopy(language),
+  onError: (message) => showPteIMError(message),
+}
+im.addListener(listener)
 im.updateAppearance('dark', 'en-US')
 // 重新跟随系统：im.updateAppearance('system', 'system')
+// 页面或业务对象销毁时：im.removeListener(listener)
 ```
 
 WeChat mini-program must register the HTTPS/WSS domains in its platform allowlist. H5 must allow the API origin through CORS and the IM origin through WebSocket Origin policy.
 
-## PteIMUIkit
+## PteIMUIKit
 
-`PteIMUIChat` and `PteIMUIConversationList` are reusable uvue components in `components/`; `utssdk/PteIMUIkit.uts` also exports controllers for a custom UTS view. Pass an already-logged-in client. The `action` event delegates image/video/voice pickers, location and business workflows to the host:
+`PteIMUIKit` is an independent sibling UTS module at `../pte-im-uikit`; it depends on this Core SDK but is not bundled into it. Copy both `pte-im-sdk` and `pte-im-uikit` into a standalone app. `PteIMUIChat`, `PteIMUIConversationList`, and `PteIMUIContactList` are reusable uvue components; `pte-im-uikit/utssdk/PteIMUIKitFacade.uts` also exports controllers for custom UTS views. Pass an already-logged-in client. The `action` event delegates image/video/voice pickers, location and business workflows to the host:
 
 ```vue
 <!-- conversation.id is returned by openSingleConversation/createGroupConversation. -->

@@ -1,4 +1,6 @@
 plugins {
-  id("com.android.library") version "8.12.0" apply false
-  kotlin("android") version "2.2.0" apply false
+  id("com.android.application") version "9.3.0" apply false
+  id("com.android.library") version "9.3.0" apply false
+  id("com.google.devtools.ksp") version "2.3.8" apply false
+  kotlin("plugin.compose") version "2.3.21" apply false
 }

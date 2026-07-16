@@ -3,8 +3,11 @@ package com.ptelive.im
 import org.json.JSONObject
 import java.util.UUID
 
-enum class PteIMMessageType { TEXT, EMOJI, IMAGE, VIDEO, VOICE, LOCATION, GIFT, RED_PACKET, ORDER }
+enum class PteIMMessageType { TEXT, EMOJI, IMAGE, VIDEO, VOICE, LOCATION, GIFT, RED_PACKET, ORDER, FILE }
 enum class PteIMSendState { PENDING, UPLOADING, SENT, FAILED }
+enum class PteIMPushPlatform { ANDROID, IOS, HARMONY, WEB, WECHAT }
+/** A token-free acknowledgement returned by the encrypted push-device API. */
+data class PteIMPushDevice(val deviceId: String, val platform: PteIMPushPlatform, val notificationEnabled: Boolean, val lastSeenAt: Long)
 
 data class PteIMUserProfile(
   val userId: Long,
@@ -18,6 +21,15 @@ data class PteIMUserProfile(
 )
 
 enum class PteIMGender { UNKNOWN, MALE, FEMALE }
+
+data class PteIMContact(val userId: String, val remark: String, val nickname: String, val avatar: String, val gender: PteIMGender, val followedAt: Long)
+data class PteIMContactPage(val list: List<PteIMContact>, val nextCursor: String, val hasMore: Boolean)
+data class PteIMMember(val userId: Long, val role: Int, val alias: String, val muteUntil: Long, val joinedAt: Long)
+data class PteIMMemberPage(val list: List<PteIMMember>, val nextCursor: String, val hasMore: Boolean)
+data class PteIMGroupPage(val list: List<PteIMRemoteConversation>, val nextCursor: String, val hasMore: Boolean)
+data class PteIMStateChange(val id: String, val entityType: String, val entityId: String, val operation: String, val createdAt: Long)
+data class PteIMStateChangePage(val changes: List<PteIMStateChange>, val nextCursor: String, val hasMore: Boolean)
+data class PteIMDefaultSetting(val chatPrerequisite: String, val notificationEnabled: Boolean, val groupJoinMode: String)
 
 /** Exactly one profile field per server request. */
 sealed class PteIMUserProfileUpdate(val field: String, val value: String) {
@@ -38,6 +50,8 @@ data class PteIMMedia(
   val height: Int? = null,
   val durationMs: Long? = null,
   val sizeBytes: Long? = null,
+  val fileName: String? = null,
+  val mimeType: String? = null,
 )
 
 data class PteIMVoice(val url: String, val durationMs: Long, val waveform: String? = null, val sizeBytes: Long? = null)
@@ -108,6 +122,8 @@ data class PteIMMessage(
       it.height?.let { value -> put("height", value) }
       it.durationMs?.let { value -> put("durationMs", value) }
       it.sizeBytes?.let { value -> put("sizeBytes", value) }
+      it.fileName?.let { value -> put("fileName", value) }
+      it.mimeType?.let { value -> put("mimeType", value) }
     }
     voice?.let { put("url", it.url); put("durationMs", it.durationMs); it.waveform?.let { value -> put("waveform", value) }; it.sizeBytes?.let { value -> put("sizeBytes", value) } }
     location?.let { put("latitude", it.latitude); put("longitude", it.longitude); put("name", it.name); it.address?.let { value -> put("address", value) } }

@@ -18,13 +18,13 @@
 </template>
 
 <script lang="uts">
-import { PteIMUIAction } from '../../utssdk/PteIMUIkit.uts'
+import { PteIMUIAction } from '../../utssdk/PteIMUIKitFacade.uts'
 
 export default {
   props: { modelValue: { type: String, default: '' }, language: { type: String, default: 'zh-CN' } },
   emits: ['update:modelValue', 'send', 'emoji', 'action', 'voice'],
   data() {
-    return { draftValue: this.modelValue as string, voiceMode: false, panel: '', emojis: [{ id: 'smile_001', label: '☺' }, { id: 'smile_002', label: '✦' }, { id: 'wave_001', label: '◌' }, { id: 'heart_001', label: '♥' }, { id: 'thumb_001', label: '✓' }, { id: 'party_001', label: '✺' }], moreActions: ['image', 'video', 'location', 'gift', 'red_packet', 'order'] as PteIMUIAction[] }
+    return { draftValue: this.modelValue as string, voiceMode: false, panel: '', emojis: [{ id: 'smile_001', label: '☺' }, { id: 'smile_002', label: '✦' }, { id: 'wave_001', label: '◌' }, { id: 'heart_001', label: '♥' }, { id: 'thumb_001', label: '✓' }, { id: 'party_001', label: '✺' }], moreActions: ['image', 'camera', 'video', 'location', 'file', 'gift', 'red_packet', 'order'] as PteIMUIAction[] }
   },
   watch: { modelValue(value: string) { if (value !== this.draftValue) this.draftValue = value }, draftValue(value: string) { this.$emit('update:modelValue', value) } },
   methods: {
@@ -33,7 +33,7 @@ export default {
     pickEmoji(emojiId: string) { this.$emit('emoji', { packageId: 'default', emojiId }); this.panel = '' },
     pickAction(action: PteIMUIAction) { this.$emit('action', action); this.panel = '' },
     voice(recording: boolean) { this.$emit('voice', recording) },
-    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Message' : '输入消息'; if (key === 'send') return en ? 'Send' : '发送'; if (key === 'hold') return en ? 'Hold to talk' : '按住说话'; if (key === 'voice') return en ? 'Voice' : '语音'; if (key === 'keyboard') return en ? 'Keyboard' : '键盘'; if (key === 'emoji') return en ? 'Emoji' : '表情'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'red_packet') return en ? 'Red packet' : '红包'; return en ? 'Order' : '订单' },
+    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Message' : '输入消息'; if (key === 'send') return en ? 'Send' : '发送'; if (key === 'hold') return en ? 'Hold to talk' : '按住说话'; if (key === 'voice') return en ? 'Voice' : '语音'; if (key === 'keyboard') return en ? 'Keyboard' : '键盘'; if (key === 'emoji') return en ? 'Emoji' : '表情'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'camera') return en ? 'Camera' : '拍摄'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'file') return en ? 'File' : '文件'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'red_packet') return en ? 'Red packet' : '红包'; return en ? 'Order' : '订单' },
   },
 }
 </script>

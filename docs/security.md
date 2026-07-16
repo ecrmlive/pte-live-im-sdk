@@ -7,10 +7,10 @@ This document describes the SDK's **at-rest cache protection**, the api-im encry
 | SDK | Protection | Key location |
 | --- | --- | --- |
 | Android | AES-256-GCM encrypts persisted message JSON, offline-outbox JSON, and the sync cursor. | Android Keystore, non-exportable per account/cache namespace key. |
-| iOS | AES-256-GCM encrypts the same fields; the SQLite file is also assigned `complete` file protection. | Keychain, `AfterFirstUnlockThisDeviceOnly`, per account/cache namespace key. |
+| iOS | Core Data values use AES-256-GCM and file protection `complete`. | Keychain, `AfterFirstUnlockThisDeviceOnly`, per account/cache namespace key. |
 | HarmonyOS | The relational store is opened with `encrypt: true` and security level `S1`. | HarmonyOS relational-store encryption service. |
 
-The SQLite schema keeps the minimum query metadata in clear text: cache file name hash, conversation ID, client/server message IDs, message type, timestamps, send state, retry time, and sequence numbers. This allows local paging, de-duplication, and reliable retry without decrypting every row. Do not treat this as a full-database-metadata-hiding scheme.
+Platform stores keep the minimum query metadata in clear text: cache namespace hash, conversation ID, client/server message IDs, message type, timestamps, send state, retry time, and sequence numbers. This allows local paging, de-duplication, and reliable retry without decrypting every row. Do not treat this as a full-database-metadata-hiding scheme.
 
 Android and iOS transparently migrate pre-existing plaintext and `pte1:` records to `pte2:` on store open. `pte2:` is AES-GCM with additional authenticated data bound to the account/cache namespace, so a ciphertext cannot be transplanted to another account cache. A Keychain/Keystore reset makes prior encrypted cache unavailable by design; after the host clears that local cache, a server sync recreates it.
 
@@ -19,9 +19,9 @@ Android and iOS transparently migrate pre-existing plaintext and `pte1:` records
 ```text
 login namespace → obtain per-cache key → open store and migrate old rows
      ↓
-serialize message / outbox / cursor → AES-256-GCM encrypt (`pte2:`) → SQLite
+serialize message / outbox / cursor → AES-256-GCM encrypt (`pte2:`) → platform store
      ↓
-SQLite → verify AES-GCM tag and cache namespace → decrypt → SDK message model
+platform store → verify AES-GCM tag and cache namespace → decrypt → SDK message model
 ```
 
 Authentication-tag verification happens before JSON is decoded or a queued message is sent. A changed, truncated, or account-transplanted `pte2:` value fails decryption rather than being treated as valid cache data. If an OS security-store reset makes the key unavailable, the host must clear the affected **local SDK cache** and run a server sync again; a UserSig, COS credential, or server-side secret is never used as a replacement encryption key.

@@ -11,8 +11,8 @@
 </template>
 
 <script lang="uts">
-import { PteIMIncomingMessage, PteIMSDKClient } from '../../utssdk/interface.uts'
-import { PteIMUIAction, PteIMUIChatController, PteIMUIkit, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIkit.uts'
+import { PteIMIncomingMessage, PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMUIAction, PteIMUIChatController, PteIMUIKit, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIKitFacade.uts'
 
 export default {
   props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, theme: { type: Object, default: null } },
@@ -21,7 +21,7 @@ export default {
   mounted() {
     const client = this.client as PteIMSDKClient
     this.currentUserId = client.currentUserId()
-    const controller = PteIMUIkit.createChatController(client, this.conversationId)
+    const controller = PteIMUIKit.createChatController(client, this.conversationId)
     controller.onChanged = () => { this.messages = controller.messages; this.latestMessageId = this.messages.length > 0 ? this.messages[this.messages.length - 1].clientMsgId : ''; const appearance = client.currentAppearance(); this.language = appearance.language === 'en-US' ? 'en-US' : 'zh-CN'; this.applyTheme() }
     controller.onActionRequested = (action: PteIMUIAction) => this.$emit('action', action)
     this.controller = controller; controller.refresh(); this.applyTheme()

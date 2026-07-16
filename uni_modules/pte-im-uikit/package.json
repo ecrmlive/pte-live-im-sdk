@@ -1,0 +1,10 @@
+{
+  "id": "pte-im-uikit",
+  "displayName": "PteIMUIKit UTS",
+  "version": "0.1.0-alpha.1",
+  "description": "PteIMUIKit UTS conversation, contact and chat components for H5/Web and WeChat mini-program applications",
+  "main": "utssdk/PteIMUIKitFacade.uts",
+  "uni_modules": {
+    "platforms": ["web", "mp-weixin"]
+  }
+}

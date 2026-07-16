@@ -1,5 +1,5 @@
 import { PteIMLanguage } from '@ptelive/pte-im-sdk'
-import { PteIMUIAction, PteIMUIActionTitle } from './PteIMUIkit'
+import { PteIMUIAction, PteIMUIActionTitle } from './PteIMUIKit'
 import { PteIMUIThemePalette } from './PteIMUITheme'
 
 /** Named callbacks keep this V1 ArkUI component free of unsupported Function props. */
@@ -61,7 +61,7 @@ export struct PteIMUIInputBar {
 
   @Builder morePanel() {
     Row({ space: 6 }) {
-      ForEach([PteIMUIAction.IMAGE, PteIMUIAction.VIDEO, PteIMUIAction.LOCATION, PteIMUIAction.GIFT, PteIMUIAction.RED_PACKET, PteIMUIAction.ORDER], (action: PteIMUIAction) => {
+      ForEach([PteIMUIAction.IMAGE, PteIMUIAction.CAMERA, PteIMUIAction.VIDEO, PteIMUIAction.LOCATION, PteIMUIAction.FILE, PteIMUIAction.GIFT, PteIMUIAction.RED_PACKET, PteIMUIAction.ORDER], (action: PteIMUIAction) => {
         Button(PteIMUIActionTitle(action, this.language)).layoutWeight(1).height(56).fontSize(11).fontColor(this.palette.icon).backgroundColor(this.palette.panelItem).borderRadius(14).onClick(() => { this.callbacks.actionSelected(action); this.panel = '' })
       }, (action: PteIMUIAction) => action.toString())
     }.width('100%').height(104).padding(12).backgroundColor(this.palette.panel)

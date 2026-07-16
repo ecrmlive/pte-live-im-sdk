@@ -1,7 +1,7 @@
 import UIKit
 
 /** A complete, replaceable visual skin for the three PteIMUIKit surfaces. */
-public final class PteIMUISkin {
+@MainActor public final class PteIMUISkin {
   public var theme: PteIMUITheme
   public var list: PteIMUIListStyle
   public var chat: PteIMUIChatStyle
@@ -16,7 +16,7 @@ public final class PteIMUISkin {
 }
 
 /** Fonts, colours, spacing and separators used by both conversation and contact rows. */
-public final class PteIMUIListStyle {
+@MainActor public final class PteIMUIListStyle {
   public var rowHeight: CGFloat = 73
   public var horizontalInset: CGFloat = 20
   public var avatarSize: CGFloat = 42
@@ -43,7 +43,7 @@ public final class PteIMUIListStyle {
 }
 
 /** All visual knobs for the chat navigation, messages and composer. */
-public final class PteIMUIChatStyle {
+@MainActor public final class PteIMUIChatStyle {
   public var navigationTitleFont: UIFont = .systemFont(ofSize: 16, weight: .semibold)
   public var navigationSubtitleFont: UIFont = .systemFont(ofSize: 11, weight: .regular)
   public var messageFont: UIFont = .systemFont(ofSize: 15, weight: .regular)
@@ -64,7 +64,7 @@ public final class PteIMUIChatStyle {
 }
 
 /** Hosts can replace every image without subclassing a controller. */
-public protocol PteIMUIIconProvider: AnyObject {
+@MainActor public protocol PteIMUIIconProvider: AnyObject {
   func image(for key: PteIMUIIconKey, traitCollection: UITraitCollection) -> UIImage?
 }
 
@@ -73,7 +73,7 @@ public enum PteIMUIIconKey: String, CaseIterable {
   case image, camera, video, location, file, redPacket, gift, order, chevron
 }
 
-public final class PteIMUISystemIconProvider: PteIMUIIconProvider {
+@MainActor public final class PteIMUISystemIconProvider: PteIMUIIconProvider {
   public init() {}
   public func image(for key: PteIMUIIconKey, traitCollection: UITraitCollection) -> UIImage? {
     let names: [PteIMUIIconKey: String] = [.back: "chevron.left", .more: "ellipsis", .language: "globe", .appearance: "moon", .add: "plus", .search: "magnifyingglass", .voice: "mic", .keyboard: "keyboard", .emoji: "face.smiling", .send: "paperplane.fill", .image: "photo", .camera: "camera", .video: "video", .location: "location", .file: "doc", .redPacket: "yensign.circle", .gift: "gift", .order: "bag", .chevron: "chevron.right"]
@@ -91,10 +91,12 @@ public struct PteIMUIConversationPresentation {
   public var subtitle: String?
   public var avatarText: String
   public var avatarImage: UIImage?
+  /** Optional host-owned avatar colour when no remote avatar image is supplied. */
+  public var avatarBackgroundColor: UIColor?
   public var unreadCount: Int
   public var updatedAt: Date?
-  public init(conversationId: String, kind: PteIMUIConversationKind = .single, title: String, subtitle: String? = nil, avatarText: String = "", avatarImage: UIImage? = nil, unreadCount: Int = 0, updatedAt: Date? = nil) {
-    self.conversationId = conversationId; self.kind = kind; self.title = title; self.subtitle = subtitle; self.avatarText = avatarText; self.avatarImage = avatarImage; self.unreadCount = unreadCount; self.updatedAt = updatedAt
+  public init(conversationId: String, kind: PteIMUIConversationKind = .single, title: String, subtitle: String? = nil, avatarText: String = "", avatarImage: UIImage? = nil, avatarBackgroundColor: UIColor? = nil, unreadCount: Int = 0, updatedAt: Date? = nil) {
+    self.conversationId = conversationId; self.kind = kind; self.title = title; self.subtitle = subtitle; self.avatarText = avatarText; self.avatarImage = avatarImage; self.avatarBackgroundColor = avatarBackgroundColor; self.unreadCount = unreadCount; self.updatedAt = updatedAt
   }
 }
 
@@ -105,7 +107,9 @@ public struct PteIMUIContactPresentation {
   public var subtitle: String?
   public var avatarText: String
   public var avatarImage: UIImage?
-  public init(identifier: String, kind: PteIMUIConversationKind = .single, title: String, subtitle: String? = nil, avatarText: String = "", avatarImage: UIImage? = nil) {
-    self.identifier = identifier; self.kind = kind; self.title = title; self.subtitle = subtitle; self.avatarText = avatarText; self.avatarImage = avatarImage
+  /** Optional host-owned avatar colour when no remote avatar image is supplied. */
+  public var avatarBackgroundColor: UIColor?
+  public init(identifier: String, kind: PteIMUIConversationKind = .single, title: String, subtitle: String? = nil, avatarText: String = "", avatarImage: UIImage? = nil, avatarBackgroundColor: UIColor? = nil) {
+    self.identifier = identifier; self.kind = kind; self.title = title; self.subtitle = subtitle; self.avatarText = avatarText; self.avatarImage = avatarImage; self.avatarBackgroundColor = avatarBackgroundColor
   }
 }
