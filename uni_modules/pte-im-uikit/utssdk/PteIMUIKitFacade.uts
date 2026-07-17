@@ -5,10 +5,17 @@ export type PteIMUIAction = 'image' | 'camera' | 'video' | 'voice' | 'location' 
 export type PteIMUIContactListMode = 'friends' | 'follows' | 'groups' | 'custom'
 export type PteIMUIContactPresentation = { identifier: string, title: string, subtitle: string, avatarText: string, isGroup: boolean }
 
+/** Business-owned reaction summary. Core only transports messages, not UI reaction state. */
+export type PteIMUIReaction = { emoji: string, count: number }
+/** Override this provider from the host repository to render persisted reactions. */
+export class PteIMUIReactionProvider {
+  reactionsFor(_message: PteIMIncomingMessage): PteIMUIReaction[] { return [] }
+}
+
 /** Explicit colours for one appearance. Light and dark palettes are never auto-inverted. */
 export type PteIMUIThemePalette = {
   background: string; surface: string; composer: string; incoming: string; outgoingStart: string; outgoingEnd: string
-  text: string; muted: string; incomingText: string; outgoingText: string; icon: string; divider: string; panel: string; panelItem: string
+  text: string; muted: string; incomingText: string; outgoingText: string; icon: string; divider: string; panel: string; panelItem: string; composerInput: string
 }
 
 /** Pass a custom instance to PteIMUIChat when the host needs per-component branding. */
@@ -16,14 +23,14 @@ export class PteIMUITheme {
   light: PteIMUIThemePalette
   dark: PteIMUIThemePalette
   constructor(light: PteIMUIThemePalette = PteIMUITheme.lightPalette(), dark: PteIMUIThemePalette = PteIMUITheme.darkPalette()) { this.light = light; this.dark = dark }
-  static lightPalette(): PteIMUIThemePalette { return { background: '#F7F9FF', surface: '#FFFFFF', composer: '#FFFFFF', incoming: '#EDF1FD', outgoingStart: '#335EF4', outgoingEnd: '#7D40EF', text: '#171C2E', muted: '#666D84', incomingText: '#171C2E', outgoingText: '#FFFFFF', icon: '#373E5A', divider: '#DDE2F2', panel: '#F4F6FF', panelItem: '#FFFFFF' } }
-  static darkPalette(): PteIMUIThemePalette { return { background: '#0E111C', surface: '#141827', composer: '#181D2F', incoming: '#252B43', outgoingStart: '#4467FF', outgoingEnd: '#8F4CFF', text: '#EFF2FF', muted: '#A4ADCB', incomingText: '#EFF2FF', outgoingText: '#FFFFFF', icon: '#CCD3F2', divider: '#313854', panel: '#191E30', panelItem: '#262D46' } }
+  static lightPalette(): PteIMUIThemePalette { return { background: '#F7F9FF', surface: '#FFFFFF', composer: '#FFFFFF', incoming: '#EDF1FD', outgoingStart: '#335EF4', outgoingEnd: '#7D40EF', text: '#171C2E', muted: '#666D84', incomingText: '#171C2E', outgoingText: '#FFFFFF', icon: '#373E5A', divider: '#DDE2F2', panel: '#F4F6FF', panelItem: '#FFFFFF', composerInput: '#F3F3FE' } }
+  static darkPalette(): PteIMUIThemePalette { return { background: '#0E111C', surface: '#141827', composer: '#181D2F', incoming: '#252B43', outgoingStart: '#4467FF', outgoingEnd: '#8F4CFF', text: '#EFF2FF', muted: '#A4ADCB', incomingText: '#EFF2FF', outgoingText: '#FFFFFF', icon: '#CCD3F2', divider: '#313854', panel: '#191E30', panelItem: '#262D46', composerInput: '#1F1E42' } }
   static resolve(client: PteIMSDKClient, theme: PteIMUITheme = new PteIMUITheme(), systemDark: boolean = false): PteIMUIThemePalette {
     const mode = client.currentAppearance().themeMode
     return mode === 'dark' || (mode === 'system' && systemDark) ? theme.dark : theme.light
   }
   static cssVariables(palette: PteIMUIThemePalette): any {
-    return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem }
+    return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem, '--pte-im-ui-composer-input': palette.composerInput }
   }
 }
 

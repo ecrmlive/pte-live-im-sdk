@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit
 
 interface PteIMListener {
   fun onConnectionChanged(connected: Boolean) {}
+  /** Server-authoritative conversation cursor sync has updated the local cache. */
+  fun onConversationsChanged() {}
   fun onMessage(message: PteIMMessage) {}
   fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) {}
   fun onUserSigWillExpire() {}
@@ -206,6 +208,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
         val list = root.optJSONArray("list") ?: JSONArray()
         val values = (0 until list.length()).map { remoteConversationFromJson(list.getJSONObject(it)) }
         store.applyRemoteConversations(values, root.optString("nextCursor"))
+        listeners.forEach { it.onConversationsChanged() }
         if (root.optBoolean("hasMore")) syncConversationsNow()
       } catch (error: Throwable) { listeners.forEach { it.onError(error) } }
     }
@@ -567,7 +570,8 @@ private fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
     businessId = id, title = content.getString("title"), subtitle = content.optNullableString("subtitle"), actionUrl = content.optNullableString("actionUrl"),
   ) } else null
   return PteIMMessage(
-    conversationId = json.getString("conversationId"), senderId = json.optNullableString("senderId"), type = type,
+    conversationId = json.getString("conversationId"), senderId = json.optNullableString("senderId"),
+    senderNickname = json.optNullableString("senderNickname") ?: json.optNullableString("senderName") ?: json.optNullableString("nickname"), type = type,
     text = content.optNullableString("text"), packageId = content.optNullableString("packageId"), emojiId = content.optNullableString("emojiId"),
     media = media, voice = voice, location = location, business = business, clientMsgId = json.getString("clientMsgId"), serverMsgId = json.optNullableString("serverMsgId"),
     serverSeq = json.optLong("serverSeq").takeIf { it > 0 }, createdAt = json.optLong("createdAt", System.currentTimeMillis()), state = PteIMSendState.SENT,

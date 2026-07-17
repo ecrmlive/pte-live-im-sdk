@@ -24,6 +24,8 @@ public func pteIMSystemTheme(for traits: UITraitCollection) -> PteIMTheme {
   public var dividerColor: UIColor
   public var panelColor: UIColor
   public var panelItemColor: UIColor
+  /** Input field fill, independent from the emoji/action panel item fill. */
+  public var composerInputColor: UIColor
 
   public init(
     backgroundColor: UIColor,
@@ -39,7 +41,8 @@ public func pteIMSystemTheme(for traits: UITraitCollection) -> PteIMTheme {
     iconColor: UIColor,
     dividerColor: UIColor,
     panelColor: UIColor,
-    panelItemColor: UIColor
+    panelItemColor: UIColor,
+    composerInputColor: UIColor
   ) {
     self.backgroundColor = backgroundColor
     self.surfaceColor = surfaceColor
@@ -55,6 +58,7 @@ public func pteIMSystemTheme(for traits: UITraitCollection) -> PteIMTheme {
     self.dividerColor = dividerColor
     self.panelColor = panelColor
     self.panelItemColor = panelItemColor
+    self.composerInputColor = composerInputColor
   }
 }
 
@@ -93,7 +97,8 @@ public extension PteIMUIThemePalette {
     iconColor: UIColor(red: 0.27, green: 0.30, blue: 0.42, alpha: 1),
     dividerColor: UIColor(red: 0.88, green: 0.87, blue: 0.98, alpha: 1),
     panelColor: UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 1),
-    panelItemColor: .white
+    panelItemColor: .white,
+    composerInputColor: UIColor(red: 0.95, green: 0.95, blue: 0.995, alpha: 1)
   )
 
   static let blueVioletDark = PteIMUIThemePalette(
@@ -110,6 +115,7 @@ public extension PteIMUIThemePalette {
     iconColor: UIColor(red: 0.79, green: 0.82, blue: 0.95, alpha: 1),
     dividerColor: UIColor(red: 0.16, green: 0.14, blue: 0.32, alpha: 1),
     panelColor: UIColor(red: 0.06, green: 0.06, blue: 0.16, alpha: 1),
-    panelItemColor: UIColor(red: 0.11, green: 0.10, blue: 0.25, alpha: 1)
+    panelItemColor: UIColor(red: 0.11, green: 0.10, blue: 0.25, alpha: 1),
+    composerInputColor: UIColor(red: 0.12, green: 0.11, blue: 0.27, alpha: 1)
   )
 }

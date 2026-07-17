@@ -14,24 +14,15 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="812"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Pte Live IM" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Pte-Launch-Title">
-                                <fontDescription key="fontDescription" type="system" weight="bold" pointSize="28"/>
-                                <color key="textColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-                                <nil key="highlightedColor"/>
-                            </label>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="PRIVATE LIVE · SECURE MESSAGING" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Pte-Launch-Caption">
-                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="11"/>
-                                <color key="textColor" white="1" alpha="0.75" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-                                <nil key="highlightedColor"/>
-                            </label>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="PteIMUILaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="Pte-Launch-Artwork"/>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="Pte-Launch-SafeArea"/>
-                        <color key="backgroundColor" red="0.08235294118" green="0.1843137255" blue="0.6039215686" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.03921568627" green="0.01960784314" blue="0.1490196078" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
-                            <constraint firstItem="Pte-Launch-Title" firstAttribute="centerX" secondItem="Pte-Launch-View" secondAttribute="centerX" id="Pte-Launch-Title-CenterX"/>
-                            <constraint firstItem="Pte-Launch-Title" firstAttribute="centerY" secondItem="Pte-Launch-View" secondAttribute="centerY" constant="-12" id="Pte-Launch-Title-CenterY"/>
-                            <constraint firstItem="Pte-Launch-Caption" firstAttribute="centerX" secondItem="Pte-Launch-View" secondAttribute="centerX" id="Pte-Launch-Caption-CenterX"/>
-                            <constraint firstItem="Pte-Launch-Caption" firstAttribute="top" secondItem="Pte-Launch-Title" secondAttribute="bottom" constant="12" id="Pte-Launch-Caption-Top"/>
+                            <constraint firstItem="Pte-Launch-Artwork" firstAttribute="leading" secondItem="Pte-Launch-View" secondAttribute="leading" id="Pte-Launch-Artwork-Leading"/>
+                            <constraint firstAttribute="trailing" secondItem="Pte-Launch-Artwork" secondAttribute="trailing" id="Pte-Launch-Artwork-Trailing"/>
+                            <constraint firstItem="Pte-Launch-Artwork" firstAttribute="top" secondItem="Pte-Launch-View" secondAttribute="top" id="Pte-Launch-Artwork-Top"/>
+                            <constraint firstAttribute="bottom" secondItem="Pte-Launch-Artwork" secondAttribute="bottom" id="Pte-Launch-Artwork-Bottom"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -40,4 +31,7 @@
             <point key="canvasLocation" x="53" y="375"/>
         </scene>
     </scenes>
+    <resources>
+        <image name="PteIMUILaunchMark" width="376" height="773"/>
+    </resources>
 </document>

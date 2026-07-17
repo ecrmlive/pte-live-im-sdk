@@ -1,0 +1,8 @@
+<resources>
+  <!-- Android 12+ system splash: same deep-violet background and Android-specific brand mark. -->
+  <style name="PteDemoSplashTheme" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:windowSplashScreenBackground">#100A2C</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/pte_im_ui_app_icon</item>
+    <item name="android:windowNoTitle">true</item>
+  </style>
+</resources>

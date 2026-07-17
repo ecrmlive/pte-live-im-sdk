@@ -1,9 +1,17 @@
 <template>
   <view class="pte-im-ui-chat" :class="themeClass" :style="themeStyle">
-    <text class="pte-im-ui-title">{{ title || conversationId }}</text>
+    <view class="pte-im-ui-navigation">
+      <text class="pte-im-ui-navigation-back">‹</text>
+      <view class="pte-im-ui-navigation-title-wrap"><text class="pte-im-ui-title">{{ title || conversationId }}</text><text class="pte-im-ui-subtitle">{{ subtitle || (language === 'en-US' ? 'Online' : '在线') }}</text></view>
+      <view class="pte-im-ui-navigation-actions"><text>⌕</text><text>◉</text><text>•••</text></view>
+    </view>
     <scroll-view class="pte-im-ui-messages" scroll-y="true" :scroll-into-view="latestMessageId">
       <view v-for="message in messages" :id="message.clientMsgId" :key="message.clientMsgId" class="pte-im-ui-message-row" :class="message.senderId === currentUserId ? 'pte-im-ui-outgoing-row' : 'pte-im-ui-incoming-row'">
-        <view class="pte-im-ui-message" :class="message.senderId === currentUserId ? 'pte-im-ui-outgoing' : 'pte-im-ui-incoming'"><text>{{ label(message) }}</text></view>
+        <view class="pte-im-ui-message-stack" :class="message.senderId === currentUserId ? 'pte-im-ui-stack-outgoing' : 'pte-im-ui-stack-incoming'">
+          <view class="pte-im-ui-message" :class="[message.senderId === currentUserId ? 'pte-im-ui-outgoing' : 'pte-im-ui-incoming', richType(message)]"><text>{{ label(message) }}</text></view>
+          <view v-if="reactions(message).length > 0" class="pte-im-ui-reactions"><text v-for="reaction in reactions(message)" :key="reaction.emoji" class="pte-im-ui-reaction">{{ reaction.emoji }} {{ reaction.count }}</text></view>
+          <text class="pte-im-ui-delivery">{{ deliveryLine(message) }}</text>
+        </view>
       </view>
     </scroll-view>
     <PteIMUIInputBar v-model="draft" :language="language" @send="sendText" @emoji="sendEmoji" @action="action" @voice="voice" />
@@ -12,10 +20,10 @@
 
 <script lang="uts">
 import { PteIMIncomingMessage, PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
-import { PteIMUIAction, PteIMUIChatController, PteIMUIKit, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIKitFacade.uts'
+import { PteIMUIAction, PteIMUIChatController, PteIMUIKit, PteIMUIReaction, PteIMUIReactionProvider, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIKitFacade.uts'
 
 export default {
-  props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, theme: { type: Object, default: null } },
+  props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, subtitle: { type: String, default: '' }, theme: { type: Object, default: null }, reactionProvider: { type: Object, default: null } },
   emits: ['action', 'voice-recording'],
   data() { return { messages: [] as PteIMIncomingMessage[], draft: '', language: 'zh-CN', currentUserId: '', themeClass: '', themeStyle: {} as any, latestMessageId: '', controller: null as PteIMUIChatController | null } },
   mounted() {
@@ -33,20 +41,40 @@ export default {
     action(action: PteIMUIAction) { this.controller?.requestAction(action) },
     voice(recording: boolean) { this.$emit('voice-recording', recording) },
     applyTheme() { const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const mode = (this.client as PteIMSDKClient).currentAppearance().themeMode; const dark = mode === 'dark' || (mode === 'system' && uni.getSystemInfoSync().theme === 'dark'); const palette = dark ? theme.dark : theme.light; this.themeClass = dark ? 'pte-im-ui-dark' : 'pte-im-ui-light'; this.themeStyle = this.cssVariables(palette) },
-    cssVariables(palette: PteIMUIThemePalette): any { return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem } },
-    label(message: PteIMIncomingMessage): string { const content = message.content as any; if (message.type === 'text') return String(content.text ?? ''); if (message.type === 'emoji') return String(content.packageId ?? 'emoji') + ':' + String(content.emojiId ?? ''); if (message.type === 'location') return '[Location] ' + String(content.name ?? ''); if (message.type === 'gift') return '[Gift] ' + String(content.title ?? ''); if (message.type === 'red_packet') return '[Red packet] ' + String(content.title ?? ''); if (message.type === 'order') return '[Order] ' + String(content.title ?? ''); return '[' + message.type + ']' },
+    cssVariables(palette: PteIMUIThemePalette): any { return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem, '--pte-im-ui-composer-input': palette.composerInput } },
+    reactions(message: PteIMIncomingMessage): PteIMUIReaction[] { const provider = this.reactionProvider as PteIMUIReactionProvider | null; return provider == null ? [] : provider.reactionsFor(message).filter((reaction: PteIMUIReaction) => reaction.emoji.length > 0 && reaction.count > 0) },
+    richType(message: PteIMIncomingMessage): string { return ['image', 'video', 'location', 'gift', 'red_packet', 'order', 'file'].indexOf(message.type) >= 0 ? 'pte-im-ui-rich-' + message.type : '' },
+    deliveryLine(message: PteIMIncomingMessage): string { const value = new Date(message.createdAt); const hour = String(value.getHours()).padStart(2, '0'); const minute = String(value.getMinutes()).padStart(2, '0'); const outgoing = message.senderId === this.currentUserId; return hour + ':' + minute + (outgoing ? (message.state === 'sent' ? '  ✓✓' : '  …') : '') },
+    label(message: PteIMIncomingMessage): string { const content = message.content as any; const en = this.language === 'en-US'; if (message.type === 'text') return String(content.text ?? ''); if (message.type === 'emoji') return String(content.emojiId ?? ''); if (message.type === 'image') return en ? 'Photo' : '图片'; if (message.type === 'video') return (en ? 'Video' : '视频') + '\n' + String(Math.floor(Number(content.durationMs ?? 0) / 1000)) + 's'; if (message.type === 'voice') return (en ? 'Voice' : '语音') + '  ' + String(Math.floor(Number(content.durationMs ?? 0) / 1000)) + 's'; if (message.type === 'location') return (en ? 'Location' : '位置') + '\n' + String(content.name ?? '') + '\n' + String(content.address ?? ''); if (message.type === 'gift') return (en ? 'Gift' : '礼物') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); if (message.type === 'red_packet') return (en ? 'Red packet' : '红包') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); if (message.type === 'order') return (en ? 'Order' : '订单') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); return (en ? 'File' : '文件') + '\n' + String(content.fileName ?? '') },
   },
 }
 </script>
 
 <style>
 .pte-im-ui-chat { display: flex; flex-direction: column; height: 100%; background-color: var(--pte-im-ui-background); color: var(--pte-im-ui-text); }
-.pte-im-ui-title { padding: 28rpx; color: var(--pte-im-ui-text); font-size: 32rpx; font-weight: 600; }
+.pte-im-ui-navigation { min-height: 96rpx; display: flex; align-items: center; padding: 0 16rpx; box-sizing: border-box; background-color: var(--pte-im-ui-surface); }
+.pte-im-ui-navigation-back { width: 70rpx; color: var(--pte-im-ui-icon); font-size: 58rpx; line-height: 72rpx; }
+.pte-im-ui-navigation-title-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.pte-im-ui-title { color: var(--pte-im-ui-text); font-size: 32rpx; line-height: 38rpx; font-weight: 600; max-width: 340rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pte-im-ui-subtitle { margin-top: 2rpx; color: var(--pte-im-ui-outgoing-start); font-size: 21rpx; line-height: 26rpx; }
+.pte-im-ui-navigation-actions { width: 192rpx; display: flex; justify-content: space-between; align-items: center; color: var(--pte-im-ui-icon); font-size: 32rpx; }
 .pte-im-ui-messages { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
 .pte-im-ui-message-row { display: flex; width: 100%; margin: 10rpx 0; }
 .pte-im-ui-incoming-row { justify-content: flex-start; }
 .pte-im-ui-outgoing-row { justify-content: flex-end; }
 .pte-im-ui-message { max-width: 78%; padding: 18rpx 22rpx; border-radius: 24rpx; color: var(--pte-im-ui-incoming-text); font-size: 28rpx; line-height: 40rpx; }
+.pte-im-ui-message-stack { display: flex; flex-direction: column; max-width: 78%; }
+.pte-im-ui-stack-incoming { align-items: flex-start; }
+.pte-im-ui-stack-outgoing { align-items: flex-end; }
 .pte-im-ui-incoming { background-color: var(--pte-im-ui-incoming); }
 .pte-im-ui-outgoing { color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); }
+.pte-im-ui-rich-image { width: 396rpx; color: #123C38; background-image: linear-gradient(135deg, #79e2be, #51bfaa); }
+.pte-im-ui-rich-video { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #0e111c, #202942); }
+.pte-im-ui-rich-gift { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #7940ef, #361e77); }
+.pte-im-ui-rich-red_packet { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #d6442d, #84211a); }
+.pte-im-ui-rich-location, .pte-im-ui-rich-order, .pte-im-ui-rich-file { width: 396rpx; }
+.pte-im-ui-reactions { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 8rpx; }
+.pte-im-ui-reaction { padding: 5rpx 12rpx; color: var(--pte-im-ui-text); border: 1rpx solid var(--pte-im-ui-divider); border-radius: 24rpx; background-color: var(--pte-im-ui-surface); font-size: 20rpx; }
+.pte-im-ui-delivery { margin-top: 5rpx; color: var(--pte-im-ui-muted); font-size: 20rpx; line-height: 26rpx; }
+.pte-im-ui-stack-outgoing .pte-im-ui-delivery { color: var(--pte-im-ui-outgoing-end); }
 </style>

@@ -1,5 +1,6 @@
 export * from './PteIMUIKit'
 export * from './PteIMUITheme'
+export * from './PteIMUINavigationBar'
 export * from './PteIMUIInputBar'
 export * from './PteIMUIChat'
 export * from './PteIMUIConversationList'

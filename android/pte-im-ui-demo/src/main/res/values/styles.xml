@@ -1,7 +1,19 @@
 <resources>
   <style name="PteDemoTheme" parent="android:style/Theme.Material.Light.NoActionBar">
     <item name="android:fontFamily">sans</item>
-    <item name="android:colorAccent">#1769AA</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:statusBarColor">#F4F4FF</item>
+    <item name="android:colorAccent">#6F41F0</item>
     <item name="android:navigationBarColor">#FFFFFF</item>
+  </style>
+
+  <!-- Keeps the process-starting window in the supplied splash palette on API 31 and below. -->
+  <style name="PteDemoSplashTheme" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:windowActionModeOverlay">true</item>
+    <item name="android:windowBackground">#100A2C</item>
+    <item name="android:statusBarColor">#100A2C</item>
+    <item name="android:navigationBarColor">#100A2C</item>
+    <item name="android:windowLightStatusBar">false</item>
   </style>
 </resources>

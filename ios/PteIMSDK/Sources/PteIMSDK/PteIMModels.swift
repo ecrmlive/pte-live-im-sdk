@@ -1,11 +1,42 @@
 import Foundation
 
+/**
+ The user's theme preference. `.system` is the SDK's automatic mode: light
+ from 07:00 (inclusive) until 19:00 (exclusive) in the device's local time,
+ and dark at all other times.
+ */
 public enum PteIMThemeMode: String, Sendable { case system, light, dark }
+/** `.system` resolves from the device's preferred language. */
 public enum PteIMLanguage: String, Sendable { case system, zhCN = "zh-CN", enUS = "en-US" }
 public struct PteIMAppearance: Sendable {
   public let themeMode: PteIMThemeMode
   public let language: PteIMLanguage
   public init(themeMode: PteIMThemeMode, language: PteIMLanguage) { self.themeMode = themeMode; self.language = language }
+
+  /** The concrete light/dark value to render at the supplied local date. */
+  public func resolvedTheme(at date: Date = Date(), calendar: Calendar = .current) -> PteIMTheme {
+    switch themeMode {
+    case .light: return .light
+    case .dark: return .dark
+    case .system:
+      let hour = calendar.component(.hour, from: date)
+      return (7..<19).contains(hour) ? .light : .dark
+    }
+  }
+
+  /** The concrete SDK language; unsupported system languages use English. */
+  public func resolvedLanguage(locale: Locale? = nil) -> PteIMLanguage {
+    language.resolved(locale: locale)
+  }
+}
+
+public extension PteIMLanguage {
+  /** Resolves system language to the two languages provided by PteIMUIKit. */
+  func resolved(locale: Locale? = nil) -> PteIMLanguage {
+    guard self == .system else { return self }
+    let identifier = locale?.identifier ?? Locale.preferredLanguages.first ?? Locale.current.identifier
+    return identifier.lowercased().hasPrefix("zh") ? .zhCN : .enUS
+  }
 }
 
 public struct PteIMBaseConfig: Sendable {

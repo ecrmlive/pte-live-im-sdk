@@ -18,8 +18,14 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/** Decrypts the short-lived P-256/A256GCM HTTP response envelopes required by api-im. */
-internal object PteIMResponseCipher {
+/**
+ * Decrypts the short-lived P-256/A256GCM HTTP response envelopes required by api-im.
+ *
+ * The application/business-login layer may use this helper when it requests a
+ * server-issued UserSig before creating a [PteIMLoginConfig]. It contains no
+ * signing material and must never be used to generate a UserSig on-device.
+ */
+object PteIMResponseCipher {
   private const val context = "pte-live-api-response-v1"
 
   fun createRequestKey(): KeyPair = KeyPairGenerator.getInstance("EC").apply {

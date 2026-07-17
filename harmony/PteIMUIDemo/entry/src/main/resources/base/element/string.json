@@ -2,6 +2,9 @@
   "string": [
     { "name": "module_desc", "value": "PteIMUIDemo native business demo" },
     { "name": "EntryAbility_desc", "value": "PteIMUIDemo native business demo" },
-    { "name": "EntryAbility_label", "value": "PteIMUIDemo" }
+    { "name": "EntryAbility_label", "value": "PteIMUIDemo" },
+    { "name": "camera_reason", "value": "用于拍摄并发送聊天图片或视频" },
+    { "name": "mic_reason", "value": "用于录制并发送语音消息" },
+    { "name": "location_reason", "value": "用于发送当前位置" }
   ]
 }

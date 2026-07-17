@@ -6,6 +6,7 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   private var config: PteIMSessionConfig
   private let store: PteIMCoreDataStore
   private let e2ee: PteIME2EE
+  private let appearanceStore: PteIMAppearanceStore
   private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
   private var socket: URLSessionWebSocketTask?
   private var reconnectWorkItem: DispatchWorkItem?
@@ -17,7 +18,10 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
 
   internal init(config: PteIMSessionConfig, persistentCache: Bool = true) throws {
     self.config = config
-    self.appearance = PteIMAppearance(themeMode: config.base.themeMode, language: config.base.language)
+    let configuredAppearance = PteIMAppearance(themeMode: config.base.themeMode, language: config.base.language)
+    let appearanceStore = PteIMAppearanceStore(storeKey: config.storeKey, persistent: persistentCache)
+    self.appearanceStore = appearanceStore
+    self.appearance = appearanceStore.load() ?? configuredAppearance
     self.store = try PteIMCoreDataStore(storeKey: config.storeKey, persistent: persistentCache)
     self.e2ee = PteIME2EE(storeKey: config.storeKey, appId: config.sdkAppId, userId: config.userId)
     super.init()
@@ -70,6 +74,28 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   @discardableResult public func updateAppearance(themeMode: PteIMThemeMode? = nil, language: PteIMLanguage? = nil) -> PteIMAppearance {
     let previous = appearance
     let updated = PteIMAppearance(themeMode: themeMode ?? previous.themeMode, language: language ?? previous.language)
+    appearance = updated
+    appearanceStore.save(updated)
+    if updated.themeMode != previous.themeMode { notify { $0.onThemeModeChanged?(updated.themeMode) } }
+    if updated.language != previous.language { notify { $0.onLanguageChanged?(updated.language) } }
+    return updated
+  }
+
+  /** The light/dark value that UIKit should render right now. */
+  public func resolvedTheme(at date: Date = Date(), calendar: Calendar = .current) -> PteIMTheme {
+    appearance.resolvedTheme(at: date, calendar: calendar)
+  }
+
+  /** The Chinese/English value that UIKit should render for the current locale. */
+  public func resolvedLanguage(locale: Locale? = nil) -> PteIMLanguage {
+    appearance.resolvedLanguage(locale: locale)
+  }
+
+  /** Removes the saved choices and returns this account to the configured defaults. */
+  @discardableResult public func resetAppearancePreferences() -> PteIMAppearance {
+    let previous = appearance
+    appearanceStore.remove()
+    let updated = PteIMAppearance(themeMode: config.base.themeMode, language: config.base.language)
     appearance = updated
     if updated.themeMode != previous.themeMode { notify { $0.onThemeModeChanged?(updated.themeMode) } }
     if updated.language != previous.language { notify { $0.onLanguageChanged?(updated.language) } }

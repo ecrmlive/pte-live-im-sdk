@@ -1,30 +1,32 @@
 <template>
-  <view v-if="screen === 'login'" class="page"><view class="card">
-    <text class="title">PteIMUIDemo · uni-app x</text>
-    <text class="hint">业务登录 → 后端返回 IM userId/UserSig → PteIMSDK 登录 → PteIMUIKit。请将示例输入替换为您的业务 API。</text>
-    <input v-model="apiDomain" class="input" placeholder="API domain" /><input v-model="imDomain" class="input" placeholder="IM WSS URL" /><input v-model="cosDomain" class="input" placeholder="COS domain" />
-    <input v-model="sdkAppId" class="input" type="number" placeholder="SDK App ID" /><input v-model="account" class="input" placeholder="Business account" /><input v-model="password" class="input" password="true" placeholder="Business password (demo only)" />
-    <input v-model="userId" class="input" type="number" placeholder="IM user ID returned by business login" /><input v-model="userSig" class="input" password="true" placeholder="Short-lived UserSig returned by business login" />
-    <button @click="businessLogin">业务登录并进入 IM</button><text class="status">{{ status }}</text>
-  </view></view>
-  <view v-else-if="screen === 'home'" class="page"><view class="card">
-    <text class="title">PteIMUIDemo</text><text class="hint">业务层：好友关系、我的；IM UI：会话、聊天、群组。</text>
-    <button @click="screen = 'conversations'">会话列表（PteIMUIKit）</button><button @click="screen = 'friends'">好友列表 / 关系</button><button @click="openDemoGroup">创建群组并聊天（PteIMUIKit）</button><button @click="screen = 'profile'">我的</button><button @click="logout">退出登录</button>
-  </view></view>
-  <view v-else-if="screen === 'friends'" class="chat-page"><PteIMUIContactList :client="client" mode="friends" @select="openContactChat" @error="contactError" /></view>
-  <view v-else-if="screen === 'profile'" class="page"><view class="card">
-    <text class="title">我的</text><text class="hint">业务账号：{{ account }}\nIM 用户：{{ userId }}\n\n个人资料、好友关系、主题和语言由业务 App 管理；调用 PteIMSDK.updateAppearance(...) 可即时更新 UI。</text><button @click="screen = 'home'">返回</button>
-  </view></view>
-  <view v-else-if="screen === 'conversations'" class="chat-page"><PteIMUIConversationList :client="client" @select="openChat" /></view>
-  <view v-else class="chat-page"><PteIMUIChat :client="client" :conversation-id="conversationId" title="PteIMUIDemo" @action="handleAction" /></view>
+  <view v-if="screen === 'login'" :class="['page', { dark: darkMode }]">
+    <PteIMUINavigationBar :language="selectedLanguage" :dark="darkMode" @language-select="selectLanguage" @theme-select="selectTheme" />
+    <view class="brand"><image class="brand-logo" src="/static/pte-im-ui-logo.png" mode="aspectFit" /><text class="brand-title">PrivateChat</text><text class="brand-subtitle">Secure · Private · Efficient</text></view>
+    <view class="login-card">
+      <text class="form-label">SDKAppID</text><input v-model="sdkAppId" class="input" type="number" placeholder="SDKAppID" />
+      <text class="form-label">User ID</text><input v-model="userId" class="input" type="number" placeholder="User ID" />
+      <text class="form-label">User Signature (UserSig)</text><textarea v-model="userSig" class="signature" placeholder="Paste your UserSig token" password="true" /><view class="action-spacer"></view>
+      <button class="login-button" @click="businessLogin">{{ english ? 'Login' : '登录' }}</button><text v-if="status.length > 0" class="error">{{ status }}</text>
+    </view>
+  </view>
+
+  <view v-else class="shell">
+    <view v-if="screen === 'conversations'" class="screen"><PteIMUIConversationList :client="client" @select="openChat" /></view>
+    <view v-else-if="screen === 'contacts'" class="screen contacts"><view class="topbar"><image class="top-logo" src="/static/pte-im-ui-logo.png" /><text class="top-title">Contacts</text><button class="header-button small" @click="toggleAppearance">☾</button><button class="header-button small" @click="toggleLanguage">EN</button></view><view class="contact-actions"><button @click="businessNotice('添加好友')">添加好友</button><button @click="openDemoGroup">发起群聊</button></view><PteIMUIContactList :client="client" mode="friends" @select="openContactChat" @error="contactError" /></view>
+    <view v-else-if="screen === 'profile'" class="screen profile"><view class="topbar"><image class="top-logo" src="/static/pte-im-ui-logo.png" /><text class="top-title">Me</text><button class="header-button small" @click="toggleAppearance">☾</button><button class="header-button small" @click="toggleLanguage">EN</button></view><view class="profile-banner"><view class="profile-avatar"><text>我</text></view><view class="profile-copy"><text class="profile-name">User_{{ userId }}</text><text class="profile-id">ID: usr_{{ userId }}</text></view><text class="chevron">›</text></view><view class="shortcuts"><view class="shortcut"><text class="shortcut-icon">★</text><text class="shortcut-value">12</text><text>Favorites</text></view><view class="shortcut"><text class="shortcut-icon">¥</text><text class="shortcut-value">88</text><text>Wallet</text></view><view class="shortcut"><text class="shortcut-icon">▣</text><text class="shortcut-value"> </text><text>QR Card</text></view></view><view class="settings"><view class="setting"><text>Light Mode</text><switch :checked="!darkMode" color="#6F41F0" @change="onThemeSwitch" /></view><view class="setting" @click="toggleLanguage"><text>Language</text><text class="language-badge">{{ english ? 'EN' : '中文' }}</text></view><view v-for="item in settings" :key="item" class="setting"><text>{{ item }}</text><text class="chevron">›</text></view></view><button class="logout" @click="logout">退出登录</button></view>
+    <view v-else class="screen chat"><PteIMUIChat :client="client" :conversation-id="conversationId" title="PteIMUIDemo" @action="handleAction" /></view>
+    <view class="tabbar"><button :class="['tab', { selected: screen === 'conversations' }]" @click="screen = 'conversations'">Chats</button><button :class="['tab', { selected: screen === 'contacts' }]" @click="screen = 'contacts'">Contacts</button><button :class="['tab', { selected: screen === 'profile' }]" @click="screen = 'profile'">Me</button></view>
+  </view>
 </template>
 
 <script lang="uts">
 import PteIMUIChat from '../../../../uni_modules/pte-im-uikit/components/PteIMUIChat/PteIMUIChat.uvue'
 import PteIMUIConversationList from '../../../../uni_modules/pte-im-uikit/components/PteIMUIConversationList/PteIMUIConversationList.uvue'
 import PteIMUIContactList from '../../../../uni_modules/pte-im-uikit/components/PteIMUIContactList/PteIMUIContactList.uvue'
+import PteIMUINavigationBar from '../../../../uni_modules/pte-im-uikit/components/PteIMUINavigationBar/PteIMUINavigationBar.uvue'
 import { PteIMBusinessContent, PteIMLocation } from '../../../../uni_modules/pte-im-sdk/utssdk/interface.uts'
 import { PteIMUIAction } from '../../../../uni_modules/pte-im-uikit/utssdk/PteIMUIKitFacade.uts'
+import { PteIMUIDemoBaseConfig } from '../../PteIMUIDemoConfig.uts'
 // #ifdef WEB
 import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/web/index.uts'
 // #endif
@@ -33,41 +35,28 @@ import { createPteIMSDK } from '../../../../uni_modules/pte-im-sdk/utssdk/mp-wei
 // #endif
 
 export default {
-  components: { PteIMUIChat, PteIMUIConversationList, PteIMUIContactList },
-  data() { return { apiDomain: 'https://api.example.com', imDomain: 'wss://im.example.com/ws', cosDomain: 'https://cos.example.com', sdkAppId: '1400000001', account: 'demo-user', password: '', userId: '10001', userSig: '', conversationId: '', status: '未登录；不会保存 UserSig', screen: 'login', client: null as any } },
+  components: { PteIMUIChat, PteIMUIConversationList, PteIMUIContactList, PteIMUINavigationBar },
+  data() { return { sdkAppId: '432532532', userId: '123654', userSig: '', conversationId: '', status: '', screen: 'login', client: null as any, darkMode: false, english: true, selectedLanguage: 'en-US', settings: ['Notifications', 'Privacy & Security', 'Help & Feedback', 'Settings'] } },
   methods: {
     businessLogin() {
       try {
-        if (this.account.length === 0 || this.userId.length === 0 || this.userSig.length === 0) throw new Error('业务后端应返回 account、userId 与短期 UserSig')
-        const client = createPteIMSDK({ apiDomain: this.apiDomain, imDomain: this.imDomain, cosDomain: this.cosDomain, themeMode: 'system', language: 'system' }).login({ sdkAppId: Number(this.sdkAppId), userId: this.userId, userSig: this.userSig })
-        client.onError((message: string) => this.status = `错误：${message}`); client.start(); this.client = client; this.screen = 'home'
+        if (this.userId.length === 0 || this.userSig.length === 0) throw new Error('业务后端应返回 userId 与短期 UserSig')
+        const client = createPteIMSDK(PteIMUIDemoBaseConfig).login({ sdkAppId: Number(this.sdkAppId), userId: this.userId, userSig: this.userSig })
+        client.onError((message: string) => this.status = `错误：${message}`); client.start(); this.client = client; this.screen = 'conversations'
       } catch (error) { this.status = `登录错误：${error instanceof Error ? error.message : String(error)}` }
     },
     openChat(conversationId: string) { this.conversationId = conversationId; this.screen = 'chat' },
     openContactChat(payload: any) { this.openChat(String(payload.conversationId)) },
     contactError(message: string) { this.status = `联系人加载失败：${message}` },
-    openSingleChat(peerUserId: number) {
-      if (this.client == null) return
-      this.client.openSingleConversation(peerUserId, (conversation: any, error: string | null) => {
-        if (conversation == null || error != null) { this.status = `无法打开会话：${error ?? 'unknown error'}`; return }
-        this.openChat(String(conversation.id))
-      })
-    },
-    openDemoGroup() {
-      if (this.client == null) return
-      this.client.createGroupConversation('PteIMUIDemo Group', [10002, 10003], null, (conversation: any, error: string | null) => {
-        if (conversation == null || error != null) { this.status = `无法创建群组：${error ?? 'unknown error'}`; return }
-        this.openChat(String(conversation.id))
-      })
-    },
-    logout() { if (this.client != null) this.client.stop(); this.client = null; this.screen = 'login' },
-    handleAction(action: PteIMUIAction) {
-      if (this.client == null) return
-      if (action === 'image' || action === 'camera' || action === 'video' || action === 'voice') { this.pickMedia(action === 'camera' ? 'image' : action); return }
-      if (action === 'file') { this.status = '请由宿主选择文件后调用 uploadAndSendFile。'; return }
-      if (action === 'location') this.client.sendLocation(this.conversationId, { latitude: 31.2304, longitude: 121.4737, name: 'Shanghai', address: 'PteIMUIDemo' } as PteIMLocation)
-      else { const content = { businessId: `demo-${Date.now()}`, title: action } as PteIMBusinessContent; if (action === 'gift') this.client.sendGift(this.conversationId, content); else if (action === 'red_packet') this.client.sendRedPacket(this.conversationId, content); else this.client.sendOrder(this.conversationId, content) }
-    },
+    openDemoGroup() { if (this.client == null) return; this.client.createGroupConversation('PteIMUIDemo Group', [10002, 10003], null, (conversation: any, error: string | null) => { if (conversation == null || error != null) { this.status = `无法创建群组：${error ?? 'unknown error'}`; return }; this.openChat(String(conversation.id)) }) },
+    logout() { if (this.client != null) this.client.stop(); this.client = null; this.screen = 'login'; this.userSig = ''; this.status = '' },
+    selectLanguage(language: string) { this.selectedLanguage = language; this.english = language !== 'zh-CN'; if (this.client != null) this.client.updateAppearance(null, language) },
+    selectTheme(theme: string) { this.darkMode = theme === 'dark'; if (this.client != null) this.client.updateAppearance(this.darkMode ? 'dark' : 'light', null) },
+    toggleLanguage() { this.selectLanguage(this.english ? 'zh-CN' : 'en-US') },
+    toggleAppearance() { this.selectTheme(this.darkMode ? 'light' : 'dark') },
+    onThemeSwitch(event: any) { this.darkMode = !event.detail.value; if (this.client != null) this.client.updateAppearance(this.darkMode ? 'dark' : 'light', null) },
+    businessNotice(title: string) { this.status = `${title}由业务层实现` },
+    handleAction(action: PteIMUIAction) { if (this.client == null) return; if (action === 'image' || action === 'camera' || action === 'video' || action === 'voice') { this.pickMedia(action === 'camera' ? 'image' : action); return }; if (action === 'file') { this.status = '请由宿主选择文件后调用 uploadAndSendFile。'; return }; if (action === 'location') this.client.sendLocation(this.conversationId, { latitude: 31.2304, longitude: 121.4737, name: 'Shanghai', address: 'PteIMUIDemo' } as PteIMLocation); else { const content = { businessId: `demo-${Date.now()}`, title: action } as PteIMBusinessContent; if (action === 'gift') this.client.sendGift(this.conversationId, content); else if (action === 'red_packet') this.client.sendRedPacket(this.conversationId, content); else this.client.sendOrder(this.conversationId, content) } },
     pickMedia(type: PteIMUIAction) {
       // #ifdef MP-WEIXIN
       uni.chooseMedia({ count: 1, mediaType: type === 'image' ? ['image'] : type === 'video' ? ['video'] : ['mix'], success: (result: any) => { const path = result.tempFiles[0].tempFilePath as string; if (type === 'image') this.client.uploadAndSendImage(this.conversationId, path); else if (type === 'video') this.client.uploadAndSendVideo(this.conversationId, path); else this.client.uploadAndSendVoice(this.conversationId, path, 1000) } })
@@ -81,5 +70,5 @@ export default {
 </script>
 
 <style>
-.page, .chat-page { height: 100%; }.page { padding: 24rpx; box-sizing: border-box; background-color: #F7F9FC; }.card { padding: 24rpx; border-radius: 16rpx; background-color: #FFFFFF; }.title { display: block; margin-bottom: 12rpx; font-size: 40rpx; font-weight: 700; color: #1769AA; }.hint, .status { display: block; margin: 12rpx 0; font-size: 24rpx; color: #687385; }.input { height: 72rpx; margin-bottom: 12rpx; padding: 0 16rpx; border: 1px solid #D6DCE5; border-radius: 10rpx; } button { margin: 10rpx 0; }
+.page { min-height: 100%; padding: 20rpx 40rpx 56rpx; box-sizing: border-box; background-color: #F4F4FF; }.page.dark { background-color: #0E0F1F; }.login-header, .topbar { display: flex; align-items: center; }.login-header { height: 76rpx; justify-content: space-between; }.header-button { margin: 0; padding: 0 12rpx; border: 0; background-color: transparent; color: #656982; font-size: 25rpx; line-height: 64rpx; }.moon { font-size: 38rpx; }.brand { display: flex; flex-direction: column; align-items: center; margin: 44rpx 0 60rpx; }.brand-logo { width: 192rpx; height: 192rpx; }.brand-title { margin-top: 20rpx; color: #17182B; font-size: 58rpx; font-weight: 700; }.dark .brand-title { color: #FFFFFF; }.brand-subtitle { margin-top: 12rpx; color: #656982; font-size: 28rpx; }.login-card { padding: 48rpx; border-radius: 48rpx; background-color: #FFFFFF; box-shadow: 0 16rpx 36rpx rgba(34, 28, 76, .12); }.form-label { display: block; margin-bottom: 14rpx; color: #17182B; font-size: 26rpx; font-weight: 600; }.input, .signature { box-sizing: border-box; width: 100%; margin-bottom: 20rpx; padding: 0 32rpx; border: 0; border-radius: 36rpx; background-color: #EDE9FF; color: #17182B; font-size: 30rpx; }.input { height: 92rpx; }.signature { height: 164rpx; padding-top: 20rpx; }.action-spacer { height: 80rpx; }.login-button { width: 100%; height: 100rpx; margin-top: 8rpx; border: 0; border-radius: 36rpx; background: linear-gradient(90deg, #376CF6, #6F41F0); color: #FFFFFF; font-size: 32rpx; font-weight: 700; }.error { display: block; margin-top: 20rpx; color: #BE3746; font-size: 24rpx; text-align: center; }.shell, .screen { height: 100%; }.shell { display: flex; flex-direction: column; background-color: #F4F4FF; }.screen { flex: 1; overflow: hidden; }.contacts, .profile { overflow-y: auto; }.topbar { height: 108rpx; padding: 0 28rpx; background-color: #FFFFFF; }.top-logo { width: 64rpx; height: 64rpx; }.top-title { flex: 1; margin-left: 20rpx; color: #17182B; font-size: 40rpx; font-weight: 700; }.small { font-size: 24rpx; }.contact-actions { display: flex; gap: 18rpx; padding: 20rpx 36rpx; background-color: #FFFFFF; }.contact-actions button { flex: 1; margin: 0; border: 0; border-radius: 28rpx; background-color: #EEE9FF; color: #6F41F0; font-size: 28rpx; }.profile-banner { display: flex; align-items: center; height: 224rpx; padding: 0 40rpx; background: linear-gradient(90deg, #E0E2FF, #D3EAFF); }.profile-avatar { display: flex; align-items: center; justify-content: center; width: 128rpx; height: 128rpx; border-radius: 34rpx; background-color: #376CF6; color: #FFFFFF; font-size: 48rpx; font-weight: 700; }.profile-copy { display: flex; flex: 1; flex-direction: column; margin-left: 30rpx; }.profile-name { color: #17182B; font-size: 34rpx; font-weight: 700; }.profile-id { margin-top: 10rpx; color: #656982; font-size: 22rpx; }.chevron { color: #656982; font-size: 50rpx; }.shortcuts { display: flex; height: 188rpx; background-color: #FFFFFF; }.shortcut { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; color: #656982; font-size: 20rpx; }.shortcut-icon { color: #6F41F0; font-size: 42rpx; }.shortcut-value { margin: 6rpx 0; color: #17182B; font-size: 26rpx; }.settings { padding: 26rpx 40rpx 10rpx; }.setting { display: flex; align-items: center; justify-content: space-between; height: 108rpx; color: #17182B; font-size: 30rpx; }.language-badge { padding: 10rpx 22rpx; border-radius: 28rpx; background-color: #EEE9FF; color: #6F41F0; font-size: 24rpx; }.logout { width: calc(100% - 80rpx); height: 96rpx; margin: 10rpx 40rpx 42rpx; border: 0; border-radius: 32rpx; background-color: #FFE9EB; color: #D23E4A; font-size: 30rpx; }.tabbar { display: flex; height: 120rpx; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid #E8E8F2; background-color: #FFFFFF; }.tab { flex: 1; margin: 0; border: 0; background-color: transparent; color: #656982; font-size: 24rpx; }.tab.selected { color: #6F41F0; font-weight: 700; }
 </style>

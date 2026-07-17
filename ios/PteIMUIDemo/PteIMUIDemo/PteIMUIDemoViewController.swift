@@ -18,7 +18,18 @@ final class PteIMUIDemoViewController: UIViewController {
   private var client: PteIMSDK?
   private var friends = [PteIMUIDemoFriend(name: "Alice", userId: "10002"), PteIMUIDemoFriend(name: "Bob", userId: "10003")]
   private var configurationStack: UIStackView?
-  private var loginDarkMode = false
+  /** Login happens before an SDK user exists, so its preference is app-scoped. */
+  private var loginThemeMode: PteIMThemeMode = .system
+  private var loginLanguage: PteIMLanguage = .system
+  private var loginThemeTransitionTimer: Timer?
+  private weak var loginNavigationBar: PteIMUINavigationBar?
+  private weak var loginNavigationChrome: UIView?
+  private weak var loginCard: UIView?
+  private weak var loginScrollView: UIScrollView?
+  private weak var loginTitleLabel: UILabel?
+  private weak var loginSubtitleLabel: UILabel?
+  private weak var loginButton: PteIMUIDemoGradientButton?
+  private var loginFormLabels = [UILabel]()
   #if DEBUG
   private var didRunAutomation = false
   private var didOpenLocalPreview = false
@@ -32,6 +43,7 @@ final class PteIMUIDemoViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    restoreLoginAppearancePreferences()
     navigationItem.hidesBackButton = true
     navigationController?.setNavigationBarHidden(true, animated: false)
     view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
@@ -42,40 +54,67 @@ final class PteIMUIDemoViewController: UIViewController {
     userSig.text = ""
 
     let scrollView = UIScrollView(); scrollView.alwaysBounceVertical = true; scrollView.showsVerticalScrollIndicator = false; scrollView.backgroundColor = view.backgroundColor
+    loginScrollView = scrollView
     let content = UIStackView(); content.axis = .vertical; content.spacing = 13
     view.addSubview(scrollView); scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
 
-    let header = UIView(); let language = UIButton(type: .system); language.setTitle("切换中文", for: .normal); language.setTitleColor(UIColor(red: 0.30, green: 0.31, blue: 0.42, alpha: 1), for: .normal); language.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-    let appearance = UIButton(type: .system); appearance.setImage(UIImage(systemName: "moon"), for: .normal); appearance.tintColor = UIColor(red: 0.30, green: 0.31, blue: 0.42, alpha: 1); appearance.addTarget(self, action: #selector(toggleLoginAppearance), for: .touchUpInside)
-    [language, appearance].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; header.addSubview($0) }
-    NSLayoutConstraint.activate([header.heightAnchor.constraint(equalToConstant: 34), language.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10), language.centerYAnchor.constraint(equalTo: header.centerYAnchor), appearance.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10), appearance.centerYAnchor.constraint(equalTo: header.centerYAnchor), appearance.widthAnchor.constraint(equalToConstant: 36), appearance.heightAnchor.constraint(equalToConstant: 36)])
+    let header = PteIMUINavigationBar()
+    loginNavigationBar = header
+    header.onLanguageSelected = { [weak self] language in
+      guard let self else { return }
+      self.loginLanguage = language
+      PteIMUIDemoLoginAppearancePreferences.save(language: language)
+      self.applyLoginAppearance()
+    }
+    header.onThemeSelected = { [weak self] mode in
+      guard let self else { return }
+      self.loginThemeMode = mode
+      PteIMUIDemoLoginAppearancePreferences.save(themeMode: mode)
+      self.applyLoginAppearance()
+    }
+    let navigationChrome = UIView(); navigationChrome.translatesAutoresizingMaskIntoConstraints = false; navigationChrome.backgroundColor = loginNavigationPalette().surfaceColor
+    loginNavigationChrome = navigationChrome
+    view.addSubview(navigationChrome); navigationChrome.addSubview(header)
+    NSLayoutConstraint.activate([
+      navigationChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor), navigationChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      navigationChrome.topAnchor.constraint(equalTo: view.topAnchor), navigationChrome.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44),
+      header.leadingAnchor.constraint(equalTo: navigationChrome.leadingAnchor), header.trailingAnchor.constraint(equalTo: navigationChrome.trailingAnchor), header.bottomAnchor.constraint(equalTo: navigationChrome.bottomAnchor)
+    ])
+
     let logo = UIImageView(image: UIImage(named: "PteIMUILogo")); logo.contentMode = .scaleAspectFit; logo.layer.cornerRadius = 24; logo.clipsToBounds = true; logo.translatesAutoresizingMaskIntoConstraints = false
     let titleLabel = PteIMUIDemoLabel("PrivateChat", style: .largeTitle, color: UIColor(red: 0.11, green: 0.11, blue: 0.20, alpha: 1)); titleLabel.textAlignment = .center; titleLabel.font = .systemFont(ofSize: 29, weight: .bold)
     let subtitle = PteIMUIDemoLabel("Secure · Private · Efficient", style: .subheadline, color: UIColor(red: 0.42, green: 0.43, blue: 0.53, alpha: 1)); subtitle.textAlignment = .center
-    let brand = UIStackView(arrangedSubviews: [logo, titleLabel, subtitle]); brand.axis = .vertical; brand.alignment = .center; brand.spacing = 8; logo.widthAnchor.constraint(equalToConstant: 96).isActive = true; logo.heightAnchor.constraint(equalToConstant: 96).isActive = true
+    let brand = UIStackView(arrangedSubviews: [logo, titleLabel, subtitle]); brand.axis = .vertical; brand.alignment = .center; brand.spacing = 8; brand.setCustomSpacing(28, after: logo); logo.widthAnchor.constraint(equalToConstant: 96).isActive = true; logo.heightAnchor.constraint(equalToConstant: 96).isActive = true
 
     let card = UIView(); card.backgroundColor = .white; card.layer.cornerRadius = 24; card.layer.shadowColor = UIColor.black.cgColor; card.layer.shadowOpacity = 0.12; card.layer.shadowRadius = 18; card.layer.shadowOffset = CGSize(width: 0, height: 9)
-    let login = PteIMUIDemoGradientButton(title: "登录"); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
+    let login = PteIMUIDemoGradientButton(title: "Login"); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
     [appId, userId, userSig].forEach { field in field.borderStyle = .none; field.backgroundColor = UIColor(red: 0.92, green: 0.90, blue: 1, alpha: 1); field.layer.cornerRadius = 18; field.setLeftPadding(16); field.heightAnchor.constraint(equalToConstant: field == userSig ? 80 : 46).isActive = true }
-    appId.placeholder = "SDKAppID"; userId.placeholder = "User ID"; userSig.placeholder = "User Signature (UserSig)"
-    let demoLogin = UIButton(type: .system); demoLogin.setTitle("获取测试账号", for: .normal); demoLogin.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium); demoLogin.addTarget(self, action: #selector(demoLoginTapped), for: .touchUpInside)
-    let preview = UIButton(type: .system); preview.setTitle("本地 UI 预览", for: .normal); preview.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium); preview.addTarget(self, action: #selector(previewTapped), for: .touchUpInside)
-    let helper = UIStackView(arrangedSubviews: [demoLogin, UIView(), preview]); helper.axis = .horizontal; helper.alignment = .center
-    status.font = .preferredFont(forTextStyle: .footnote); status.textColor = .secondaryLabel; status.textAlignment = .center; status.numberOfLines = 0; status.text = "业务系统返回 IM 用户与短期 UserSig"
-    let cardStack = UIStackView(arrangedSubviews: [PteIMUIDemoLabel("SDKAppID", style: .subheadline, color: .label), appId, PteIMUIDemoLabel("User ID", style: .subheadline, color: .label), userId, PteIMUIDemoLabel("User Signature (UserSig)", style: .subheadline, color: .label), userSig, login, helper, status]); cardStack.axis = .vertical; cardStack.spacing = 9
+    appId.placeholder = "SDKAppID"; userId.placeholder = "User ID"; userSig.placeholder = "Paste your UserSig token"
+    // The primary login surface follows the supplied design exactly. Debug UI
+    // preview is still available through its launch argument and never becomes
+    // persistent product chrome. Status text appears only when login fails.
+    status.font = .preferredFont(forTextStyle: .footnote); status.textColor = .secondaryLabel; status.textAlignment = .center; status.numberOfLines = 0; status.isHidden = true
+    // The reference keeps a deliberate breath between credentials and the primary action.
+    let actionSpacer = UIView(); actionSpacer.heightAnchor.constraint(equalToConstant: 40).isActive = true
+    let sdkLabel = PteIMUIDemoLabel("SDKAppID", style: .subheadline, color: .label)
+    let userLabel = PteIMUIDemoLabel("User ID", style: .subheadline, color: .label)
+    let sigLabel = PteIMUIDemoLabel("User Signature (UserSig)", style: .subheadline, color: .label)
+    let cardStack = UIStackView(arrangedSubviews: [sdkLabel, appId, userLabel, userId, sigLabel, userSig, actionSpacer, login, status]); cardStack.axis = .vertical; cardStack.spacing = 9
     card.addSubview(cardStack); cardStack.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 26), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24), login.heightAnchor.constraint(equalToConstant: 48)])
 
-    let privacy = PteIMUIDemoLabel("端到端加密 · Core Data 本地缓存 · 亮/暗模式", style: .footnote, color: .tertiaryLabel); privacy.textAlignment = .center
-    content.addArrangedSubview(header); content.addArrangedSubview(brand); content.setCustomSpacing(30, after: header); content.setCustomSpacing(28, after: brand); content.addArrangedSubview(card); content.addArrangedSubview(privacy)
+    let topSpacer = UIView(); topSpacer.heightAnchor.constraint(equalToConstant: 50).isActive = true
+    content.addArrangedSubview(topSpacer); content.addArrangedSubview(brand); content.setCustomSpacing(40, after: brand); content.addArrangedSubview(card)
+    loginCard = card; loginTitleLabel = titleLabel; loginSubtitleLabel = subtitle; loginButton = login; loginFormLabels = [sdkLabel, userLabel, sigLabel]
     NSLayoutConstraint.activate([
       scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor), scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 22), content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -22),
-      content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
-      content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -44),
+      scrollView.topAnchor.constraint(equalTo: navigationChrome.bottomAnchor), scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 15), content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -15),
+      content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
+      content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -30),
     ])
+    applyLoginAppearance()
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -85,11 +124,81 @@ final class PteIMUIDemoViewController: UIViewController {
     modalPresentationStyle = .fullScreen
     navigationController?.modalPresentationStyle = .fullScreen
     navigationController?.setNavigationBarHidden(true, animated: false)
+    applyLoginAppearance()
   }
 
-  @objc private func toggleLoginAppearance() {
-    loginDarkMode.toggle(); overrideUserInterfaceStyle = loginDarkMode ? .dark : .light
-    view.backgroundColor = loginDarkMode ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1) : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+  private func applyLoginAppearance() {
+    let resolvedThemeMode = resolvedLoginThemeMode()
+    let resolvedLanguage = loginLanguage.resolved()
+    PteIMUINavigationBar.applySystemBars(to: self, themeMode: resolvedThemeMode)
+    let dark = resolvedThemeMode == .dark
+    let primary = dark ? UIColor(red: 0.94, green: 0.93, blue: 1.00, alpha: 1) : UIColor(red: 0.11, green: 0.11, blue: 0.20, alpha: 1)
+    let secondary = dark ? UIColor(red: 0.65, green: 0.62, blue: 0.78, alpha: 1) : UIColor(red: 0.42, green: 0.43, blue: 0.53, alpha: 1)
+    view.backgroundColor = dark ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1) : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+    loginScrollView?.backgroundColor = view.backgroundColor
+    loginCard?.backgroundColor = dark ? UIColor(red: 0.067, green: 0.063, blue: 0.165, alpha: 1) : .white
+    loginCard?.layer.borderWidth = dark ? 1 : 0
+    loginCard?.layer.borderColor = dark ? UIColor(red: 0.23, green: 0.21, blue: 0.36, alpha: 1).cgColor : UIColor.clear.cgColor
+    loginCard?.layer.shadowOpacity = dark ? 0 : 0.12
+    loginTitleLabel?.text = resolvedLanguage == .zhCN ? "私域" : "PrivateChat"
+    loginSubtitleLabel?.text = resolvedLanguage == .zhCN ? "安全 · 私密 · 高效通讯" : "Secure · Private · Efficient"
+    loginTitleLabel?.textColor = primary
+    loginSubtitleLabel?.textColor = secondary
+    loginFormLabels.forEach { $0.textColor = primary }
+    [appId, userId, userSig].forEach { field in
+      field.backgroundColor = dark ? UIColor(red: 0.125, green: 0.118, blue: 0.30, alpha: 1) : UIColor(red: 0.92, green: 0.90, blue: 1, alpha: 1)
+      field.textColor = primary
+      field.attributedPlaceholder = NSAttributedString(string: field.placeholder ?? "", attributes: [.foregroundColor: secondary])
+    }
+    appId.placeholder = resolvedLanguage == .zhCN ? "请输入AppID" : "Enter AppID"
+    userId.placeholder = resolvedLanguage == .zhCN ? "请输入用户 ID" : "Enter user ID"
+    userSig.placeholder = resolvedLanguage == .zhCN ? "请粘贴 UserSig 令牌" : "Paste your UserSig token"
+    [appId, userId, userSig].forEach { field in field.attributedPlaceholder = NSAttributedString(string: field.placeholder ?? "", attributes: [.foregroundColor: secondary]) }
+    loginButton?.setTitle(resolvedLanguage == .zhCN ? "登录" : "Login", for: .normal)
+    loginButton?.applyTheme(dark: dark)
+    loginNavigationBar?.apply(palette: loginNavigationPalette(), themeMode: resolvedThemeMode, language: loginLanguage)
+    loginNavigationChrome?.backgroundColor = loginNavigationPalette().surfaceColor
+    scheduleAutomaticLoginThemeTransition()
+  }
+
+  private func loginNavigationPalette() -> PteIMUIThemePalette {
+    let dark = resolvedLoginThemeMode() == .dark
+    var palette = dark ? PteIMUIThemePalette.blueVioletDark : PteIMUIThemePalette.blueVioletLight
+    let canvas = dark
+      ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1)
+      : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+    palette.backgroundColor = canvas
+    palette.surfaceColor = canvas
+    return palette
+  }
+
+  private func restoreLoginAppearancePreferences() {
+    loginThemeMode = PteIMUIDemoLoginAppearancePreferences.themeMode ?? .system
+    loginLanguage = PteIMUIDemoLoginAppearancePreferences.language ?? .system
+  }
+
+  private func resolvedLoginThemeMode() -> PteIMThemeMode {
+    switch loginThemeMode {
+    case .light, .dark: return loginThemeMode
+    case .system:
+      return PteIMAppearance(themeMode: .system, language: loginLanguage).resolvedTheme() == .dark ? .dark : .light
+    }
+  }
+
+  private func scheduleAutomaticLoginThemeTransition() {
+    loginThemeTransitionTimer?.invalidate()
+    loginThemeTransitionTimer = nil
+    guard loginThemeMode == .system else { return }
+
+    let calendar = Calendar.current
+    let now = Date()
+    let morning = calendar.nextDate(after: now, matching: DateComponents(hour: 7, minute: 0, second: 0), matchingPolicy: .nextTime)
+    let evening = calendar.nextDate(after: now, matching: DateComponents(hour: 19, minute: 0, second: 0), matchingPolicy: .nextTime)
+    guard let nextTransition = [morning, evening].compactMap({ $0 }).min() else { return }
+    loginThemeTransitionTimer = Timer(fire: nextTransition, interval: 0, repeats: false) { [weak self] _ in
+      Task { @MainActor in self?.applyLoginAppearance() }
+    }
+    RunLoop.main.add(loginThemeTransitionTimer!, forMode: .common)
   }
 
   @objc private func toggleConfiguration() {
@@ -101,7 +210,7 @@ final class PteIMUIDemoViewController: UIViewController {
   @objc private func demoLoginTapped() {
     let endpoint = applicationSession.baseConfig.apiDomain.appendingPathComponent("api/v1/im/usersig")
     let testUserId = String(9_000_000_000 + Int64(Date().timeIntervalSince1970) % 900_000_000)
-    status.text = "正在申请测试账号…"
+    status.isHidden = false; status.text = "正在申请测试账号…"
     Task {
       do {
         var request = URLRequest(url: endpoint); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -118,7 +227,7 @@ final class PteIMUIDemoViewController: UIViewController {
           self.loginTapped()
         }
       } catch {
-        await MainActor.run { self.status.text = "无法申请测试签名：\(error.localizedDescription)" }
+        await MainActor.run { self.status.isHidden = false; self.status.text = "无法申请测试签名：\(error.localizedDescription)" }
       }
     }
   }
@@ -135,12 +244,12 @@ final class PteIMUIDemoViewController: UIViewController {
   }
 
   @objc private func loginTapped() {
-    guard let session = PteIMUIDemoBusinessSession(account: account.text ?? "", userId: userId.text ?? "", userSig: userSig.text ?? "") else { status.text = "业务后端应返回 userId 与短期 UserSig"; return }
+    guard let session = PteIMUIDemoBusinessSession(account: account.text ?? "", userId: userId.text ?? "", userSig: userSig.text ?? "") else { status.isHidden = false; status.text = "业务后端应返回 userId 与短期 UserSig"; return }
     do {
       let login = try PteIMLoginConfig(sdkAppId: Int64(appId.text ?? "") ?? 0, userId: session.userId, userSig: session.userSig)
       client = try applicationSession.bootstrap.login(login)
       showBusinessHome(session: session)
-    } catch { status.text = "IM 登录失败：\(error.localizedDescription)" }
+    } catch { status.isHidden = false; status.text = "IM 登录失败：\(error.localizedDescription)" }
   }
 
   /** Local-only UIKit inspection route. It never uses a business credential or calls `start()`. */
@@ -265,6 +374,28 @@ private enum PteIMUIDemoLoginError: LocalizedError {
   var errorDescription: String? { switch self { case .requestFailed: return "请求失败"; case let .server(message): return message.isEmpty ? "服务未返回凭据" : message } }
 }
 
+/** The pre-login screen has no IM account yet, so its manual choices are app-wide. */
+private enum PteIMUIDemoLoginAppearancePreferences {
+  private static let themeModeKey = "com.ptelive.im.uidemo.login.themeMode"
+  private static let languageKey = "com.ptelive.im.uidemo.login.language"
+
+  static var themeMode: PteIMThemeMode? {
+    UserDefaults.standard.string(forKey: themeModeKey).flatMap(PteIMThemeMode.init(rawValue:))
+  }
+
+  static var language: PteIMLanguage? {
+    UserDefaults.standard.string(forKey: languageKey).flatMap(PteIMLanguage.init(rawValue:))
+  }
+
+  static func save(themeMode: PteIMThemeMode) {
+    UserDefaults.standard.set(themeMode.rawValue, forKey: themeModeKey)
+  }
+
+  static func save(language: PteIMLanguage) {
+    UserDefaults.standard.set(language.rawValue, forKey: languageKey)
+  }
+}
+
 private final class PteIMUIDemoLabel: UILabel {
   init(_ text: String, style: UIFont.TextStyle, color: UIColor) {
     super.init(frame: .zero)
@@ -278,9 +409,19 @@ private final class PteIMUIDemoGradientButton: UIButton {
   init(title: String) {
     super.init(frame: .zero)
     setTitle(title, for: .normal); setTitleColor(.white, for: .normal); titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+    setImage(UIImage(systemName: "lock"), for: .normal); tintColor = .white; imageView?.preferredSymbolConfiguration = .init(pointSize: 15, weight: .semibold); semanticContentAttribute = .forceLeftToRight; imageEdgeInsets = .init(top: 0, left: -6, bottom: 0, right: 6)
     layer.cornerRadius = 16; clipsToBounds = true
     gradient.colors = [UIColor(red: 0.12, green: 0.40, blue: 0.98, alpha: 1).cgColor, UIColor(red: 0.47, green: 0.22, blue: 0.98, alpha: 1).cgColor]
     gradient.startPoint = CGPoint(x: 0, y: 0); gradient.endPoint = CGPoint(x: 1, y: 1); layer.insertSublayer(gradient, at: 0)
+  }
+  func applyTheme(dark: Bool) {
+    gradient.colors = (dark
+      ? [UIColor(red: 0.56, green: 0.34, blue: 0.96, alpha: 1).cgColor, UIColor(red: 0.55, green: 0.31, blue: 0.93, alpha: 1).cgColor]
+      : [UIColor(red: 0.12, green: 0.40, blue: 0.98, alpha: 1).cgColor, UIColor(red: 0.47, green: 0.22, blue: 0.98, alpha: 1).cgColor])
+    layer.shadowColor = dark ? UIColor(red: 0.54, green: 0.30, blue: 0.95, alpha: 0.45).cgColor : UIColor.clear.cgColor
+    layer.shadowOpacity = dark ? 0.75 : 0
+    layer.shadowRadius = dark ? 12 : 0
+    layer.shadowOffset = CGSize(width: 0, height: 7)
   }
   required init?(coder: NSCoder) { nil }
   override func layoutSubviews() { super.layoutSubviews(); gradient.frame = bounds }

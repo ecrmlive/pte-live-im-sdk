@@ -1,4 +1,9 @@
 import UIKit
+import PhotosUI
+import UniformTypeIdentifiers
+import CoreLocation
+import MapKit
+import AVKit
 import PteIMSDK
 
 public enum PteIMUIAction: CaseIterable, Hashable {
@@ -18,27 +23,71 @@ public enum PteIMUIAction: CaseIterable, Hashable {
   }
 }
 
+/** Host-owned reaction summary shown below a message bubble. */
+public struct PteIMUIReaction: Hashable, Sendable {
+  public let emoji: String
+  public let count: Int
+  public init(emoji: String, count: Int) { self.emoji = emoji; self.count = max(0, count) }
+}
+
 /** A UIKit conversation screen. The host supplies attachment, location, and business payloads through [onActionRequested]. */
-open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
+@MainActor
+open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, PteIMUIInputBarDelegate, PHPickerViewControllerDelegate, UIDocumentPickerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, @preconcurrency CLLocationManagerDelegate {
   public let client: PteIMSDK
   public let conversationId: String
   public var skin: PteIMUISkin { didSet { theme = skin.theme; inputBar.skin = skin; applySkin() } }
   public var theme: PteIMUITheme { didSet { applyTheme() } }
   public private(set) var language: PteIMLanguage
   public var onActionRequested: ((PteIMUIAction, PteIMUIChatViewController) -> Void)?
+  /** Routes host-defined attachment tiles without overloading SDK business types. */
+  public var onCustomInputActionRequested: ((PteIMUICustomInputAction, PteIMUIChatViewController) -> Void)?
   /** `true` starts host recording; `false` finalises/cancels it. The host then calls [sendVoice]. */
   public var onVoiceRecordingChanged: ((Bool, PteIMUIChatViewController) -> Void)?
   public var onAvatarTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var onMessageTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  public var onMessageAction: ((PteIMUIMessageAction, PteIMMessage, PteIMUIChatViewController) -> Void)?
+  /** Optional host-owned navigation subtitle, e.g. an online state or group member count. */
+  public var navigationSubtitleText: String?
+  /** Optional host-owned group/avatar presentation for the compact 44pt chat navigation bar. */
+  public var navigationAvatarText: String?
+  public var navigationAvatarColor: UIColor?
+  /** Shows the sender nickname above incoming messages. Enable this for group
+   conversations; direct chats intentionally keep the compact one-to-one layout. */
+  public var showsIncomingSenderNames = false
+  /** Lets the host resolve a group member ID to its current nickname. When no
+   provider is supplied, the SDK safely falls back to the sender ID. */
+  public var senderDisplayNameProvider: ((PteIMMessage) -> String?)?
+  /** Supplies persisted reaction summaries; PteIMUIKit never fabricates them. */
+  public var reactionProvider: ((PteIMMessage) -> [PteIMUIReaction])?
+  /** Receives a local reaction toggle so the host can persist it to its own
+   repository. The UIKit timeline updates optimistically either way. */
+  public var onReactionToggled: ((String, PteIMMessage, Bool, PteIMUIChatViewController) -> Void)?
   public var isOutgoing: ((PteIMMessage) -> Bool) = { _ in false }
 
-  public let tableView = UITableView(frame: .zero, style: .plain)
+  // Grouped tables keep the day separator inside the timeline instead of
+  // floating it below the navigation bar while the messages scroll.
+  public let tableView = UITableView(frame: .zero, style: .grouped)
   public let composerBar = UIView()
-  public private(set) lazy var inputBar = PteIMUIInputBar(skin: skin)
+  public let chatNavigationBar = PteIMUIChatNavigationBar()
+  public private(set) lazy var inputBar: PteIMUIInputBar = makeInputBar()
+  /** Override to install an app-specific input bar while retaining keyboard and panel handling. */
+  open func makeInputBar() -> PteIMUIInputBar { PteIMUIInputBar(skin: skin) }
+  /**
+   Override this ordered collection to add or replace message renderers. The
+   first renderer that supports a message owns registration and configuration.
+   */
+  public private(set) lazy var messageRenderers: [PteIMUIChatMessageRenderer] = makeMessageRenderers()
   /// The current ordered timeline. Subclasses receive items through the open
   /// cell hooks; keeping mutation private preserves Core/cache consistency.
   public private(set) var messages: [PteIMMessage] = []
   private let listener = PteIMListener()
+  private let locationManager = CLLocationManager()
+  private lazy var appearanceController = PteIMUIAppearanceController(client: client, viewController: self)
+  // The provider represents the host's persisted baseline. These deltas keep
+  // the press feedback immediate while a host optionally writes that change
+  // back to its repository/network layer.
+  private var reactionDeltas: [String: [String: Int]] = [:]
+  private var locallySelectedReactionKeys = Set<String>()
   private var messageSections: [[PteIMMessage]] {
     let calendar = Calendar.current
     let grouped = Dictionary(grouping: messages) { calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0.createdAt) / 1000)) }
@@ -46,7 +95,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   }
 
   public init(client: PteIMSDK, conversationId: String, title: String? = nil, skin: PteIMUISkin = .default) {
-    self.client = client; self.conversationId = conversationId; self.skin = skin; self.theme = skin.theme; self.language = client.appearance.language
+    self.client = client; self.conversationId = conversationId; self.skin = skin; self.theme = skin.theme; self.language = client.resolvedLanguage()
     self.isOutgoing = { message in message.senderId == client.currentUserId }
     super.init(nibName: nil, bundle: nil)
     self.title = title ?? conversationId
@@ -59,7 +108,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
 
   public override func viewDidLoad() {
     super.viewDidLoad()
-    configureViews(); bindClient(); reloadFromCache(); applySkin()
+    configureViews(); bindClient(); appearanceController.start(); reloadFromCache(); applySkin()
   }
 
   public override func viewDidAppear(_ animated: Bool) {
@@ -70,8 +119,16 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   }
   public override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
-    navigationController?.setNavigationBarHidden(false, animated: animated)
+    appearanceController.refresh()
+    navigationController?.setNavigationBarHidden(true, animated: animated)
     configureNavigationBar()
+  }
+  public override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    // The tab/list screens continue to use their own navigation treatment.
+    if isMovingFromParent || navigationController?.topViewController !== self {
+      navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
   }
   deinit { client.removeListener(listener) }
 
@@ -97,67 +154,130 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public func sendRedPacket(_ content: PteIMBusinessContent) { append(message: client.sendRedPacket(conversationId: conversationId, content: content)) }
   public func sendOrder(_ content: PteIMBusinessContent) { append(message: client.sendOrder(conversationId: conversationId, content: content)) }
   public func sendFile(_ media: PteIMMedia) { append(message: client.sendFile(conversationId: conversationId, media: media)) }
+  public func openEmojiPanel() { inputBar.openEmojiPanel() }
+  public func openMorePanel() { inputBar.openMorePanel() }
+  public func closeInputPanel() { inputBar.closePanel() }
 
-  /** Override to add a title view, call buttons or group-management controls. */
+  /** Configures the fixed 44pt chat header directly below the status bar. */
   open func configureNavigationBar() {
-    navigationItem.largeTitleDisplayMode = .never
     let palette = skin.theme.palette(for: traitCollection)
-    let titleLabel = UILabel(); titleLabel.text = title; titleLabel.font = skin.chat.navigationTitleFont; titleLabel.textColor = skin.chat.navigationTitleColor ?? palette.primaryTextColor; titleLabel.textAlignment = .center
-    let subtitle = UILabel(); subtitle.text = PteIMUILocalization.value("在线", "Online", language: language); subtitle.font = skin.chat.navigationSubtitleFont; subtitle.textColor = palette.outgoingGradientStartColor; subtitle.textAlignment = .center
-    let stack = UIStackView(arrangedSubviews: [titleLabel, subtitle]); stack.axis = .vertical; stack.alignment = .center; stack.spacing = 1
-    navigationItem.titleView = stack
-    navigationItem.leftBarButtonItem = UIBarButtonItem(image: skin.icons.image(for: .back, traitCollection: traitCollection), style: .plain, target: self, action: #selector(backTapped))
-    let more = UIBarButtonItem(image: skin.icons.image(for: .more, traitCollection: traitCollection), style: .plain, target: self, action: #selector(moreTapped))
-    let video = UIBarButtonItem(image: skin.icons.image(for: .video, traitCollection: traitCollection), style: .plain, target: self, action: #selector(videoTapped))
-    navigationItem.rightBarButtonItems = [more, video]
-    navigationController?.navigationBar.tintColor = palette.iconColor
+    let isGroup = navigationAvatarText != nil || (title?.contains("群") ?? false) || (title?.localizedCaseInsensitiveContains("team") ?? false)
+    let subtitle = navigationSubtitleText ?? (isGroup ? PteIMUILocalization.value("8 位成员", "8 members", language: language) : PteIMUILocalization.value("在线", "Online", language: language))
+    chatNavigationBar.configure(
+      title: title,
+      subtitle: subtitle,
+      avatarText: isGroup ? (navigationAvatarText ?? "#") : nil,
+      avatarColor: navigationAvatarColor,
+      palette: palette,
+      iconProvider: skin.icons,
+      traitCollection: traitCollection
+    )
+  }
+  /** MessageKit-style default renderer registry; subclasses may replace it. */
+  open func makeMessageRenderers() -> [PteIMUIChatMessageRenderer] {
+    [PteIMUIRichMessageRenderer(), PteIMUIVoiceMessageRenderer(), PteIMUIBasicMessageRenderer()]
+  }
+  /** Override to choose a custom renderer for a message while retaining the default registry. */
+  open func messageRenderer(for message: PteIMMessage) -> PteIMUIChatMessageRenderer? {
+    messageRenderers.first { $0.supports(message) }
   }
   /** Override and register custom cells such as gifts, red packets or business cards. */
-  open func registerMessageCells(in tableView: UITableView) { tableView.register(PteIMUIMessageCell.self, forCellReuseIdentifier: PteIMUIMessageCell.reuseIdentifier) }
-  open func messageCellReuseIdentifier(for message: PteIMMessage) -> String { PteIMUIMessageCell.reuseIdentifier }
+  open func registerMessageCells(in tableView: UITableView) {
+    messageRenderers.forEach { $0.register(in: tableView) }
+  }
+  open func messageCellReuseIdentifier(for message: PteIMMessage) -> String {
+    messageRenderer(for: message)?.reuseIdentifier ?? PteIMUIMessageCell.reuseIdentifier
+  }
   /**
    Register any `UITableViewCell`, return its reuse identifier above, then
    override this method. The default branch configures PteIMUIMessageCell.
    This is intentionally not restricted to an SDK cell subclass.
    */
   open func configureMessageCell(_ cell: UITableViewCell, message: PteIMMessage, outgoing: Bool, at indexPath: IndexPath) {
-    (cell as? PteIMUIMessageCell)?.configure(message: message, outgoing: outgoing, theme: theme, language: language, style: skin.chat)
+    messageRenderer(for: message)?.configure(cell: cell, message: message, outgoing: outgoing, in: self, at: indexPath)
+  }
+  /** Override when reaction data is carried by a host repository instead of Core. */
+  open func reactions(for message: PteIMMessage) -> [PteIMUIReaction] {
+    var orderedEmoji: [String] = []
+    var counts: [String: Int] = [:]
+    for reaction in reactionProvider?(message) ?? [] where !reaction.emoji.isEmpty {
+      if counts[reaction.emoji] == nil { orderedEmoji.append(reaction.emoji) }
+      counts[reaction.emoji, default: 0] += reaction.count
+    }
+    for (emoji, delta) in reactionDeltas[message.clientMsgId] ?? [:] {
+      if counts[emoji] == nil { orderedEmoji.append(emoji) }
+      counts[emoji, default: 0] += delta
+    }
+    return orderedEmoji.compactMap { emoji in
+      guard let count = counts[emoji], count > 0 else { return nil }
+      return PteIMUIReaction(emoji: emoji, count: count)
+    }
+  }
+  /** Override to source a group member nickname from a directory/cache. */
+  open func senderDisplayName(for message: PteIMMessage) -> String? {
+    guard showsIncomingSenderNames, !isOutgoing(message) else { return nil }
+    return senderDisplayNameProvider?(message) ?? message.senderId
   }
   /** Dedicated hook for avatar actions in the default SDK message cell. */
   open func configureAvatarAction(on cell: UITableViewCell, message: PteIMMessage) {
-    (cell as? PteIMUIMessageCell)?.onAvatarTapped = { [weak self] in self?.didTapAvatar(for: message) }
+    let callback: () -> Void = { [weak self] in
+      guard let self else { return }
+      self.didTapAvatar(for: message)
+    }
+    (cell as? PteIMUIMessageCell)?.onAvatarTapped = callback
+    (cell as? PteIMUIRichMessageCell)?.onAvatarTapped = callback
+    (cell as? PteIMUIVoiceMessageCell)?.onAvatarTapped = callback
   }
   open func didTapAvatar(for message: PteIMMessage) { onAvatarTapped?(message, self) }
-  open func didTapMessage(_ message: PteIMMessage) { onMessageTapped?(message, self) }
+  open func didTapMessage(_ message: PteIMMessage) {
+    switch message.type {
+    case .image: presentImagePreview(for: message)
+    case .video: presentVideoPlayer(for: message)
+    case .location: presentMapDestinations(for: message)
+    default: break
+    }
+    onMessageTapped?(message, self)
+  }
   /** Gift/order/red-packet actions are routed to the host business app. */
   open func didRequestAction(_ action: PteIMUIAction) { onActionRequested?(action, self) }
 
   private func configureViews() {
-    view.addSubview(tableView); view.addSubview(composerBar)
+    view.addSubview(chatNavigationBar); view.addSubview(tableView); view.addSubview(composerBar)
     tableView.translatesAutoresizingMaskIntoConstraints = false; composerBar.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor), tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor), tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), tableView.bottomAnchor.constraint(equalTo: composerBar.topAnchor), composerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor), composerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor), composerBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor), composerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 58)])
+    NSLayoutConstraint.activate([
+      chatNavigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor), chatNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor), chatNavigationBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor), tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor), tableView.topAnchor.constraint(equalTo: chatNavigationBar.bottomAnchor), tableView.bottomAnchor.constraint(equalTo: composerBar.topAnchor),
+      composerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor), composerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor), composerBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor), composerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 58)
+    ])
     registerMessageCells(in: tableView); tableView.dataSource = self; tableView.delegate = self; tableView.separatorStyle = .none; tableView.keyboardDismissMode = .interactive
+    tableView.sectionHeaderTopPadding = 0
+    tableView.contentInset = .zero
+    let longPress = UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+    tableView.addGestureRecognizer(longPress)
+    // A tap anywhere in the timeline is an explicit dismissal action. It
+    // preserves normal cell taps while removing keyboard/emoji/more chrome.
+    let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissInputPresentation))
+    dismissTap.cancelsTouchesInView = false
+    dismissTap.require(toFail: longPress)
+    tableView.addGestureRecognizer(dismissTap)
     composerBar.addSubview(inputBar)
     NSLayoutConstraint.activate([inputBar.leadingAnchor.constraint(equalTo: composerBar.leadingAnchor), inputBar.trailingAnchor.constraint(equalTo: composerBar.trailingAnchor), inputBar.topAnchor.constraint(equalTo: composerBar.topAnchor), inputBar.bottomAnchor.constraint(equalTo: composerBar.bottomAnchor)])
-    inputBar.onSendText = { [weak self] text in self?.sendText(text) }
-    inputBar.onAction = { [weak self] selection in
-      guard let self else { return }
-      switch selection {
-      case let .emoji(packageId, emojiId): self.sendEmoji(packageId: packageId, emojiId: emojiId)
-      case let .action(action): self.didRequestAction(action)
-      }
-    }
-    inputBar.onVoiceRecordingChanged = { [weak self] isRecording in
-      guard let self else { return }
-      self.onVoiceRecordingChanged?(isRecording, self)
-    }
+    inputBar.delegate = self
+    chatNavigationBar.onBack = { [weak self] in self?.backTapped() }
+    chatNavigationBar.onMore = { [weak self] in self?.moreTapped() }
+    locationManager.delegate = self
+    locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     configureNavigationBar()
   }
   private func bindClient() {
     listener.onMessage = { [weak self] message in guard message.conversationId == self?.conversationId else { return }; DispatchQueue.main.async { self?.append(message: message) } }
     listener.onMessageStateChanged = { [weak self] id, state in DispatchQueue.main.async { guard let self, let index = self.messages.firstIndex(where: { $0.clientMsgId == id }) else { return }; self.messages[index].state = state; self.tableView.reloadData() } }
-    listener.onThemeModeChanged = { [weak self] mode in DispatchQueue.main.async { self?.overrideUserInterfaceStyle = mode == .dark ? .dark : (mode == .light ? .light : .unspecified) } }
-    listener.onLanguageChanged = { [weak self] language in DispatchQueue.main.async { self?.language = language; self?.applyLocalizedStrings() } }
+    listener.onThemeModeChanged = { [weak self] _ in DispatchQueue.main.async { self?.appearanceController.refresh() } }
+    listener.onLanguageChanged = { [weak self] _ in DispatchQueue.main.async {
+      guard let self else { return }
+      self.language = self.client.resolvedLanguage()
+      self.applyLocalizedStrings()
+    } }
     client.addListener(listener)
   }
   private func reloadFromCache() {
@@ -194,11 +314,14 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   private func applyTheme() {
     guard isViewLoaded else { return }
     let palette = theme.palette(for: traitCollection)
-    view.backgroundColor = palette.backgroundColor
+    // With the system bar hidden, the controller itself paints the status-bar
+    // area. Keep it identical to the fixed 44pt navigation row.
+    view.backgroundColor = palette.surfaceColor
     tableView.backgroundColor = palette.backgroundColor
     composerBar.backgroundColor = palette.composerColor
     inputBar.theme = theme
     inputBar.language = language
+    configureNavigationBar()
     applyLocalizedStrings()
     tableView.reloadData()
   }
@@ -208,10 +331,221 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     inputBar.enabledActions = skin.chat.enabledActions
     applyTheme()
   }
-  private func applyLocalizedStrings() { guard isViewLoaded else { return }; inputBar.language = language; tableView.reloadData() }
+  private func applyLocalizedStrings() { guard isViewLoaded else { return }; inputBar.language = language; configureNavigationBar(); tableView.reloadData() }
   @objc private func backTapped() { navigationController?.popViewController(animated: true) }
   @objc private func moreTapped() { didRequestAction(.gift) }
-  @objc private func videoTapped() { didRequestAction(.video) }
+  @objc private func dismissInputPresentation() {
+    inputBar.closePanel()
+    inputBar.endEditingInput()
+  }
+  @objc private func messageLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+    guard recognizer.state == .began, let indexPath = tableView.indexPathForRow(at: recognizer.location(in: tableView)) else { return }
+    let message = messageSections[indexPath.section][indexPath.row]
+    guard let cell = tableView.cellForRow(at: indexPath) else { return }
+    // The menu is anchored to the visible cell, not to the full-screen
+    // overlay. This keeps it immediately above the message being acted on.
+    let anchor = cell.convert(cell.bounds, to: view)
+    PteIMUIMessageActionMenu.present(
+      over: view,
+      anchor: anchor,
+      palette: theme.palette(for: traitCollection),
+      language: language,
+      actions: availableLongPressActions(for: message),
+      onReaction: { [weak self] emoji in self?.toggleReaction(emoji, for: message) },
+      onAddReaction: { [weak self] in self?.inputBar.openEmojiPanel() }
+    ) { [weak self] action in
+      guard let self else { return }
+      if action == .copy { UIPasteboard.general.string = PteIMUIMessageText.render(message, language: self.language) }
+      self.onMessageAction?(action, message, self)
+    }
+  }
+
+  private func availableLongPressActions(for message: PteIMMessage) -> [PteIMUIMessageAction] {
+    var actions: [PteIMUIMessageAction] = [.quote]
+    if message.type == .text { actions.append(.copy) }
+    if isOutgoing(message) { actions.append(contentsOf: [.revoke, .delete]) }
+    return actions
+  }
+
+  private func toggleReaction(_ emoji: String, for message: PteIMMessage) {
+    let key = "\(message.clientMsgId)|\(emoji)"
+    let wasSelected = locallySelectedReactionKeys.contains(key)
+    if wasSelected {
+      locallySelectedReactionKeys.remove(key)
+      reactionDeltas[message.clientMsgId, default: [:]][emoji, default: 0] -= 1
+    } else {
+      locallySelectedReactionKeys.insert(key)
+      reactionDeltas[message.clientMsgId, default: [:]][emoji, default: 0] += 1
+    }
+    if reactionDeltas[message.clientMsgId]?[emoji] == 0 { reactionDeltas[message.clientMsgId]?[emoji] = nil }
+    if let indexPath = indexPath(for: message) {
+      tableView.reloadRows(at: [indexPath], with: .none)
+    }
+    onReactionToggled?(emoji, message, !wasSelected, self)
+  }
+
+  private func indexPath(for message: PteIMMessage) -> IndexPath? {
+    for section in messageSections.indices {
+      if let row = messageSections[section].firstIndex(where: { $0.clientMsgId == message.clientMsgId }) {
+        return IndexPath(row: row, section: section)
+      }
+    }
+    return nil
+  }
+  /** Default keyboard and gradient-send action. Subclasses can override to validate or intercept drafts. */
+  open func inputBar(_ inputBar: PteIMUIInputBar, didSendText text: String) { sendText(text) }
+  /** Default attachment/emoji route. Subclasses can override a single interaction boundary. */
+  open func inputBar(_ inputBar: PteIMUIInputBar, didSelect selection: PteIMUIInputBarAction) {
+    switch selection {
+    case let .emoji(packageId, emojiId): sendEmoji(packageId: packageId, emojiId: emojiId)
+    case let .action(action):
+      switch action {
+      case .image, .camera, .video, .location, .file: presentBuiltInAttachment(action)
+      case .gift, .redPacket, .order, .voice: didRequestAction(action)
+      }
+    case let .custom(action): onCustomInputActionRequested?(action, self)
+    }
+  }
+  open func inputBar(_ inputBar: PteIMUIInputBar, voiceRecordingChanged isRecording: Bool) {
+    onVoiceRecordingChanged?(isRecording, self)
+  }
+
+  // MARK: Built-in attachment routes
+
+  /// Image, camera, video, location and document selection are available out
+  /// of the box. Business content remains intentionally host-owned.
+  open func presentBuiltInAttachment(_ action: PteIMUIAction) {
+    switch action {
+    case .image, .video:
+      var configuration = PHPickerConfiguration(photoLibrary: .shared())
+      configuration.selectionLimit = 1
+      configuration.filter = action == .image ? .images : .videos
+      let picker = PHPickerViewController(configuration: configuration)
+      picker.delegate = self
+      present(picker, animated: true)
+    case .camera:
+      guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
+      let picker = UIImagePickerController(); picker.sourceType = .camera; picker.delegate = self
+      present(picker, animated: true)
+    case .file:
+      let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .pdf, .image, .movie], asCopy: true)
+      picker.delegate = self; picker.allowsMultipleSelection = false
+      present(picker, animated: true)
+    case .location:
+      switch locationManager.authorizationStatus {
+      case .authorizedAlways, .authorizedWhenInUse: locationManager.requestLocation()
+      case .notDetermined: locationManager.requestWhenInUseAuthorization()
+      default: break
+      }
+    case .gift, .redPacket, .order, .voice: break
+    }
+  }
+
+  public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+    dismiss(animated: true)
+    guard let result = results.first else { return }
+    if result.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+      result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { [weak self] url, _ in
+        guard let self, let url, let local = Self.persistMedia(at: url, preferredName: "video.mov") else { return }
+        DispatchQueue.main.async { self.sendVideo(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "video/quicktime")) }
+      }
+    } else if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+      result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] image, _ in
+        guard let self, let image = image as? UIImage, let local = Self.persist(image: image) else { return }
+        DispatchQueue.main.async { self.sendImage(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "image/jpeg")) }
+      }
+    }
+  }
+
+  public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+    picker.dismiss(animated: true)
+    guard let image = info[.originalImage] as? UIImage, let local = Self.persist(image: image) else { return }
+    sendImage(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "image/jpeg"))
+  }
+  public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
+
+  public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    guard let source = urls.first, let local = Self.persistMedia(at: source, preferredName: source.lastPathComponent) else { return }
+    let values = try? local.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
+    sendFile(PteIMMedia(url: local.absoluteString, sizeBytes: values?.fileSize.map(Int64.init), fileName: local.lastPathComponent, mimeType: values?.contentType?.preferredMIMEType))
+  }
+  public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    if manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse { manager.requestLocation() }
+  }
+  public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    guard let coordinate = locations.last?.coordinate else { return }
+    sendLocation(PteIMLocation(latitude: coordinate.latitude, longitude: coordinate.longitude, name: PteIMUILocalization.value("当前位置", "Current location", language: language)))
+  }
+  public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { }
+
+  // MARK: Built-in message interactions
+
+  private func presentImagePreview(for message: PteIMMessage) {
+    let url = usableMediaURL(message.media?.url)
+    let fallback = skin.icons.image(for: .messageImagePreview, traitCollection: traitCollection)
+      ?? PteIMUIResources.image(named: "PteIMUIChatPreviewImage", traitCollection: traitCollection)
+    let preview = PteIMUIMediaPreviewController(
+      image: fallback,
+      remoteImageURL: url,
+      title: message.media?.fileName ?? PteIMUILocalization.value("图片预览", "Image preview", language: language)
+    )
+    preview.modalPresentationStyle = .fullScreen
+    present(preview, animated: true)
+  }
+
+  private func presentVideoPlayer(for message: PteIMMessage) {
+    guard let url = usableMediaURL(message.media?.url) else {
+      let preview = PteIMUIMediaPreviewController(
+        image: skin.icons.image(for: .messageImagePreview, traitCollection: traitCollection),
+        remoteImageURL: nil,
+        title: message.media?.fileName ?? PteIMUILocalization.value("视频", "Video", language: language),
+        showsPlayAffordance: true
+      )
+      preview.modalPresentationStyle = .fullScreen
+      present(preview, animated: true)
+      return
+    }
+    let player = AVPlayer(url: url)
+    let controller = AVPlayerViewController()
+    controller.player = player
+    controller.modalPresentationStyle = .fullScreen
+    present(controller, animated: true) { player.play() }
+  }
+
+  private func presentMapDestinations(for message: PteIMMessage) {
+    guard let location = message.location else { return }
+    let apps = PteIMUIMapDestination.installedApps(for: location)
+    let title = location.name
+    let sheet = UIAlertController(title: title, message: PteIMUILocalization.value("选择导航地图", "Choose a navigation app", language: language), preferredStyle: .actionSheet)
+    apps.forEach { destination in
+      sheet.addAction(UIAlertAction(title: destination.title, style: .default) { [weak self] _ in
+        destination.open(from: self, location: location)
+      })
+    }
+    sheet.addAction(UIAlertAction(title: PteIMUILocalization.value("取消", "Cancel", language: language), style: .cancel))
+    if let popover = sheet.popoverPresentationController {
+      popover.sourceView = view
+      popover.sourceRect = view.bounds
+    }
+    present(sheet, animated: true)
+  }
+
+  private func usableMediaURL(_ rawValue: String?) -> URL? {
+    guard let rawValue, !rawValue.isEmpty else { return nil }
+    if let url = URL(string: rawValue), url.scheme != nil { return url }
+    guard FileManager.default.fileExists(atPath: rawValue) else { return nil }
+    return URL(fileURLWithPath: rawValue)
+  }
+
+  private nonisolated static func persist(image: UIImage) -> URL? {
+    guard let data = image.jpegData(compressionQuality: 0.88) else { return nil }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("pte-im-\(UUID().uuidString).jpg")
+    do { try data.write(to: url, options: .atomic); return url } catch { return nil }
+  }
+  private nonisolated static func persistMedia(at source: URL, preferredName: String) -> URL? {
+    let target = FileManager.default.temporaryDirectory.appendingPathComponent("pte-im-\(UUID().uuidString)-\(preferredName)")
+    do { try FileManager.default.copyItem(at: source, to: target); return target } catch { return nil }
+  }
   public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) { super.traitCollectionDidChange(previousTraitCollection); if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle { applyTheme() } }
   public func numberOfSections(in tableView: UITableView) -> Int { messageSections.count }
   public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { messageSections[section].count }
@@ -223,11 +557,144 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     return cell
   }
   open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didTapMessage(messageSections[indexPath.section][indexPath.row]) }
+  public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { dismissInputPresentation() }
   open func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 34 }
   open func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
     let header = PteIMUITimelineHeaderView()
     header.configure(date: Date(timeIntervalSince1970: TimeInterval(messageSections[section].first?.createdAt ?? 0) / 1000), language: language, color: theme.palette(for: traitCollection).secondaryTextColor)
     return header
+  }
+}
+
+@MainActor private enum PteIMUIMapDestination: CaseIterable {
+  case amap, baidu, tencent, google, system
+
+  var title: String {
+    switch self {
+    case .amap: return "高德地图"
+    case .baidu: return "百度地图"
+    case .tencent: return "腾讯地图"
+    case .google: return "Google Maps"
+    case .system: return PteIMUILocalization.value("系统地图", "Apple Maps", language: .system)
+    }
+  }
+
+  static func installedApps(for location: PteIMLocation) -> [PteIMUIMapDestination] {
+    // Keep the requested order and only expose installed third-party apps.
+    [.amap, .baidu, .tencent, .google].filter { $0.url(for: location).map(UIApplication.shared.canOpenURL) ?? false } + [.system]
+  }
+
+  func open(from controller: UIViewController?, location: PteIMLocation) {
+    guard self != .system else {
+      let placemark = MKPlacemark(coordinate: .init(latitude: location.latitude, longitude: location.longitude))
+      let item = MKMapItem(placemark: placemark)
+      item.name = location.name
+      item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+      return
+    }
+    guard let url = url(for: location) else { return }
+    UIApplication.shared.open(url)
+  }
+
+  private func url(for location: PteIMLocation) -> URL? {
+    let latitude = String(format: "%.6f", location.latitude)
+    let longitude = String(format: "%.6f", location.longitude)
+    let name = location.name
+    var components: URLComponents
+    switch self {
+    case .amap:
+      components = URLComponents(string: "iosamap://navi")!
+      components.queryItems = [
+        .init(name: "sourceApplication", value: "PteIMUIKit"),
+        .init(name: "poiname", value: name),
+        .init(name: "lat", value: latitude),
+        .init(name: "lon", value: longitude),
+        .init(name: "dev", value: "0"),
+        .init(name: "style", value: "2")
+      ]
+    case .baidu:
+      components = URLComponents(string: "baidumap://map/direction")!
+      components.queryItems = [
+        .init(name: "destination", value: "name:\(name)|latlng:\(latitude),\(longitude)"),
+        .init(name: "mode", value: "driving"),
+        .init(name: "coord_type", value: "gcj02")
+      ]
+    case .tencent:
+      components = URLComponents(string: "qqmap://map/routeplan")!
+      components.queryItems = [
+        .init(name: "type", value: "drive"),
+        .init(name: "tocoord", value: "\(latitude),\(longitude)"),
+        .init(name: "to", value: name),
+        .init(name: "policy", value: "0")
+      ]
+    case .google:
+      components = URLComponents(string: "comgooglemaps://")!
+      components.queryItems = [
+        .init(name: "daddr", value: "\(latitude),\(longitude)"),
+        .init(name: "directionsmode", value: "driving")
+      ]
+    case .system:
+      return nil
+    }
+    return components.url
+  }
+}
+
+@MainActor private final class PteIMUIMediaPreviewController: UIViewController {
+  private let imageView = UIImageView()
+  private let remoteImageURL: URL?
+  private let showsPlayAffordance: Bool
+
+  init(image: UIImage?, remoteImageURL: URL?, title: String, showsPlayAffordance: Bool = false) {
+    self.remoteImageURL = remoteImageURL
+    self.showsPlayAffordance = showsPlayAffordance
+    super.init(nibName: nil, bundle: nil)
+    self.imageView.image = image
+    self.title = title
+  }
+  required init?(coder: NSCoder) { nil }
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .black
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    imageView.contentMode = .scaleAspectFit
+    imageView.clipsToBounds = true
+    view.addSubview(imageView)
+    NSLayoutConstraint.activate([
+      imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      imageView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+    ])
+    let close = UIButton(type: .system)
+    close.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 28)), for: .normal)
+    close.tintColor = .white
+    close.translatesAutoresizingMaskIntoConstraints = false
+    close.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
+    view.addSubview(close)
+    NSLayoutConstraint.activate([
+      close.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+      close.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+      close.widthAnchor.constraint(equalToConstant: 44),
+      close.heightAnchor.constraint(equalToConstant: 44)
+    ])
+    if showsPlayAffordance {
+      let play = UIImageView(image: UIImage(systemName: "play.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 58, weight: .medium)))
+      play.tintColor = .white
+      play.translatesAutoresizingMaskIntoConstraints = false
+      view.addSubview(play)
+      NSLayoutConstraint.activate([play.centerXAnchor.constraint(equalTo: view.centerXAnchor), play.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
+    }
+    loadRemoteImageIfNeeded()
+  }
+
+  private func loadRemoteImageIfNeeded() {
+    guard let remoteImageURL, remoteImageURL.scheme == "https" || remoteImageURL.scheme == "http" else { return }
+    URLSession.shared.dataTask(with: remoteImageURL) { [weak self] data, _, _ in
+      guard let image = data.flatMap(UIImage.init(data:)) else { return }
+      Task { @MainActor [weak self] in self?.imageView.image = image }
+    }.resume()
   }
 }
 

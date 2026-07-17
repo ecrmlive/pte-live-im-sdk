@@ -23,4 +23,6 @@ The module includes `PteIMUIConversationList`, `PteIMUIContactList`, `PteIMUICha
 <PteIMUIChat :client="im" :theme="skin" :conversation-id="conversationId" />
 ```
 
+`PteIMUIChat` also accepts `subtitle` (online status or group member count) and `reaction-provider` (`PteIMUIReactionProvider`). The provider is read-only: it supplies host-persisted reaction summaries beneath messages without coupling business reaction storage to `PteIMSDK`. Chat rows render text, emoji, voice and the image/video/location/red-packet/gift/order/file card types with the same light/dark palette.
+
 Controllers subscribe through Core's `PteIMListener` registration and release that subscription in `dispose()`, so the host's business listener is not replaced by UIKit. UI asset ownership is limited to this module's shared conversation/contact/chat resources; runtime code must not depend on the local design-source directory.

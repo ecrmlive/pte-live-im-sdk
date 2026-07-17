@@ -6,6 +6,10 @@ android {
   namespace = "com.ptelive.im.uidemo"
   compileSdk = 36
 
+  buildFeatures {
+    buildConfig = true
+  }
+
   defaultConfig {
     applicationId = "com.ptelive.app.im.sdk.demo"
     minSdk = 31

@@ -1,0 +1,10 @@
+import { PteIMBaseConfig } from '../../uni_modules/pte-im-sdk/utssdk/interface.uts'
+
+/** Application-scoped connection configuration. It is intentionally separate from business login. */
+export const PteIMUIDemoBaseConfig: PteIMBaseConfig = {
+  apiDomain: 'https://api-im.ptelive.com',
+  imDomain: 'wss://wss.ptelive.com/ws',
+  cosDomain: 'https://cos.ptelive.com',
+  themeMode: 'system',
+  language: 'en-US',
+}

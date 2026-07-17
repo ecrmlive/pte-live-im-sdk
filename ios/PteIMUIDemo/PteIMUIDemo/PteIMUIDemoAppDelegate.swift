@@ -19,7 +19,12 @@ final class PteIMUIDemoAppDelegate: UIResponder, UIApplicationDelegate {
       // login screen. Domains are never user-login form fields.
       let session = try PteIMUIDemoApplicationSession()
       applicationSession = session
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+      #if DEBUG
+      let launchDuration: TimeInterval = ProcessInfo.processInfo.arguments.contains("--pte-im-ui-preview-launch") ? 5 : 0.9
+      #else
+      let launchDuration: TimeInterval = 0.9
+      #endif
+      DispatchQueue.main.asyncAfter(deadline: .now() + launchDuration) { [weak self] in
         guard let self, let session = self.applicationSession else { return }
         let home = UINavigationController(rootViewController: PteIMUIDemoViewController(applicationSession: session))
         home.view.backgroundColor = self.window?.backgroundColor
@@ -47,7 +52,7 @@ final class PteIMUIDemoApplicationSession {
       imDomain: "wss://wss.ptelive.com/ws",
       cosDomain: "https://cos.ptelive.com",
       themeMode: .system,
-      language: .zhCN
+      language: .system
     )
     bootstrap = PteIMSDK.configure(baseConfig)
   }
@@ -55,29 +60,26 @@ final class PteIMUIDemoApplicationSession {
 
 /** Branded launch view. The system launch screen stays immediate; this view provides the product transition. */
 private final class PteIMUIDemoLaunchViewController: UIViewController {
-  private let gradient = CAGradientLayer()
   override func viewDidLoad() {
     super.viewDidLoad()
-    gradient.colors = [UIColor(red: 0.04, green: 0.17, blue: 0.52, alpha: 1).cgColor, UIColor(red: 0.16, green: 0.38, blue: 0.96, alpha: 1).cgColor, UIColor(red: 0.43, green: 0.18, blue: 0.88, alpha: 1).cgColor]
-    gradient.startPoint = CGPoint(x: 0, y: 0); gradient.endPoint = CGPoint(x: 1, y: 1); view.layer.insertSublayer(gradient, at: 0)
+    view.backgroundColor = UIColor(red: 0.04, green: 0.02, blue: 0.15, alpha: 1)
     if let background = UIImage(named: "PteIMUILaunchBackground") {
-      let imageView = UIImageView(image: background); imageView.contentMode = .scaleAspectFill; imageView.translatesAutoresizingMaskIntoConstraints = false; imageView.alpha = 0.42
+      let imageView = UIImageView(image: background); imageView.contentMode = .scaleAspectFill; imageView.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(imageView)
       NSLayoutConstraint.activate([imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor), imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor), imageView.topAnchor.constraint(equalTo: view.topAnchor), imageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)])
     }
-    let mark = UIImageView(image: UIImage(named: "PteIMUILaunchMark") ?? UIImage(named: "PteIMUILogo"))
-    mark.contentMode = .scaleAspectFit
-    mark.layer.shadowColor = UIColor.black.cgColor; mark.layer.shadowOpacity = 0.22; mark.layer.shadowRadius = 18; mark.layer.shadowOffset = CGSize(width: 0, height: 10)
-    let title = UILabel(); title.text = "Pte Live IM"; title.textColor = .white; title.font = .systemFont(ofSize: 25, weight: .bold)
-    let caption = UILabel(); caption.text = "PRIVATE LIVE · SECURE MESSAGING"; caption.textColor = UIColor.white.withAlphaComponent(0.72); caption.font = .systemFont(ofSize: 11, weight: .semibold)
-    [mark, title, caption].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; view.addSubview($0) }
+    // This cut already contains the complete startup composition: background,
+    // logo, title, English caption and decorative nodes. Do not recreate or
+    // scale individual elements in code.
+    let artwork = UIImageView(image: UIImage(named: "PteIMUILaunchMark"))
+    artwork.contentMode = .scaleAspectFill
+    artwork.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(artwork)
     NSLayoutConstraint.activate([
-      mark.centerXAnchor.constraint(equalTo: view.centerXAnchor), mark.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -36), mark.widthAnchor.constraint(equalToConstant: 112), mark.heightAnchor.constraint(equalToConstant: 112),
-      title.centerXAnchor.constraint(equalTo: view.centerXAnchor), title.topAnchor.constraint(equalTo: mark.bottomAnchor, constant: 22),
-      caption.centerXAnchor.constraint(equalTo: view.centerXAnchor), caption.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8)
+      artwork.leadingAnchor.constraint(equalTo: view.leadingAnchor), artwork.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      artwork.topAnchor.constraint(equalTo: view.topAnchor), artwork.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
   }
-  override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); gradient.frame = view.bounds }
   func showConfigurationError(_ message: String) {
     let label = UILabel(); label.text = "PteIMBaseConfig 初始化失败\n\(message)"; label.textColor = .white; label.textAlignment = .center; label.numberOfLines = 0; label.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(label)
     NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor), label.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor), label.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30)])

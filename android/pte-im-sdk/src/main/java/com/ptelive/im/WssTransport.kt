@@ -3,6 +3,7 @@ package com.ptelive.im
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.URI
+import java.net.Socket
 import java.security.MessageDigest
 import java.security.SecureRandom
 import android.util.Base64
@@ -16,20 +17,23 @@ internal interface WssListener {
   fun onFailure(error: Throwable)
 }
 
-/** Minimal dependency-free RFC 6455 WSS transport for text protocol frames. */
+/** Minimal dependency-free RFC 6455 transport. Production [PteIMBaseConfig] requires WSS. */
 internal class WssTransport(private val endpoint: String, private val listener: WssListener) {
   private val writeLock = Any()
-  @Volatile private var socket: SSLSocket? = null
+  @Volatile private var socket: Socket? = null
   @Volatile private var output: DataOutputStream? = null
 
   fun connect() = Thread({
     try {
       val uri = URI(endpoint)
       val port = if (uri.port == -1) 443 else uri.port
-      val connection = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-        .createSocket(uri.host, port) as SSLSocket
+      val connection: Socket = if (uri.scheme == "wss") {
+        (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(uri.host, port) as SSLSocket
+      } else {
+        Socket(uri.host, port)
+      }
       socket = connection
-      connection.startHandshake()
+      (connection as? SSLSocket)?.startHandshake()
       val input = DataInputStream(connection.inputStream)
       val writer = DataOutputStream(connection.outputStream)
       output = writer

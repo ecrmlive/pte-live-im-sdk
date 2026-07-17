@@ -1,4 +1,4 @@
-import { PteIMContact, PteIMContactPage, PteIMGroupPage, PteIMSDK } from '@ptelive/pte-im-sdk'
+import { PteIMContact, PteIMContactPage, PteIMGroupPage, PteIMLanguage, PteIMSDK, PteIMThemeMode } from '@ptelive/pte-im-sdk'
 import { PteIMUIAvatarHandler, PteIMUIContactHandler, PteIMUIContactListMode, PteIMUILoadErrorHandler } from './PteIMUIKit'
 import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
 
@@ -9,6 +9,11 @@ export class PteIMUIContactPresentation {
   subtitle: string = ''
   avatarText: string = ''
   isGroup: boolean = false
+}
+
+/** Override transform() in the host to rewrite SDK contacts without owning pagination. */
+export class PteIMUIContactPresentationTransformer {
+  transform(value: PteIMUIContactPresentation): PteIMUIContactPresentation { return value }
 }
 
 /**
@@ -23,6 +28,7 @@ export struct PteIMUIContactList {
   @Prop contactHandler: PteIMUIContactHandler = new PteIMUIContactHandler()
   @Prop avatarHandler: PteIMUIAvatarHandler = new PteIMUIAvatarHandler()
   @Prop errorHandler: PteIMUILoadErrorHandler = new PteIMUILoadErrorHandler()
+  @Prop presentationTransformer: PteIMUIContactPresentationTransformer = new PteIMUIContactPresentationTransformer()
   @Prop theme: PteIMUITheme = new PteIMUITheme()
   @StorageProp('colorMode') systemColorMode: string = 'light'
   @State contacts: PteIMUIContactPresentation[] = []
@@ -32,6 +38,13 @@ export struct PteIMUIContactList {
 
   aboutToAppear(): void { this.refresh() }
   build() {
+    Column() {
+      this.navigationBar()
+      Row({ space: 24 }) {
+        Row({ space: 8 }) { Text('＋').width(30).height(30).textAlign(TextAlign.Center).fontColor(this.palette().outgoingEnd).fontSize(20).backgroundColor(this.palette().panel).borderRadius(15); Text(this.client.currentAppearance().language.toString() === 'en-US' ? 'Add Friend' : '添加好友').fontSize(14).fontColor(this.palette().text) }.layoutWeight(1)
+        Row({ space: 8 }) { Text('◉').width(30).height(30).textAlign(TextAlign.Center).fontColor(this.palette().outgoingEnd).fontSize(16).backgroundColor(this.palette().panel).borderRadius(15); Text(this.client.currentAppearance().language.toString() === 'en-US' ? 'New Group' : '新建群组').fontSize(14).fontColor(this.palette().text) }.layoutWeight(1)
+      }.padding({ left: 20, right: 20, top: 18, bottom: 14 }).backgroundColor(this.palette().background)
+      Text(this.mode === PteIMUIContactListMode.GROUPS ? (this.client.currentAppearance().language.toString() === 'en-US' ? 'GROUPS' : '群组') : (this.client.currentAppearance().language.toString() === 'en-US' ? 'PERSONAL' : '联系人')).fontSize(10).fontWeight(FontWeight.Medium).fontColor(this.palette().muted).letterSpacing(1.3).width('100%').padding({ left: 20, top: 4, bottom: 4 })
     List() {
       ForEach(this.contacts, (item: PteIMUIContactPresentation) => {
         ListItem() {
@@ -41,9 +54,10 @@ export struct PteIMUIContactList {
               Text(item.title).fontSize(16).fontColor(this.palette().text)
               if (item.subtitle.length > 0) Text(item.subtitle).fontSize(13).fontColor(this.palette().muted)
             }.layoutWeight(1).onClick(() => this.select(item))
-          }.width('100%').padding(16).backgroundColor(this.palette().surface)
+          }.width('100%').padding({ left: 18, right: 18, top: 12, bottom: 12 }).backgroundColor(this.palette().background)
         }.onAppear(() => { if (item.identifier === this.lastIdentifier()) this.loadNextPage() })
       }, (item: PteIMUIContactPresentation) => `${item.isGroup}:${item.identifier}`)
+    }.layoutWeight(1).width('100%').backgroundColor(this.palette().background)
     }.width('100%').height('100%').backgroundColor(this.palette().background)
   }
 
@@ -83,14 +97,14 @@ export struct PteIMUIContactList {
       value.title = contact.remark.length > 0 ? contact.remark : (contact.nickname.length > 0 ? contact.nickname : contact.userId)
       value.subtitle = contact.remark.length > 0 ? contact.nickname : ''
       value.avatarText = value.title.substring(0, 1)
-      return value
+      return this.presentationTransformer.transform(value)
     })
   }
   private groupPresentations(page: PteIMGroupPage): PteIMUIContactPresentation[] {
     return page.list.map((group): PteIMUIContactPresentation => {
       const value = new PteIMUIContactPresentation()
       value.identifier = group.id.toString(); value.title = group.title.length > 0 ? group.title : value.identifier; value.avatarText = value.title.substring(0, 1); value.isGroup = true
-      return value
+      return this.presentationTransformer.transform(value)
     })
   }
   private apply(values: PteIMUIContactPresentation[], nextCursor: string, hasMore: boolean, replacing: boolean): void {
@@ -100,5 +114,13 @@ export struct PteIMUIContactList {
     this.contacts = out; this.cursor = nextCursor; this.hasMore = hasMore; this.loading = false
   }
   private lastIdentifier(): string { return this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].identifier : '' }
+  @Builder navigationBar() {
+    Row() {
+      Row({ space: 10 }) { Text('◉').width(34).height(34).textAlign(TextAlign.Center).fontColor(Color.White).fontSize(16).linearGradient({ angle: 90, colors: [[this.palette().outgoingStart, 0.0], [this.palette().outgoingEnd, 1.0]] }).borderRadius(17); Text(this.client.currentAppearance().language.toString() === 'en-US' ? 'Contacts' : '联系人').fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.palette().text) }.layoutWeight(1)
+      Row({ space: 14 }) { Text('◐').fontSize(18).fontColor(this.palette().icon).onClick(() => this.toggleAppearance()); Text('◎').fontSize(18).fontColor(this.palette().icon).onClick(() => this.toggleLanguage()); Text('＋').fontSize(22).fontColor(this.palette().icon) }
+    }.height(56).padding({ left: 18, right: 18 }).backgroundColor(this.palette().surface)
+  }
+  private toggleAppearance(): void { const appearance = this.client.currentAppearance(); this.client.updateAppearance(appearance.themeMode === PteIMThemeMode.DARK ? PteIMThemeMode.LIGHT : PteIMThemeMode.DARK, appearance.language) }
+  private toggleLanguage(): void { const appearance = this.client.currentAppearance(); this.client.updateAppearance(appearance.themeMode, appearance.language === PteIMLanguage.EN_US ? PteIMLanguage.ZH_CN : PteIMLanguage.EN_US) }
   private palette(): PteIMUIThemePalette { return PteIMUITheme.resolve(this.client, this.theme, this.systemColorMode === 'dark') }
 }

@@ -17,6 +17,7 @@
 		972C9DFBBB82FC421C2D9427 /* PteIMUIDemoAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */; };
 		C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */ = {isa = PBXBuildFile; fileRef = B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */; };
 		FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */; };
+		A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */; };
 		FF94628F820E023EC4935D1A /* PteIMUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AD7ABEDB728809768AEC0EA5 /* PteIMUIKit */; };
 /* End PBXBuildFile section */
 
@@ -30,9 +31,11 @@
 		677C2BA61B20CAD3898358AA /* PteIMUIDemo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PteIMUIDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PteIMUILogo@2x.png"; sourceTree = "<group>"; };
 		B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoHomeTabsController.swift; sourceTree = "<group>"; };
+		A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoMeViewController.swift; sourceTree = "<group>"; };
 		B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchMark.png; sourceTree = "<group>"; };
 		BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILogo.png; sourceTree = "<group>"; };
 		DB0CF526BA749A1DBCC095AF /* PteIMUIKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMUIKit; path = ../PteIMUIKit; sourceTree = SOURCE_ROOT; };
+		E7A42D4B3F84D4B91C3A001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,8 +54,10 @@
 		2C1390B4E11DCDACACD6E5F4 /* PteIMUIDemo */ = {
 			isa = PBXGroup;
 			children = (
+				E7A42D4B3F84D4B91C3A001 /* Info.plist */,
 				36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */,
 				B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */,
+				A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */,
 				3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */,
 				C591A0AA7B6D0C6859701810 /* Resources */,
 			);
@@ -179,6 +184,7 @@
 			files = (
 				972C9DFBBB82FC421C2D9427 /* PteIMUIDemoAppDelegate.swift in Sources */,
 				FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */,
+				A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */,
 				89D79E1C8301A65228B19C13 /* PteIMUIDemoViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -247,9 +253,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = PteIMUILaunchScreen;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PteIMUIDemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -266,9 +271,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = PteIMUILaunchScreen;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PteIMUIDemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

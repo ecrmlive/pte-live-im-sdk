@@ -8,9 +8,14 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "requestPermissions": [
-      { "name": "ohos.permission.INTERNET" }
+      { "name": "ohos.permission.INTERNET" },
+      { "name": "ohos.permission.CAMERA", "reason": "$string:camera_reason", "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" } },
+      { "name": "ohos.permission.MICROPHONE", "reason": "$string:mic_reason", "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" } },
+      { "name": "ohos.permission.APPROXIMATELY_LOCATION", "reason": "$string:location_reason", "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" } },
+      { "name": "ohos.permission.LOCATION", "reason": "$string:location_reason", "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" } }
     ],
     "pages": "$profile:main_pages",
+    "querySchemes": ["amapuri", "baidumap", "qqmap", "google.navigation", "geo"],
     "abilities": [{
       "name": "EntryAbility",
       "srcEntry": "./ets/entryability/EntryAbility.ets",

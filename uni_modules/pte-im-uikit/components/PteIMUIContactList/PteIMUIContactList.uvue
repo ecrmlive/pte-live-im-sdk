@@ -1,10 +1,15 @@
 <template>
-  <scroll-view class="pte-im-ui-contact-list" :style="themeStyle" scroll-y="true" @scrolltolower="loadMore">
+  <view class="pte-im-ui-contact-list" :style="themeStyle">
+    <view class="pte-im-ui-contact-nav"><view class="pte-im-ui-contact-brand"><view class="pte-im-ui-contact-brand-orb"><text>◉</text></view><text class="pte-im-ui-contact-page-title">{{ language === 'en-US' ? 'Contacts' : '联系人' }}</text></view><view class="pte-im-ui-contact-nav-actions"><text @click="toggleAppearance">◐</text><text @click="toggleLanguage">◎</text><text @click="$emit('add')">＋</text></view></view>
+    <view class="pte-im-ui-contact-quick"><view @click="$emit('add')"><text class="pte-im-ui-contact-quick-icon">＋</text><text>{{ language === 'en-US' ? 'Add Friend' : '添加好友' }}</text></view><view @click="$emit('add-group')"><text class="pte-im-ui-contact-quick-icon">◉</text><text>{{ language === 'en-US' ? 'New Group' : '新建群组' }}</text></view></view>
+    <scroll-view class="pte-im-ui-contact-scroll" scroll-y="true" @scrolltolower="loadMore">
+    <text class="pte-im-ui-contact-section">{{ mode === 'groups' ? (language === 'en-US' ? 'GROUPS' : '群组') : (language === 'en-US' ? 'PERSONAL' : '联系人') }}</text>
     <view v-for="item in contacts" :key="itemKey(item)" class="pte-im-ui-contact-row">
       <view class="pte-im-ui-contact-avatar" @click="avatar(item)"><text>{{ item.avatarText }}</text></view>
       <view class="pte-im-ui-contact-copy" @click="select(item)"><text class="pte-im-ui-contact-title">{{ item.title }}</text><text v-if="item.subtitle" class="pte-im-ui-contact-subtitle">{{ item.subtitle }}</text></view>
     </view>
-  </scroll-view>
+    </scroll-view>
+  </view>
 </template>
 
 <script lang="uts">
@@ -17,8 +22,8 @@ import { PteIMUIContactListController, PteIMUIContactListMode, PteIMUIContactPre
  */
 export default {
   props: { client: { type: Object, required: true }, mode: { type: String, default: 'friends' }, theme: { type: Object, default: null } },
-  emits: ['select', 'avatar', 'error'],
-  data() { return { contacts: [] as PteIMUIContactPresentation[], themeStyle: {} as any, controller: null as PteIMUIContactListController | null } },
+  emits: ['select', 'avatar', 'error', 'add', 'add-group'],
+  data() { return { contacts: [] as PteIMUIContactPresentation[], language: 'zh-CN', themeStyle: {} as any, controller: null as PteIMUIContactListController | null } },
   mounted() {
     const controller = PteIMUIKit.createContactListController(this.client as PteIMSDKClient, this.mode as PteIMUIContactListMode)
     controller.onChanged = () => { this.contacts = controller.contacts; this.applyTheme() }
@@ -32,14 +37,16 @@ export default {
     select(item: PteIMUIContactPresentation) { this.controller?.select(item) },
     avatar(item: PteIMUIContactPresentation) { this.$emit('avatar', item) },
     itemKey(item: PteIMUIContactPresentation): string { return (item.isGroup ? 'g:' : 'u:') + item.identifier },
-    applyTheme() { const client = this.client as PteIMSDKClient; const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const dark = client.currentAppearance().themeMode === 'dark' || (client.currentAppearance().themeMode === 'system' && uni.getSystemInfoSync().theme === 'dark'); this.themeStyle = PteIMUITheme.cssVariables(PteIMUITheme.resolve(client, theme, dark)) },
+    toggleAppearance() { const client = this.client as PteIMSDKClient; const appearance = client.currentAppearance(); client.updateAppearance(appearance.themeMode === 'dark' ? 'light' : 'dark', appearance.language) },
+    toggleLanguage() { const client = this.client as PteIMSDKClient; const appearance = client.currentAppearance(); client.updateAppearance(appearance.themeMode, appearance.language === 'en-US' ? 'zh-CN' : 'en-US') },
+    applyTheme() { const client = this.client as PteIMSDKClient; const appearance = client.currentAppearance(); this.language = appearance.language === 'en-US' ? 'en-US' : 'zh-CN'; const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const dark = appearance.themeMode === 'dark' || (appearance.themeMode === 'system' && uni.getSystemInfoSync().theme === 'dark'); this.themeStyle = PteIMUITheme.cssVariables(PteIMUITheme.resolve(client, theme, dark)) },
   },
 }
 </script>
 
 <style>
-.pte-im-ui-contact-list { height: 100%; background-color: var(--pte-im-ui-background, #F7F9FF); }
-.pte-im-ui-contact-row { display: flex; align-items: center; min-height: 112rpx; padding: 16rpx 28rpx; border-bottom: 1px solid var(--pte-im-ui-divider, #DDE2F2); background-color: var(--pte-im-ui-surface, #FFFFFF); box-sizing: border-box; }
+.pte-im-ui-contact-list { display: flex; height: 100%; flex-direction: column; background-color: var(--pte-im-ui-background, #F7F9FF); }.pte-im-ui-contact-nav { display: flex; min-height: 112rpx; align-items: center; justify-content: space-between; padding: 0 36rpx; background-color: var(--pte-im-ui-surface); }.pte-im-ui-contact-brand { display: flex; align-items: center; }.pte-im-ui-contact-brand-orb { display: flex; width: 56rpx; height: 56rpx; align-items: center; justify-content: center; border-radius: 28rpx; color: #FFFFFF; background-image: linear-gradient(135deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); }.pte-im-ui-contact-page-title { margin-left: 16rpx; color: var(--pte-im-ui-text); font-size: 38rpx; font-weight: 700; }.pte-im-ui-contact-nav-actions { display: flex; width: 152rpx; justify-content: space-between; color: var(--pte-im-ui-icon); font-size: 34rpx; }.pte-im-ui-contact-quick { display: flex; padding: 26rpx 42rpx; justify-content: space-between; color: var(--pte-im-ui-text); font-size: 26rpx; }.pte-im-ui-contact-quick view { display: flex; align-items: center; }.pte-im-ui-contact-quick-icon { display: flex; width: 50rpx; height: 50rpx; align-items: center; justify-content: center; margin-right: 12rpx; border-radius: 25rpx; color: var(--pte-im-ui-outgoing-end); background-color: var(--pte-im-ui-panel); font-size: 36rpx; }.pte-im-ui-contact-scroll { flex: 1; min-height: 0; }.pte-im-ui-contact-section { display: block; padding: 12rpx 30rpx 6rpx; color: var(--pte-im-ui-muted); font-size: 20rpx; font-weight: 600; letter-spacing: 2rpx; }
+.pte-im-ui-contact-row { display: flex; align-items: center; min-height: 112rpx; padding: 16rpx 28rpx; border-bottom: 1px solid var(--pte-im-ui-divider, #DDE2F2); background-color: var(--pte-im-ui-background, #F7F9FF); box-sizing: border-box; }
 .pte-im-ui-contact-avatar { display: flex; align-items: center; justify-content: center; width: 72rpx; height: 72rpx; margin-right: 20rpx; border-radius: 36rpx; color: #FFFFFF; background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start, #335EF4), var(--pte-im-ui-outgoing-end, #7D40EF)); font-size: 28rpx; }
 .pte-im-ui-contact-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .pte-im-ui-contact-title { overflow: hidden; color: var(--pte-im-ui-text, #171C2E); font-size: 30rpx; text-overflow: ellipsis; white-space: nowrap; }

@@ -30,7 +30,10 @@ final class PteIMCoreDataStore: @unchecked Sendable {
     description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
     description.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
     let coordinator = NSPersistentStoreCoordinator(managedObjectModel: Self.model())
-    try coordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: description.url, options: description.options)
+    // Preview sessions deliberately use an in-memory store. Passing SQLite
+    // here ignored the selected description type and made the Demo's offline
+    // visual-preview route fail before any UIKit screen was presented.
+    try coordinator.addPersistentStore(ofType: description.type, configurationName: nil, at: description.url, options: description.options)
     context = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
     context.persistentStoreCoordinator = coordinator
   }

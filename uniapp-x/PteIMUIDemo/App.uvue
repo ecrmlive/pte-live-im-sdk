@@ -1,9 +1,11 @@
 <script lang="uts">
+import { PteIMUIDemoBaseConfig } from './PteIMUIDemoConfig.uts'
 export default {
-  onLaunch() { console.log('PteIMUIDemo uni-app x launched') }
+  // Domains are declared once for the app and never collected on the login page.
+  onLaunch() { console.log(`PteIMUIDemo started: ${PteIMUIDemoBaseConfig.apiDomain}`) }
 }
 </script>
 
 <style>
-page { background-color: #F6F8FB; }
+page { background-color: #F4F4FF; }
 </style>

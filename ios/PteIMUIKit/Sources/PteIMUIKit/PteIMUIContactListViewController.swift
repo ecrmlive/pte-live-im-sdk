@@ -27,24 +27,37 @@ open class PteIMUIContactListViewController: UITableViewController {
   public private(set) var hasMore = false
   private var nextCursor = ""
   private lazy var chrome = PteIMUIListChrome(title: title ?? "Contacts", showsQuickActions: true)
+  private let listener = PteIMListener()
+  private lazy var appearanceController = PteIMUIAppearanceController(client: client, viewController: self)
   private var filteredContacts: [PteIMUIContactPresentation] = []
+  private var contactSections: [(title: String?, values: [PteIMUIContactPresentation])] {
+    var orderedTitles: [String?] = []
+    var valuesByTitle: [String: [PteIMUIContactPresentation]] = [:]
+    for contact in filteredContacts {
+      let title = contact.sectionTitle
+      let key = title ?? "\u{0}"
+      if valuesByTitle[key] == nil { orderedTitles.append(title); valuesByTitle[key] = [] }
+      valuesByTitle[key, default: []].append(contact)
+    }
+    return orderedTitles.map { ($0, valuesByTitle[$0 ?? "\u{0}"] ?? []) }
+  }
 
   public init(client: PteIMSDK, mode: PteIMUIContactListMode = .friends, skin: PteIMUISkin = .default) {
     self.client = client; self.mode = mode; self.skin = skin; super.init(style: .plain)
     title = Self.title(for: mode, language: client.appearance.language)
   }
   required public init?(coder: NSCoder) { nil }
+  deinit { client.removeListener(listener) }
   open override func viewDidLoad() {
-    super.viewDidLoad(); tableView.register(PteIMUIContactCell.self, forCellReuseIdentifier: PteIMUIContactCell.contactReuseIdentifier); tableView.separatorStyle = .none
+    super.viewDidLoad(); registerContactCells(in: tableView); tableView.separatorStyle = .none
     tableView.tableHeaderView = chrome
     chrome.onSearchChanged = { [weak self] query in self?.filterContacts(query) }
     chrome.onAddTapped = { [weak self] in guard let self else { return }; self.onAddRequested?(self) }
-    chrome.onAppearanceTapped = { [weak self] in self?.toggleAppearance() }
-    chrome.onLanguageTapped = { [weak self] in self?.toggleLanguage() }
-    refreshControl = UIRefreshControl(); refreshControl?.addTarget(self, action: #selector(reloadContacts), for: .valueChanged); applySkin(); reloadContacts()
+    refreshControl = UIRefreshControl(); refreshControl?.addTarget(self, action: #selector(reloadContacts), for: .valueChanged); bindClient(); appearanceController.start(); applySkin(); reloadContacts()
   }
   open override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    appearanceController.refresh()
     navigationController?.setNavigationBarHidden(true, animated: animated)
   }
   open override func viewDidLayoutSubviews() {
@@ -92,32 +105,67 @@ open class PteIMUIContactListViewController: UITableViewController {
     }
   }
   open func configure(cell: PteIMUIContactCell, presentation: PteIMUIContactPresentation, at indexPath: IndexPath) { cell.configure(presentation: presentation, style: skin.list, palette: skin.theme.palette(for: traitCollection), icons: skin.icons) }
+  /** Override these hooks to replace contact cells while retaining paging, search and chat routing. */
+  open func registerContactCells(in tableView: UITableView) {
+    tableView.register(PteIMUIContactCell.self, forCellReuseIdentifier: PteIMUIContactCell.contactReuseIdentifier)
+  }
+  open func contactCellReuseIdentifier(for presentation: PteIMUIContactPresentation) -> String {
+    PteIMUIContactCell.contactReuseIdentifier
+  }
+  open func configure(cell: UITableViewCell, presentation: PteIMUIContactPresentation, at indexPath: IndexPath) {
+    (cell as? PteIMUIContactCell).map { configure(cell: $0, presentation: presentation, at: indexPath) }
+  }
   open func didTapAvatar(_ contact: PteIMUIContactPresentation) { onAvatarTapped?(contact, self) }
   open func didSelectContact(_ contact: PteIMUIContactPresentation) {
     if let onContactSelected { onContactSelected(contact, self); return }
     navigationController?.pushViewController(makeChatViewController(for: contact), animated: true)
   }
   open func makeChatViewController(for contact: PteIMUIContactPresentation) -> PteIMUIChatViewController {
-    PteIMUIChatViewController(client: client, conversationId: contact.identifier, title: contact.title, skin: skin)
+    let chat = PteIMUIChatViewController(client: client, conversationId: contact.identifier, title: contact.title, skin: skin)
+    chat.showsIncomingSenderNames = contact.kind == .group
+    return chat
+  }
+  private func bindClient() {
+    listener.onThemeModeChanged = { [weak self] _ in DispatchQueue.main.async { self?.appearanceController.refresh() } }
+    listener.onLanguageChanged = { [weak self] _ in DispatchQueue.main.async {
+      guard let self else { return }
+      self.title = Self.title(for: self.mode, language: self.client.resolvedLanguage())
+      self.applySkin()
+    } }
+    client.addListener(listener)
   }
   private func applySkin() {
     guard isViewLoaded else { return }
     let palette = skin.theme.palette(for: traitCollection)
-    tableView.backgroundColor = palette.backgroundColor; tableView.rowHeight = skin.list.rowHeight; refreshControl?.tintColor = palette.outgoingGradientStartColor
-    chrome.apply(palette: palette, title: title ?? "Contacts", language: client.appearance.language)
+    // UITableViewController uses the table itself behind the safe area. Keep
+    // that status-bar region identical to the fixed top navigation surface.
+    tableView.backgroundColor = palette.surfaceColor; tableView.rowHeight = skin.list.rowHeight; refreshControl?.tintColor = palette.outgoingGradientStartColor
+    chrome.apply(palette: palette, title: title ?? "Contacts", language: client.appearance.language, icons: skin.icons)
     layoutChromeIfNeeded(force: true)
     if filteredContacts.isEmpty { filteredContacts = contacts }
     tableView.reloadData()
   }
   open override func traitCollectionDidChange(_ previous: UITraitCollection?) { super.traitCollectionDidChange(previous); if previous?.userInterfaceStyle != traitCollection.userInterfaceStyle { applySkin() } }
-  open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredContacts.count }
+  open override func numberOfSections(in tableView: UITableView) -> Int { contactSections.count }
+  open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { contactSections[section].values.count }
   open override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-    let cell = tableView.dequeueReusableCell(withIdentifier: PteIMUIContactCell.contactReuseIdentifier, for: indexPath) as! PteIMUIContactCell
-    let contact = filteredContacts[indexPath.row]; configure(cell: cell, presentation: contact, at: indexPath); cell.onAvatarTapped = { [weak self] in self?.didTapAvatar(contact) }; return cell
+    let contact = contactSections[indexPath.section].values[indexPath.row]
+    let cell = tableView.dequeueReusableCell(withIdentifier: contactCellReuseIdentifier(for: contact), for: indexPath)
+    configure(cell: cell, presentation: contact, at: indexPath)
+    (cell as? PteIMUIContactCell)?.onAvatarTapped = { [weak self] in self?.didTapAvatar(contact) }
+    return cell
   }
-  open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didSelectContact(filteredContacts[indexPath.row]) }
+  open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didSelectContact(contactSections[indexPath.section].values[indexPath.row]) }
+  open override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { contactSections[section].title == nil ? 0.01 : 28 }
+  open override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+    guard let title = contactSections[section].title else { return nil }
+    let header = UIView(); header.backgroundColor = skin.theme.palette(for: traitCollection).backgroundColor
+    let label = UILabel(); label.translatesAutoresizingMaskIntoConstraints = false; label.text = title.uppercased(); label.font = .systemFont(ofSize: 10, weight: .semibold); label.textColor = skin.theme.palette(for: traitCollection).secondaryTextColor; label.setContentHuggingPriority(.required, for: .vertical); header.addSubview(label)
+    NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: skin.list.horizontalInset), label.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -skin.list.horizontalInset), label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -5)])
+    return header
+  }
   open override func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-    guard indexPath.row == filteredContacts.count - 1 else { return }
+    guard indexPath.section == contactSections.count - 1, indexPath.row == contactSections[indexPath.section].values.count - 1 else { return }
     loadNextPage()
   }
 
@@ -153,19 +201,12 @@ open class PteIMUIContactListViewController: UITableViewController {
     tableView.reloadData()
   }
   private func layoutChromeIfNeeded(force: Bool = false) {
-    let size = CGSize(width: tableView.bounds.width, height: 180)
+    // Uses the same 44pt title row as Conversations.  Only the optional
+    // search/action content beneath that row changes the header height.
+    let size = CGSize(width: tableView.bounds.width, height: chrome.preferredHeight)
     guard force || chrome.frame.size != size else { return }
     chrome.frame = CGRect(origin: .zero, size: size)
     tableView.tableHeaderView = chrome
-  }
-  private func toggleAppearance() {
-    let mode: PteIMThemeMode = traitCollection.userInterfaceStyle == .dark ? .light : .dark
-    client.updateAppearance(themeMode: mode, language: client.appearance.language)
-  }
-  private func toggleLanguage() {
-    let language: PteIMLanguage = client.appearance.language == .enUS ? .zhCN : .enUS
-    client.updateAppearance(themeMode: client.appearance.themeMode, language: language)
-    applySkin()
   }
   private static func title(for mode: PteIMUIContactListMode, language: PteIMLanguage) -> String {
     switch mode { case .friends: return PteIMUILocalization.value("好友", "Friends", language: language); case .follows: return PteIMUILocalization.value("关注", "Following", language: language); case .groups: return PteIMUILocalization.value("群组", "Groups", language: language); case .custom: return PteIMUILocalization.value("联系人", "Contacts", language: language) }
@@ -190,8 +231,16 @@ public struct PteIMUIContactItem {
 
 open class PteIMUIContactCell: PteIMUIConversationCell {
   public static let contactReuseIdentifier = "PteIMUIContactCell"
+  private let presenceDot = UIView()
+  public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+    super.init(style: style, reuseIdentifier: reuseIdentifier)
+    presenceDot.translatesAutoresizingMaskIntoConstraints = false; presenceDot.layer.cornerRadius = 5; presenceDot.isHidden = true; contentView.addSubview(presenceDot)
+    NSLayoutConstraint.activate([presenceDot.widthAnchor.constraint(equalToConstant: 10), presenceDot.heightAnchor.constraint(equalTo: presenceDot.widthAnchor), presenceDot.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor, constant: 1), presenceDot.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor, constant: 1)])
+  }
+  required public init?(coder: NSCoder) { nil }
   open func configure(presentation: PteIMUIContactPresentation, style: PteIMUIListStyle, palette: PteIMUIThemePalette, icons: PteIMUIIconProvider = PteIMUISystemIconProvider()) {
     super.configure(presentation: PteIMUIConversationPresentation(conversationId: presentation.identifier, kind: presentation.kind, title: presentation.title, subtitle: presentation.subtitle, avatarText: presentation.avatarText, avatarImage: presentation.avatarImage, avatarBackgroundColor: presentation.avatarBackgroundColor), style: style, palette: palette, icons: icons)
     timeLabel.isHidden = true; unreadLabel.isHidden = true
+    presenceDot.isHidden = !presentation.isOnline; presenceDot.backgroundColor = style.presenceOnlineColor; presenceDot.layer.borderColor = (style.presenceBorderColor ?? palette.backgroundColor).cgColor; presenceDot.layer.borderWidth = 2
   }
 }

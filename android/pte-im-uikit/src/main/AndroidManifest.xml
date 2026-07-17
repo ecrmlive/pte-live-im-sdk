@@ -1,1 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+  <queries>
+    <package android:name="com.autonavi.minimap" />
+    <package android:name="com.baidu.BaiduMap" />
+    <package android:name="com.tencent.map" />
+    <package android:name="com.google.android.apps.maps" />
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="geo" />
+    </intent>
+  </queries>
+  <application>
+    <activity android:name=".PteIMUIAttachmentPickerActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    <activity android:name=".PteIMUIMediaPreviewActivity" android:exported="false" android:theme="@android:style/Theme.Material.NoActionBar" />
+  </application>
+</manifest>

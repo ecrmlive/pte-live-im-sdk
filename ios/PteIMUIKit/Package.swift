@@ -9,6 +9,7 @@ let package = Package(
   targets: [.target(
     name: "PteIMUIKit",
     dependencies: [.product(name: "PteIMSDK", package: "PteIMSDK")],
-    path: "Sources/PteIMUIKit"
+    path: "Sources/PteIMUIKit",
+    resources: [.process("Resources")]
   )]
 )

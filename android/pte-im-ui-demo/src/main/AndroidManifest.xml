@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
-  <application android:allowBackup="false" android:label="PteIMUIDemo" android:theme="@style/PteDemoTheme" android:usesCleartextTraffic="false">
-    <activity android:name=".PteIMUIDemoActivity" android:exported="true">
+  <application android:name=".PteIMUIDemoApplication" android:allowBackup="false" android:icon="@drawable/pte_im_ui_app_icon" android:roundIcon="@drawable/pte_im_ui_app_icon" android:label="PteIMUIDemo" android:theme="@style/PteDemoTheme" android:usesCleartextTraffic="false">
+    <activity android:name=".PteIMUIDemoActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+    <activity android:name=".PteIMUIDemoSplashActivity" android:exported="true" android:theme="@style/PteDemoSplashTheme">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

@@ -14,16 +14,24 @@ data class PteIMBaseConfig(
   val cosDomain: String,
   val themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM,
   val language: PteIMLanguage = PteIMLanguage.SYSTEM,
+  /**
+   * Explicit development-only opt-in for a local IM stack. Production must
+   * keep this false, which enforces HTTPS/WSS for every configured endpoint.
+   */
+  val allowInsecureLocalhost: Boolean = false,
 ) {
   fun validate() {
     val api = Uri.parse(apiDomain)
-    require(api.scheme == "https" && !api.host.isNullOrBlank()) { "apiDomain must be an HTTPS origin" }
+    require((api.scheme == "https" || allowsInsecure(api, "http")) && !api.host.isNullOrBlank()) { "apiDomain must be an HTTPS origin" }
     require(api.path.isNullOrBlank() || api.path == "/") { "apiDomain must not contain a path" }
     val im = Uri.parse(imDomain)
-    require(im.scheme == "wss" && !im.host.isNullOrBlank() && im.path == "/ws") { "imDomain must be a WSS URL ending in /ws" }
+    require((im.scheme == "wss" || allowsInsecure(im, "ws")) && !im.host.isNullOrBlank() && im.path == "/ws") { "imDomain must be a WSS URL ending in /ws" }
     val cos = Uri.parse(cosDomain)
-    require(cos.scheme == "https" && !cos.host.isNullOrBlank()) { "cosDomain must be an HTTPS origin" }
+    require((cos.scheme == "https" || allowsInsecure(cos, "http")) && !cos.host.isNullOrBlank()) { "cosDomain must be an HTTPS origin" }
   }
+
+  private fun allowsInsecure(uri: Uri, expectedScheme: String): Boolean =
+    allowInsecureLocalhost && uri.scheme == expectedScheme && uri.host in setOf("localhost", "127.0.0.1", "10.0.2.2")
 }
 
 /** Account-scoped login input. Never log userSig. */

@@ -97,6 +97,8 @@ data class PteIMMessage(
   val conversationId: String,
   val type: PteIMMessageType,
   val senderId: String? = null,
+  /** Server-supplied group alias or current nickname; empty values deliberately fall back to [senderId]. */
+  val senderNickname: String? = null,
   val text: String? = null,
   val packageId: String? = null,
   val emojiId: String? = null,
@@ -134,6 +136,7 @@ data class PteIMMessage(
     put("clientMsgId", clientMsgId)
     put("conversationId", conversationId)
     senderId?.let { put("senderId", it) }
+    senderNickname?.let { put("senderNickname", it) }
     put("type", type.name.lowercase())
     put("createdAt", createdAt)
     put("content", contentJson())

@@ -1,6 +1,15 @@
 package com.ptelive.im.ui
 
+import android.content.Context
 import android.graphics.Color
+import com.ptelive.im.PteIMLanguage
+
+/** Resolves the SDK's system-language option at render time. */
+internal fun PteIMLanguage.isEnglish(context: Context): Boolean = when (this) {
+  PteIMLanguage.EN_US -> true
+  PteIMLanguage.ZH_CN -> false
+  PteIMLanguage.SYSTEM -> !context.resources.configuration.locales[0]?.language.equals("zh", ignoreCase = true)
+}
 
 /** Independently configurable visual colours for one PteIMUI appearance. */
 data class PteIMUIThemePalette(
@@ -18,6 +27,8 @@ data class PteIMUIThemePalette(
   val divider: Int,
   val panel: Int,
   val panelItem: Int,
+  /** Expanded composer field fill; intentionally separate from panel items. */
+  val composerInput: Int,
 )
 
 /**
@@ -29,12 +40,12 @@ data class PteIMUITheme(val light: PteIMUIThemePalette = blueVioletLight(), val 
     fun blueVioletLight() = PteIMUIThemePalette(
       Color.rgb(247, 249, 255), Color.WHITE, Color.WHITE, Color.rgb(237, 241, 253),
       Color.rgb(51, 94, 244), Color.rgb(125, 64, 239), Color.rgb(23, 28, 46), Color.rgb(102, 109, 132),
-      Color.rgb(23, 28, 46), Color.WHITE, Color.rgb(55, 62, 90), Color.rgb(221, 226, 242), Color.rgb(244, 246, 255), Color.WHITE,
+      Color.rgb(23, 28, 46), Color.WHITE, Color.rgb(55, 62, 90), Color.rgb(221, 226, 242), Color.rgb(244, 246, 255), Color.WHITE, Color.rgb(243, 243, 254),
     )
     fun blueVioletDark() = PteIMUIThemePalette(
       Color.rgb(14, 17, 28), Color.rgb(20, 24, 39), Color.rgb(24, 29, 47), Color.rgb(37, 43, 67),
       Color.rgb(68, 103, 255), Color.rgb(143, 76, 255), Color.rgb(239, 242, 255), Color.rgb(164, 173, 203),
-      Color.rgb(239, 242, 255), Color.WHITE, Color.rgb(204, 211, 242), Color.rgb(49, 56, 84), Color.rgb(25, 30, 48), Color.rgb(38, 45, 70),
+      Color.rgb(239, 242, 255), Color.WHITE, Color.rgb(204, 211, 242), Color.rgb(49, 56, 84), Color.rgb(25, 30, 48), Color.rgb(38, 45, 70), Color.rgb(31, 30, 66),
     )
   }
 }

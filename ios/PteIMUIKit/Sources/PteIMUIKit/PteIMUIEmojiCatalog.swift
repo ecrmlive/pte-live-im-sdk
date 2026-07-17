@@ -27,6 +27,21 @@ public enum PteIMUIEmojiCategory: CaseIterable, Hashable, Sendable {
     }
     return PteIMUILocalization.value(zh, en, language: language)
   }
+
+  /** Compact source-compatible tab artwork; the accessible label remains localised. */
+  public var symbol: String {
+    switch self {
+    case .smileysAndEmotion: return "😀"
+    case .peopleAndBody: return "👋"
+    case .animalsAndNature: return "🐶"
+    case .foodAndDrink: return "🍎"
+    case .travelAndPlaces: return "✈️"
+    case .activities: return "⚽️"
+    case .objects: return "💡"
+    case .symbols: return "🔣"
+    case .flags: return "🏁"
+    }
+  }
 }
 
 public struct PteIMUIEmojiItem: Hashable, Sendable {
@@ -40,7 +55,19 @@ public enum PteIMUIEmojiCatalog {
   public static func items(in category: PteIMUIEmojiCategory) -> [PteIMUIEmojiItem] {
     let scalars: [String]
     switch category {
-    case .smileysAndEmotion: scalars = emoji(in: [0x1F600...0x1F64F, 0x1F900...0x1F9FF])
+    case .smileysAndEmotion:
+      // Keep iOS and HarmonyOS on the same built-in expression pack and in
+      // the exact same order. HarmonyOS renders these Unicode values natively
+      // (rather than shipping raster emoji artwork), so the message IDs remain
+      // portable between the two clients as well.
+      scalars = [
+        "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
+        "☺", "😃", "😉", "😊", "😇", "😍", "😘", "😋",
+        "😗", "😙", "😚", "😛", "😜", "😝", "😏", "😐",
+        "😑", "😶", "🙄", "😬", "🤔", "😥", "😪", "😴",
+        "😭", "😠", "😡", "😎", "🤓", "😷", "🤒", "🤕",
+        "😵", "🤠", "🤡", "🤥", "🤤", "😱", "😨", "😰"
+      ]
     case .peopleAndBody: scalars = emoji(in: [0x1F466...0x1F487, 0x1F575...0x1F5FF, 0x1FAC0...0x1FAFF])
     case .animalsAndNature: scalars = emoji(in: [0x1F400...0x1F43E, 0x1F980...0x1F9A2, 0x1F300...0x1F33F])
     case .foodAndDrink: scalars = emoji(in: [0x1F345...0x1F37F, 0x1F950...0x1F96B])
