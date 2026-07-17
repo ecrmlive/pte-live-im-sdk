@@ -18,6 +18,7 @@
 		C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */ = {isa = PBXBuildFile; fileRef = B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */; };
 		FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */; };
 		A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */; };
+		C2F6B3D7A1E84B9C8D2F4A61 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */; };
 		FF94628F820E023EC4935D1A /* PteIMUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AD7ABEDB728809768AEC0EA5 /* PteIMUIKit */; };
 /* End PBXBuildFile section */
 
@@ -34,6 +35,7 @@
 		A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoMeViewController.swift; sourceTree = "<group>"; };
 		B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchMark.png; sourceTree = "<group>"; };
 		BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILogo.png; sourceTree = "<group>"; };
+		C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DB0CF526BA749A1DBCC095AF /* PteIMUIKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PteIMUIKit; path = ../PteIMUIKit; sourceTree = SOURCE_ROOT; };
 		E7A42D4B3F84D4B91C3A001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -55,6 +57,7 @@
 			isa = PBXGroup;
 			children = (
 				E7A42D4B3F84D4B91C3A001 /* Info.plist */,
+				C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */,
 				36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */,
 				B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */,
 				A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */,
@@ -166,6 +169,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C2F6B3D7A1E84B9C8D2F4A61 /* Assets.xcassets in Resources */,
 				3D37E50BF15004FF4B9E549C /* PteIMUILaunchBackground.png in Resources */,
 				C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */,
 				768AA81C21F96D8C8AC1747A /* PteIMUILaunchScreen.storyboard in Resources */,
