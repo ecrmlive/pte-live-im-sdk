@@ -137,6 +137,10 @@ open class PteIMUIMessageCell: UITableViewCell {
     bubble.layer.cornerRadius = style.bubbleCornerRadius
     updateBubbleContentWidth()
     bubble.outgoingGradient.isHidden = !outgoing
+    // Cells are reused with different text widths. Clear any in-flight layer
+    // animation before applying the new gradient so the background never
+    // appears to expand horizontally when a conversation first opens.
+    bubble.outgoingGradient.removeAllAnimations()
     bubble.outgoingGradient.colors = [palette.outgoingGradientStartColor.cgColor, palette.outgoingGradientEndColor.cgColor]
     senderNameLabel.text = senderName
     senderNameLabel.textColor = style.messageMetaColor ?? palette.secondaryTextColor
@@ -224,6 +228,16 @@ private final class PteIMUIGradientBubbleView: UIView {
 
   override init(frame: CGRect) {
     super.init(frame: frame)
+    // CAGradientLayer animates bounds/position changes by default. A table
+    // view may lay out a reused cell twice while it is entering the screen;
+    // disable those implicit animations to keep the bubble background in sync
+    // with its rounded UIKit container from the first frame.
+    outgoingGradient.actions = [
+      "bounds": NSNull(),
+      "position": NSNull(),
+      "cornerRadius": NSNull(),
+      "colors": NSNull()
+    ]
     layer.insertSublayer(outgoingGradient, at: 0)
   }
 
@@ -231,7 +245,11 @@ private final class PteIMUIGradientBubbleView: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
     outgoingGradient.frame = bounds
+    outgoingGradient.cornerRadius = layer.cornerRadius
+    CATransaction.commit()
   }
 }
 
