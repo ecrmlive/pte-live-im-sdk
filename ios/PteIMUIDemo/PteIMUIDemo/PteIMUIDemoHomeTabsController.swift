@@ -9,14 +9,15 @@ import PteIMUIKit
 final class PteIMUIDemoHomeTabsController: UITabBarController {
   private let client: PteIMSDK
   private let onLogout: () -> Void
+  private let onAddDemoFriend: ((UIViewController) -> Void)?
   private let isPreview: Bool
   private let appearanceListener = PteIMListener()
   #if DEBUG
   private var didOpenPreviewChat = false
   #endif
 
-  init(client: PteIMSDK, isPreview: Bool = false, onLogout: @escaping () -> Void) {
-    self.client = client; self.isPreview = isPreview; self.onLogout = onLogout
+  init(client: PteIMSDK, isPreview: Bool = false, onLogout: @escaping () -> Void, onAddDemoFriend: ((UIViewController) -> Void)? = nil) {
+    self.client = client; self.isPreview = isPreview; self.onLogout = onLogout; self.onAddDemoFriend = onAddDemoFriend
     super.init(nibName: nil, bundle: nil)
   }
   required init?(coder: NSCoder) { nil }
@@ -62,7 +63,11 @@ final class PteIMUIDemoHomeTabsController: UITabBarController {
       ]
     }
     contacts.onContactSelected = { [weak self] item, controller in self?.openChat(conversationId: item.identifier, title: item.title, isGroup: item.kind == .group, presenter: controller) }
-    contacts.onAddRequested = { [weak self] controller in self?.showBusinessNotice(from: controller, title: "添加好友 / 发起群聊") }
+    contacts.onAddRequested = { [weak self] controller in
+      guard let self else { return }
+      if let onAddDemoFriend = self.onAddDemoFriend { onAddDemoFriend(controller) }
+      else { self.showBusinessNotice(from: controller, title: "添加好友 / 发起群聊") }
+    }
 
     let me = PteIMUIDemoMeViewController(client: client, onLogout: onLogout)
     let conversationNav = UINavigationController(rootViewController: conversations)

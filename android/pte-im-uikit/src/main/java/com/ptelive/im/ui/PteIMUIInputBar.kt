@@ -205,6 +205,22 @@ open class PteIMUIInputBar(context: Context, private var palette: PteIMUIThemePa
     refreshPanel()
   }
   fun openActionPanel() { togglePanel(Panel.MORE) }
+  /** Opens the software keyboard for a quote or other chat-level text action. */
+  fun focusTextInput() {
+    onInteraction?.invoke()
+    if (voiceMode) {
+      voiceMode = false
+      recording = false
+      draft.visibility = VISIBLE
+      holdToTalk.visibility = GONE
+      applyIconState()
+    }
+    shownPanel = null
+    keyboardActive = true
+    refreshPanel()
+    draft.requestFocus()
+    showKeyboard()
+  }
   /** Hides the IME and expansion panels before a chat-level transient surface opens. */
   fun closeTransientInput() {
     keyboardActive = false

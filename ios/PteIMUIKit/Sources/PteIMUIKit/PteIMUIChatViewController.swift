@@ -3,7 +3,6 @@ import PhotosUI
 import UniformTypeIdentifiers
 import CoreLocation
 import MapKit
-import AVKit
 import PteIMSDK
 
 public enum PteIMUIAction: CaseIterable, Hashable {
@@ -30,6 +29,21 @@ public struct PteIMUIReaction: Hashable, Sendable {
   public init(emoji: String, count: Int) { self.emoji = emoji; self.count = max(0, count) }
 }
 
+/**
+ A host-defined business message. Gift, red-packet and order map directly to
+ Core message types; `custom` deliberately stays a host callback because the
+ wire protocol must be agreed by the integrating application.
+ */
+public struct PteIMUICustomMessage: Sendable {
+  public enum Kind: Sendable { case gift, redPacket, order, custom }
+  public let kind: Kind
+  public let content: PteIMBusinessContent
+  public let payload: String?
+  public init(kind: Kind, content: PteIMBusinessContent, payload: String? = nil) {
+    self.kind = kind; self.content = content; self.payload = payload
+  }
+}
+
 /** A UIKit conversation screen. The host supplies attachment, location, and business payloads through [onActionRequested]. */
 @MainActor
 open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, PteIMUIInputBarDelegate, PHPickerViewControllerDelegate, UIDocumentPickerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, @preconcurrency CLLocationManagerDelegate {
@@ -46,6 +60,15 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public var onAvatarTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var onMessageTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var onMessageAction: ((PteIMUIMessageAction, PteIMMessage, PteIMUIChatViewController) -> Void)?
+  /** Called after PteIMUIKit has retried a failed message or accepted a retry request. */
+  public var onMessageRetryRequested: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  /** Server-authoritative recall/delete remains business-owned; UIKit updates its local timeline immediately. */
+  public var onMessageRevoked: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  public var onMessageDeleted: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  /** Receives the target message for a quote before the draft is sent. */
+  public var onQuoteRequested: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
+  /** Custom business payloads are intentionally emitted to the integrator instead of inventing an unsupported Core message type. */
+  public var onCustomMessageRequested: ((PteIMUICustomMessage, PteIMUIChatViewController) -> Void)?
   /** Optional host-owned navigation subtitle, e.g. an online state or group member count. */
   public var navigationSubtitleText: String?
   /** Optional host-owned group/avatar presentation for the compact 44pt chat navigation bar. */
@@ -88,6 +111,9 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   // back to its repository/network layer.
   private var reactionDeltas: [String: [String: Int]] = [:]
   private var locallySelectedReactionKeys = Set<String>()
+  private var reactionTarget: PteIMMessage?
+  private var quotedMessage: PteIMMessage?
+  private var uploadRetrySources: [String: (PteIMUIAction, URL)] = [:]
   private var messageSections: [[PteIMMessage]] {
     let calendar = Calendar.current
     let grouped = Dictionary(grouping: messages) { calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0.createdAt) / 1000)) }
@@ -144,7 +170,15 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     tableView.layoutIfNeeded()
     scrollToLatest()
   }
-  public func sendText(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; append(message: client.sendText(conversationId: conversationId, text: text)); inputBar.clearText() }
+  public func sendText(_ text: String) {
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    // The current IM wire format carries plain Unicode text, which naturally
+    // supports mixed text and emoji. Quoting remains host-renderable metadata
+    // until the server quote contract is enabled.
+    append(message: client.sendText(conversationId: conversationId, text: text))
+    quotedMessage = nil
+    inputBar.clearText()
+  }
   public func sendEmoji(packageId: String = "default", emojiId: String) { append(message: client.sendEmoji(conversationId: conversationId, packageId: packageId, emojiId: emojiId)) }
   public func sendImage(_ media: PteIMMedia) { append(message: client.sendImage(conversationId: conversationId, media: media)) }
   public func sendVideo(_ media: PteIMMedia) { append(message: client.sendVideo(conversationId: conversationId, media: media)) }
@@ -154,6 +188,33 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public func sendRedPacket(_ content: PteIMBusinessContent) { append(message: client.sendRedPacket(conversationId: conversationId, content: content)) }
   public func sendOrder(_ content: PteIMBusinessContent) { append(message: client.sendOrder(conversationId: conversationId, content: content)) }
   public func sendFile(_ media: PteIMMedia) { append(message: client.sendFile(conversationId: conversationId, media: media)) }
+  /** Uses Core's durable COS upload queue and keeps the local file for an explicit retry. */
+  public func uploadAndSendImage(fileURL: URL) {
+    let message = client.uploadAndSendImage(conversationId: conversationId, fileURL: fileURL)
+    uploadRetrySources[message.clientMsgId] = (.image, fileURL)
+    append(message: message)
+  }
+  /** Uses Core's durable COS upload queue and keeps the local file for an explicit retry. */
+  public func uploadAndSendVideo(fileURL: URL) {
+    let message = client.uploadAndSendVideo(conversationId: conversationId, fileURL: fileURL)
+    uploadRetrySources[message.clientMsgId] = (.video, fileURL)
+    append(message: message)
+  }
+  /** Uses Core's durable COS upload queue and keeps the local file for an explicit retry. */
+  public func uploadAndSendFile(fileURL: URL) {
+    let message = client.uploadAndSendFile(conversationId: conversationId, fileURL: fileURL)
+    uploadRetrySources[message.clientMsgId] = (.file, fileURL)
+    append(message: message)
+  }
+  /** Business messages with supported wire types are sent through Core. Custom payloads are emitted to the host. */
+  public func sendCustomMessage(_ message: PteIMUICustomMessage) {
+    switch message.kind {
+    case .gift: sendGift(message.content)
+    case .redPacket: sendRedPacket(message.content)
+    case .order: sendOrder(message.content)
+    case .custom: onCustomMessageRequested?(message, self)
+    }
+  }
   public func openEmojiPanel() { inputBar.openEmojiPanel() }
   public func openMorePanel() { inputBar.openMorePanel() }
   public func closeInputPanel() { inputBar.closePanel() }
@@ -233,6 +294,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     switch message.type {
     case .image: presentImagePreview(for: message)
     case .video: presentVideoPlayer(for: message)
+    case .file: presentFilePreview(for: message)
     case .location: presentMapDestinations(for: message)
     default: break
     }
@@ -263,6 +325,13 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     composerBar.addSubview(inputBar)
     NSLayoutConstraint.activate([inputBar.leadingAnchor.constraint(equalTo: composerBar.leadingAnchor), inputBar.trailingAnchor.constraint(equalTo: composerBar.trailingAnchor), inputBar.topAnchor.constraint(equalTo: composerBar.topAnchor), inputBar.bottomAnchor.constraint(equalTo: composerBar.bottomAnchor)])
     inputBar.delegate = self
+    inputBar.onEmojiSelected = { [weak self] emoji in
+      guard let self, let target = self.reactionTarget else { return false }
+      self.reactionTarget = nil
+      self.toggleReaction(emoji, for: target)
+      self.inputBar.closePanel()
+      return true
+    }
     chatNavigationBar.onBack = { [weak self] in self?.backTapped() }
     chatNavigationBar.onMore = { [weak self] in self?.moreTapped() }
     locationManager.delegate = self
@@ -352,11 +421,14 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
       language: language,
       actions: availableLongPressActions(for: message),
       onReaction: { [weak self] emoji in self?.toggleReaction(emoji, for: message) },
-      onAddReaction: { [weak self] in self?.inputBar.openEmojiPanel() }
+      onAddReaction: { [weak self] in
+        guard let self else { return }
+        self.reactionTarget = message
+        self.inputBar.openEmojiPanel()
+      }
     ) { [weak self] action in
       guard let self else { return }
-      if action == .copy { UIPasteboard.general.string = PteIMUIMessageText.render(message, language: self.language) }
-      self.onMessageAction?(action, message, self)
+      self.performMessageAction(action, for: message)
     }
   }
 
@@ -384,6 +456,54 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     onReactionToggled?(emoji, message, !wasSelected, self)
   }
 
+  /**
+   Executes UIKit-owned operations immediately and then emits the same action
+   to the host for a server-side audit/recall/delete implementation.
+   */
+  open func performMessageAction(_ action: PteIMUIMessageAction, for message: PteIMMessage) {
+    switch action {
+    case .quote:
+      quotedMessage = message
+      // Quote context is made visible to a host through the callback. The
+      // server quote format is intentionally not guessed by the SDK.
+      onQuoteRequested?(message, self)
+    case .copy:
+      UIPasteboard.general.string = PteIMUIMessageText.render(message, language: language)
+    case .delete:
+      removeMessageLocally(message)
+      onMessageDeleted?(message, self)
+    case .revoke:
+      removeMessageLocally(message)
+      onMessageRevoked?(message, self)
+    }
+    onMessageAction?(action, message, self)
+  }
+
+  /** Retries an upload from its retained sandbox file, or requeues a text/business message through Core. */
+  open func retryMessage(_ message: PteIMMessage) {
+    if let source = uploadRetrySources.removeValue(forKey: message.clientMsgId) {
+      removeMessageLocally(message, scroll: false)
+      switch source.0 {
+      case .image: uploadAndSendImage(fileURL: source.1)
+      case .video: uploadAndSendVideo(fileURL: source.1)
+      case .file: uploadAndSendFile(fileURL: source.1)
+      default: break
+      }
+    } else {
+      append(message: client.retry(message: message))
+    }
+    onMessageRetryRequested?(message, self)
+  }
+
+  private func removeMessageLocally(_ message: PteIMMessage, scroll: Bool = true) {
+    messages.removeAll { $0.clientMsgId == message.clientMsgId }
+    reactionDeltas[message.clientMsgId] = nil
+    locallySelectedReactionKeys = locallySelectedReactionKeys.filter { !$0.hasPrefix("\(message.clientMsgId)|") }
+    guard isViewLoaded else { return }
+    tableView.reloadData()
+    if scroll { scrollToLatest() }
+  }
+
   private func indexPath(for message: PteIMMessage) -> IndexPath? {
     for section in messageSections.indices {
       if let row = messageSections[section].firstIndex(where: { $0.clientMsgId == message.clientMsgId }) {
@@ -397,7 +517,12 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   /** Default attachment/emoji route. Subclasses can override a single interaction boundary. */
   open func inputBar(_ inputBar: PteIMUIInputBar, didSelect selection: PteIMUIInputBarAction) {
     switch selection {
-    case let .emoji(packageId, emojiId): sendEmoji(packageId: packageId, emojiId: emojiId)
+    case let .emoji(_, emojiId):
+      if let target = reactionTarget {
+        reactionTarget = nil
+        toggleReaction(emojiId, for: target)
+        inputBar.closePanel()
+      }
     case let .action(action):
       switch action {
       case .image, .camera, .video, .location, .file: presentBuiltInAttachment(action)
@@ -425,18 +550,21 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
       present(picker, animated: true)
     case .camera:
       guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
-      let picker = UIImagePickerController(); picker.sourceType = .camera; picker.delegate = self
+      let picker = UIImagePickerController()
+      picker.sourceType = .camera
+      picker.delegate = self
+      // Keep the built-in camera route useful for both supported media kinds.
+      // Apps can still override this action to supply a custom capture surface.
+      picker.mediaTypes = [UTType.image.identifier, UTType.movie.identifier]
       present(picker, animated: true)
     case .file:
       let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .pdf, .image, .movie], asCopy: true)
       picker.delegate = self; picker.allowsMultipleSelection = false
       present(picker, animated: true)
     case .location:
-      switch locationManager.authorizationStatus {
-      case .authorizedAlways, .authorizedWhenInUse: locationManager.requestLocation()
-      case .notDetermined: locationManager.requestWhenInUseAuthorization()
-      default: break
-      }
+      let picker = makeLocationPicker()
+      picker.onLocationSelected = { [weak self] location in self?.sendLocation(location) }
+      present(UINavigationController(rootViewController: picker), animated: true)
     case .gift, .redPacket, .order, .voice: break
     }
   }
@@ -447,27 +575,33 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     if result.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
       result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { [weak self] url, _ in
         guard let self, let url, let local = Self.persistMedia(at: url, preferredName: "video.mov") else { return }
-        DispatchQueue.main.async { self.sendVideo(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "video/quicktime")) }
+        DispatchQueue.main.async { self.uploadAndSendVideo(fileURL: local) }
       }
     } else if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
       result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] image, _ in
         guard let self, let image = image as? UIImage, let local = Self.persist(image: image) else { return }
-        DispatchQueue.main.async { self.sendImage(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "image/jpeg")) }
+        DispatchQueue.main.async { self.uploadAndSendImage(fileURL: local) }
       }
     }
   }
 
   public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
     picker.dismiss(animated: true)
+    if let type = info[.mediaType] as? String,
+       type == UTType.movie.identifier,
+       let source = info[.mediaURL] as? URL,
+       let local = Self.persistMedia(at: source, preferredName: source.lastPathComponent) {
+      uploadAndSendVideo(fileURL: local)
+      return
+    }
     guard let image = info[.originalImage] as? UIImage, let local = Self.persist(image: image) else { return }
-    sendImage(PteIMMedia(url: local.absoluteString, fileName: local.lastPathComponent, mimeType: "image/jpeg"))
+    uploadAndSendImage(fileURL: local)
   }
   public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
 
   public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
     guard let source = urls.first, let local = Self.persistMedia(at: source, preferredName: source.lastPathComponent) else { return }
-    let values = try? local.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
-    sendFile(PteIMMedia(url: local.absoluteString, sizeBytes: values?.fileSize.map(Int64.init), fileName: local.lastPathComponent, mimeType: values?.contentType?.preferredMIMEType))
+    uploadAndSendFile(fileURL: local)
   }
   public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
     if manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse { manager.requestLocation() }
@@ -480,39 +614,53 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
 
   // MARK: Built-in message interactions
 
-  private func presentImagePreview(for message: PteIMMessage) {
+  /** Factory hook for an inheritable full-screen image preview controller. */
+  open func makeImagePreviewController(for message: PteIMMessage) -> PteIMUIImagePreviewController {
     let url = usableMediaURL(message.media?.url)
     let fallback = skin.icons.image(for: .messageImagePreview, traitCollection: traitCollection)
       ?? PteIMUIResources.image(named: "PteIMUIChatPreviewImage", traitCollection: traitCollection)
-    let preview = PteIMUIMediaPreviewController(
+    return PteIMUIImagePreviewController(
       image: fallback,
       remoteImageURL: url,
       title: message.media?.fileName ?? PteIMUILocalization.value("图片预览", "Image preview", language: language)
     )
+  }
+  /** Tap closes the image preview; long press exports it to Photos. */
+  open func presentImagePreview(for message: PteIMMessage) {
+    let preview = makeImagePreviewController(for: message)
     preview.modalPresentationStyle = .fullScreen
     present(preview, animated: true)
   }
 
-  private func presentVideoPlayer(for message: PteIMMessage) {
-    guard let url = usableMediaURL(message.media?.url) else {
-      let preview = PteIMUIMediaPreviewController(
-        image: skin.icons.image(for: .messageImagePreview, traitCollection: traitCollection),
-        remoteImageURL: nil,
-        title: message.media?.fileName ?? PteIMUILocalization.value("视频", "Video", language: language),
-        showsPlayAffordance: true
-      )
-      preview.modalPresentationStyle = .fullScreen
-      present(preview, animated: true)
-      return
-    }
-    let player = AVPlayer(url: url)
-    let controller = AVPlayerViewController()
-    controller.player = player
+  /** Factory hook for an inheritable video player with explicit play/pause, close and progress controls. */
+  open func makeVideoPreviewController(for message: PteIMMessage) -> PteIMUIVideoPreviewController {
+    PteIMUIVideoPreviewController(
+      videoURL: usableMediaURL(message.media?.url),
+      placeholderImage: skin.icons.image(for: .messageImagePreview, traitCollection: traitCollection),
+      title: message.media?.fileName ?? PteIMUILocalization.value("视频", "Video", language: language)
+    )
+  }
+  open func presentVideoPlayer(for message: PteIMMessage) {
+    let controller = makeVideoPreviewController(for: message)
     controller.modalPresentationStyle = .fullScreen
-    present(controller, animated: true) { player.play() }
+    present(controller, animated: true)
   }
 
-  private func presentMapDestinations(for message: PteIMMessage) {
+  /** Factory hook for a QuickLook-backed file preview/export page. */
+  open func makeFilePreviewController(for message: PteIMMessage) -> PteIMUIFilePreviewController? {
+    guard let url = usableMediaURL(message.media?.url) else { return nil }
+    return PteIMUIFilePreviewController(fileURL: url, title: message.media?.fileName ?? url.lastPathComponent)
+  }
+  open func presentFilePreview(for message: PteIMMessage) {
+    guard let controller = makeFilePreviewController(for: message) else { return }
+    present(controller, animated: true)
+  }
+  /** Factory hook for the built-in map picker used by the location action. */
+  open func makeLocationPicker() -> PteIMUILocationPickerViewController {
+    PteIMUILocationPickerViewController(language: language)
+  }
+  /** Shows only installed third-party map apps, followed by Apple Maps. */
+  open func presentMapDestinations(for message: PteIMMessage) {
     guard let location = message.location else { return }
     let apps = PteIMUIMapDestination.installedApps(for: location)
     let title = location.name
@@ -556,7 +704,12 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     configureAvatarAction(on: cell, message: message)
     return cell
   }
-  open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { tableView.deselectRow(at: indexPath, animated: true); didTapMessage(messageSections[indexPath.section][indexPath.row]) }
+  open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    tableView.deselectRow(at: indexPath, animated: true)
+    let message = messageSections[indexPath.section][indexPath.row]
+    if message.state == .failed, isOutgoing(message) { retryMessage(message) }
+    else { didTapMessage(message) }
+  }
   public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { dismissInputPresentation() }
   open func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 34 }
   open func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
@@ -637,64 +790,6 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
       return nil
     }
     return components.url
-  }
-}
-
-@MainActor private final class PteIMUIMediaPreviewController: UIViewController {
-  private let imageView = UIImageView()
-  private let remoteImageURL: URL?
-  private let showsPlayAffordance: Bool
-
-  init(image: UIImage?, remoteImageURL: URL?, title: String, showsPlayAffordance: Bool = false) {
-    self.remoteImageURL = remoteImageURL
-    self.showsPlayAffordance = showsPlayAffordance
-    super.init(nibName: nil, bundle: nil)
-    self.imageView.image = image
-    self.title = title
-  }
-  required init?(coder: NSCoder) { nil }
-
-  override func viewDidLoad() {
-    super.viewDidLoad()
-    view.backgroundColor = .black
-    imageView.translatesAutoresizingMaskIntoConstraints = false
-    imageView.contentMode = .scaleAspectFit
-    imageView.clipsToBounds = true
-    view.addSubview(imageView)
-    NSLayoutConstraint.activate([
-      imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-      imageView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
-    ])
-    let close = UIButton(type: .system)
-    close.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 28)), for: .normal)
-    close.tintColor = .white
-    close.translatesAutoresizingMaskIntoConstraints = false
-    close.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
-    view.addSubview(close)
-    NSLayoutConstraint.activate([
-      close.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-      close.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-      close.widthAnchor.constraint(equalToConstant: 44),
-      close.heightAnchor.constraint(equalToConstant: 44)
-    ])
-    if showsPlayAffordance {
-      let play = UIImageView(image: UIImage(systemName: "play.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 58, weight: .medium)))
-      play.tintColor = .white
-      play.translatesAutoresizingMaskIntoConstraints = false
-      view.addSubview(play)
-      NSLayoutConstraint.activate([play.centerXAnchor.constraint(equalTo: view.centerXAnchor), play.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
-    }
-    loadRemoteImageIfNeeded()
-  }
-
-  private func loadRemoteImageIfNeeded() {
-    guard let remoteImageURL, remoteImageURL.scheme == "https" || remoteImageURL.scheme == "http" else { return }
-    URLSession.shared.dataTask(with: remoteImageURL) { [weak self] data, _, _ in
-      guard let image = data.flatMap(UIImage.init(data:)) else { return }
-      Task { @MainActor [weak self] in self?.imageView.image = image }
-    }.resume()
   }
 }
 

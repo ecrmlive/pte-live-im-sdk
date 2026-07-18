@@ -43,19 +43,36 @@ public struct PteIMBaseConfig: Sendable {
   public let apiDomain: URL
   public let imDomain: URL
   public let cosDomain: URL
+  /** Optional HTTPS Commerce extension origin. It reuses this IM session's UserSig. */
+  public let commerceDomain: URL?
   public let themeMode: PteIMThemeMode
   public let language: PteIMLanguage
-  public init(apiDomain: String, imDomain: String, cosDomain: String, themeMode: PteIMThemeMode = .system, language: PteIMLanguage = .system) throws {
-    guard let api = URL(string: apiDomain), api.scheme == "https", api.host != nil,
+  /** Explicit development-only opt-in for a local Docker stack. */
+  public let allowInsecureLocalhost: Bool
+
+  public init(apiDomain: String, imDomain: String, cosDomain: String, commerceDomain: String? = nil, themeMode: PteIMThemeMode = .system, language: PteIMLanguage = .system, allowInsecureLocalhost: Bool = false) throws {
+    func allowsInsecureLocalhost(_ url: URL, scheme: String) -> Bool {
+      guard allowInsecureLocalhost, url.scheme == scheme, let host = url.host?.lowercased() else { return false }
+      return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
+    guard let api = URL(string: apiDomain), (api.scheme == "https" || allowsInsecureLocalhost(api, scheme: "http")), api.host != nil,
           api.path.isEmpty || api.path == "/" else { throw PteIMError.invalidApiDomain }
-    guard let im = URL(string: imDomain), im.scheme == "wss", im.host != nil, im.path == "/ws" else {
+    guard let im = URL(string: imDomain), (im.scheme == "wss" || allowsInsecureLocalhost(im, scheme: "ws")), im.host != nil, im.path == "/ws" else {
       throw PteIMError.invalidImDomain
     }
-    guard let cos = URL(string: cosDomain), cos.scheme == "https", cos.host != nil else { throw PteIMError.invalidApiDomain }
+    guard let cos = URL(string: cosDomain), (cos.scheme == "https" || allowsInsecureLocalhost(cos, scheme: "http")), cos.host != nil else { throw PteIMError.invalidApiDomain }
+    let commerce: URL?
+    if let commerceDomain, !commerceDomain.isEmpty {
+      guard let value = URL(string: commerceDomain), (value.scheme == "https" || allowsInsecureLocalhost(value, scheme: "http")), value.host != nil,
+            value.path.isEmpty || value.path == "/" else { throw PteIMError.invalidApiDomain }
+      commerce = value
+    } else { commerce = nil }
     self.apiDomain = api
     self.imDomain = im
     self.cosDomain = cos
-    self.themeMode = themeMode; self.language = language
+    self.commerceDomain = commerce
+    self.themeMode = themeMode; self.language = language; self.allowInsecureLocalhost = allowInsecureLocalhost
   }
 }
 
@@ -73,13 +90,13 @@ public struct PteIMSessionConfig: Sendable {
   public let base: PteIMBaseConfig
   public var login: PteIMLoginConfig
   public init(base: PteIMBaseConfig, login: PteIMLoginConfig) { self.base = base; self.login = login }
-  var apiDomain: URL { base.apiDomain }; var imDomain: URL { base.imDomain }; var cosDomain: URL { base.cosDomain }
+  var apiDomain: URL { base.apiDomain }; var imDomain: URL { base.imDomain }; var cosDomain: URL { base.cosDomain }; var commerceDomain: URL? { base.commerceDomain }
   var sdkAppId: Int64 { login.sdkAppId }; var userId: String { login.userId }
   var userSig: String { get { login.userSig } set { login.userSig = newValue } }
   var storeKey: String { "\(base.apiDomain.absoluteString.lowercased())|\(base.imDomain.absoluteString.lowercased())|\(base.cosDomain.absoluteString.lowercased())|\(login.sdkAppId)|\(login.userId)" }
 }
 
-public enum PteIMError: Error { case invalidApiDomain, invalidImDomain, invalidCredentials, invalidConversationId, disconnected, invalidResponse }
+public enum PteIMError: Error { case invalidApiDomain, invalidImDomain, invalidCredentials, invalidConversationId, disconnected, invalidResponse, commerceNotConfigured }
 public enum PteIMMessageType: String, Codable, Sendable { case text, emoji, image, video, voice, location, gift, red_packet, order, file }
 public enum PteIMSendState: String, Codable, Sendable { case pending, uploading, sent, failed }
 /** Provider/runtime selected by the host application when registering a push token. */

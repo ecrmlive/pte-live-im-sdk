@@ -57,6 +57,17 @@ data class PteIMMedia(
 data class PteIMVoice(val url: String, val durationMs: Long, val waveform: String? = null, val sizeBytes: Long? = null)
 data class PteIMLocation(val latitude: Double, val longitude: Double, val name: String, val address: String? = null)
 data class PteIMBusinessContent(val businessId: String, val title: String, val subtitle: String? = null, val actionUrl: String? = null)
+/**
+ * Compact, immutable quote metadata carried with a new message.  The source
+ * message itself remains in its original conversation position, while this
+ * snapshot makes a quote renderable after pagination or cache eviction.
+ */
+data class PteIMQuote(
+  val clientMsgId: String,
+  val serverMsgId: String? = null,
+  val senderId: String? = null,
+  val text: String,
+)
 
 /** Locally cached conversation summary. Group/C2C semantics are supplied by the server conversation ID. */
 data class PteIMConversation(
@@ -106,6 +117,7 @@ data class PteIMMessage(
   val voice: PteIMVoice? = null,
   val location: PteIMLocation? = null,
   val business: PteIMBusinessContent? = null,
+  val quote: PteIMQuote? = null,
   val clientMsgId: String = UUID.randomUUID().toString(),
   val serverMsgId: String? = null,
   val serverSeq: Long? = null,
@@ -130,6 +142,14 @@ data class PteIMMessage(
     voice?.let { put("url", it.url); put("durationMs", it.durationMs); it.waveform?.let { value -> put("waveform", value) }; it.sizeBytes?.let { value -> put("sizeBytes", value) } }
     location?.let { put("latitude", it.latitude); put("longitude", it.longitude); put("name", it.name); it.address?.let { value -> put("address", value) } }
     business?.let { put("businessId", it.businessId); put("title", it.title); it.subtitle?.let { value -> put("subtitle", value) }; it.actionUrl?.let { value -> put("actionUrl", value) } }
+    quote?.let {
+      put("quote", JSONObject().apply {
+        put("clientMsgId", it.clientMsgId)
+        it.serverMsgId?.let { server -> put("serverMsgId", server) }
+        it.senderId?.let { sender -> put("senderId", sender) }
+        put("text", it.text)
+      })
+    }
   }
 
   fun toWireJson(): JSONObject = JSONObject().apply {

@@ -12,6 +12,8 @@ data class PteIMBaseConfig(
   val imDomain: String,
   /** HTTPS root used to resolve COS object keys returned by the media API. */
   val cosDomain: String,
+  /** Optional HTTPS Commerce extension origin. It reuses this IM session's UserSig. */
+  val commerceDomain: String? = null,
   val themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM,
   val language: PteIMLanguage = PteIMLanguage.SYSTEM,
   /**
@@ -28,6 +30,11 @@ data class PteIMBaseConfig(
     require((im.scheme == "wss" || allowsInsecure(im, "ws")) && !im.host.isNullOrBlank() && im.path == "/ws") { "imDomain must be a WSS URL ending in /ws" }
     val cos = Uri.parse(cosDomain)
     require((cos.scheme == "https" || allowsInsecure(cos, "http")) && !cos.host.isNullOrBlank()) { "cosDomain must be an HTTPS origin" }
+    commerceDomain?.let {
+      val commerce = Uri.parse(it)
+      require((commerce.scheme == "https" || allowsInsecure(commerce, "http")) && !commerce.host.isNullOrBlank()) { "commerceDomain must be an HTTPS origin" }
+      require(commerce.path.isNullOrBlank() || commerce.path == "/") { "commerceDomain must not contain a path" }
+    }
   }
 
   private fun allowsInsecure(uri: Uri, expectedScheme: String): Boolean =
@@ -52,6 +59,7 @@ data class PteIMSessionConfig(val base: PteIMBaseConfig, val login: PteIMLoginCo
   val apiDomain get() = base.apiDomain
   val imDomain get() = base.imDomain
   val cosDomain get() = base.cosDomain
+  val commerceDomain get() = base.commerceDomain
   val sdkAppId get() = login.sdkAppId
   val userId get() = login.userId
   val userSig get() = login.userSig

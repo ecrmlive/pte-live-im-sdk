@@ -9,8 +9,11 @@ import PteIMSDK
 @MainActor open class PteIMUINavigationBar: UIView {
   public var onLanguageSelected: ((PteIMLanguage) -> Void)?
   public var onThemeSelected: ((PteIMThemeMode) -> Void)?
+  /** Optional secondary-page action. When present it replaces the language control with a back button. */
+  public var onBack: (() -> Void)? { didSet { updateLeadingControl() } }
 
   private let languageButton = UIButton(type: .system)
+  private let backButton = UIButton(type: .system)
   private let titleLabel = UILabel()
   private let appearanceButton = UIButton(type: .system)
   private var themeMode: PteIMThemeMode = .light
@@ -33,6 +36,7 @@ import PteIMSDK
     backgroundColor = palette.surfaceColor
     languageButton.setTitle(languageTitle(language.resolved()), for: .normal)
     languageButton.setTitleColor(palette.iconColor, for: .normal)
+    backButton.tintColor = palette.iconColor
     titleLabel.textColor = palette.primaryTextColor
     let dark = isDark(themeMode)
     languageButton.backgroundColor = dark ? UIColor(red: 0.145, green: 0.133, blue: 0.30, alpha: 1) : .clear
@@ -63,13 +67,27 @@ import PteIMSDK
     languageButton.addTarget(self, action: #selector(showLanguageMenu), for: .touchUpInside)
     appearanceButton.imageView?.contentMode = .scaleAspectFit
     appearanceButton.addTarget(self, action: #selector(toggleTheme), for: .touchUpInside)
-    [languageButton, titleLabel, appearanceButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; addSubview($0) }
+    backButton.tintColor = palette.iconColor
+    backButton.contentHorizontalAlignment = .fill
+    backButton.contentVerticalAlignment = .fill
+    backButton.imageView?.contentMode = .scaleAspectFit
+    backButton.setImage(UIImage(named: "PteIMUIBack", in: .module, compatibleWith: traitCollection)?.withRenderingMode(.alwaysTemplate), for: .normal)
+    backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+    [languageButton, backButton, titleLabel, appearanceButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; addSubview($0) }
     NSLayoutConstraint.activate([
       heightAnchor.constraint(equalToConstant: 44),
       languageButton.leadingAnchor.constraint(equalTo: leadingAnchor), languageButton.centerYAnchor.constraint(equalTo: centerYAnchor), languageButton.widthAnchor.constraint(equalToConstant: 104), languageButton.heightAnchor.constraint(equalToConstant: 44),
+      backButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6), backButton.centerYAnchor.constraint(equalTo: centerYAnchor), backButton.widthAnchor.constraint(equalToConstant: 44), backButton.heightAnchor.constraint(equalToConstant: 44),
       appearanceButton.trailingAnchor.constraint(equalTo: trailingAnchor), appearanceButton.centerYAnchor.constraint(equalTo: centerYAnchor), appearanceButton.widthAnchor.constraint(equalToConstant: 44), appearanceButton.heightAnchor.constraint(equalToConstant: 44),
       titleLabel.leadingAnchor.constraint(equalTo: languageButton.trailingAnchor, constant: 4), titleLabel.trailingAnchor.constraint(equalTo: appearanceButton.leadingAnchor, constant: -4), titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
     ])
+    updateLeadingControl()
+  }
+
+  private func updateLeadingControl() {
+    let showsBack = onBack != nil
+    backButton.isHidden = !showsBack
+    languageButton.isHidden = showsBack
   }
 
   @objc private func showLanguageMenu() {
@@ -91,6 +109,8 @@ import PteIMSDK
   @objc private func toggleTheme() {
     onThemeSelected?(isDark(themeMode) ? .light : .dark)
   }
+
+  @objc private func backTapped() { onBack?() }
 
   private func isDark(_ mode: PteIMThemeMode) -> Bool {
     switch mode {

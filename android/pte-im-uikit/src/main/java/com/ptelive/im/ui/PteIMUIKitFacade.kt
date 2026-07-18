@@ -1,6 +1,9 @@
 package com.ptelive.im.ui
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.app.Activity
 import android.graphics.drawable.ColorDrawable
 import android.graphics.Color
 import android.graphics.Typeface
@@ -28,6 +31,7 @@ import com.ptelive.im.PteIMGroupPage
 import com.ptelive.im.PteIMRemoteConversation
 import com.ptelive.im.PteIMMessage
 import com.ptelive.im.PteIMMessageType
+import com.ptelive.im.PteIMQuote
 import com.ptelive.im.PteIMSendState
 import com.ptelive.im.PteIMThemeMode
 import com.ptelive.im.PteIMSDK
@@ -46,8 +50,21 @@ data class PteIMUIEmoji(val packageId: String = "unicode", val emojiId: String, 
 /** Exposes separate common and all-emoji lists; both lists can be replaced by the embedding application. */
 data class PteIMUIEmojiDataSource(val common: List<PteIMUIEmoji>, val all: List<PteIMUIEmoji>)
 
-/** Long-press actions are deliberately surfaced to the host instead of changing Core state. */
+/** Long-press actions are executed locally by UIKit, then surfaced to the host for audit/sync. */
 enum class PteIMUIMessageAction { REACT, QUOTE, COPY, REVOKE, DELETE }
+
+/**
+ * Standard business/custom dispatch payload. Built-in business kinds map to
+ * Core wire types; CUSTOM deliberately remains host-owned until its server
+ * contract is registered.
+ */
+data class PteIMUICustomMessage(
+  val kind: Kind,
+  val content: com.ptelive.im.PteIMBusinessContent,
+  val payload: String? = null,
+) {
+  enum class Kind { GIFT, RED_PACKET, ORDER, CUSTOM }
+}
 
 /** Delivery receipt presentation; Core stays transport-focused and does not infer read state. */
 enum class PteIMUIReceiptStatus { READ, UNREAD, HIDDEN }
@@ -118,6 +135,18 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   var onVoiceCallRequested: (() -> Unit)? = null
   var onVideoCallRequested: (() -> Unit)? = null
   var onMoreRequested: (() -> Unit)? = null
+  /** Called after UIKit selected a quote target, before the next text is sent. */
+  var onQuoteRequested: ((PteIMMessage) -> Unit)? = null
+  /** Server/business layer hook after UIKit has copied a text message. */
+  var onMessageCopied: ((PteIMMessage) -> Unit)? = null
+  /** Server/business layer hook after UIKit has removed the local timeline item. */
+  var onMessageDeleted: ((PteIMMessage) -> Unit)? = null
+  /** Server/business layer hook after UIKit has optimistically recalled a message locally. */
+  var onMessageRevoked: ((PteIMMessage) -> Unit)? = null
+  /** Called after a failed Core message is requeued, or an upload is restarted. */
+  var onMessageRetryRequested: ((PteIMMessage) -> Unit)? = null
+  /** Business/custom payload callback; UIKit owns no payment or order operation. */
+  var onCustomMessageRequested: ((PteIMUICustomMessage) -> Unit)? = null
   var onMessageActionRequested: ((PteIMUIMessageAction, PteIMMessage) -> Unit)? = null
   /** Supplies server/business-owned reaction data without coupling Core to UI state. */
   var reactionProvider: ((PteIMMessage) -> List<PteIMUIReaction>)? = null
@@ -134,8 +163,36 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   protected val scroll = ScrollView(context)
   protected val header = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, dp(8), 0) }
   protected val inputBar = PteIMUIInputBar(context, resolvePalette())
+  /** Visible composer state for the next quoted text message. */
+  private val quotePreview = LinearLayout(context).apply {
+    orientation = HORIZONTAL
+    gravity = Gravity.CENTER_VERTICAL
+    setPadding(dp(16), 0, dp(8), 0)
+    visibility = GONE
+  }
+  private val quotePreviewText = TextView(context).apply {
+    textSize = 11f
+    includeFontPadding = false
+    maxLines = 1
+    gravity = Gravity.CENTER_VERTICAL
+  }
+  private val quotePreviewClose = ImageButton(context).apply {
+    setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+    setBackgroundColor(Color.TRANSPARENT)
+    setPadding(dp(11), dp(11), dp(11), dp(11))
+    contentDescription = "Cancel quote"
+  }
   protected var palette = resolvePalette()
   private var activeMessageMenu: PopupWindow? = null
+  private var quotedMessage: PteIMMessage? = null
+  private var latestReadSequence: Long = 0L
+  private val uploadRetrySources = mutableMapOf<String, Pair<PteIMUIAction, android.net.Uri>>()
+  /** Survives a process restart for persistable document URIs and MediaStore sources. */
+  private val uploadRetryStore = context.applicationContext.getSharedPreferences("pte_im_ui_upload_retry", Context.MODE_PRIVATE)
+  /** Hosts may route default image/video previews to their own inheritable Activity subclass. */
+  open var mediaPreviewActivityClass: Class<out Activity> = PteIMUIMediaPreviewActivity::class.java
+  /** Hosts may route the default document hand-off to their own Activity subclass. */
+  open var filePreviewActivityClass: Class<out Activity> = PteIMUIFilePreviewActivity::class.java
   /**
    * Only an optimistic current-user override lives in UIKit; aggregate counts
    * remain owned by [reactionProvider]. `true` means the user has reacted,
@@ -144,7 +201,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   private val localReactionOverrides = mutableMapOf<String, MutableMap<String, Boolean>>()
   private val listener = object : PteIMListener {
     override fun onMessage(message: PteIMMessage) { if (message.conversationId == conversationId) post { render() } }
-    override fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) { post { render() } }
+    override fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) { post {
+      if (state == PteIMSendState.SENT) clearUploadRetrySource(clientMsgId)
+      render()
+    } }
     override fun onThemeModeChanged(themeMode: PteIMThemeMode) { post { applyTheme() } }
     override fun onLanguageChanged(language: PteIMLanguage) { post { applyTheme() } }
   }
@@ -160,6 +220,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       false
     }
     scroll.addView(messages, ViewGroup.LayoutParams(-1, -2)); addView(scroll, LayoutParams(-1, 0, 1f))
+    quotePreview.addView(quotePreviewText, LayoutParams(0, dp(40), 1f))
+    quotePreview.addView(quotePreviewClose, LayoutParams(dp(40), dp(40)))
+    quotePreviewClose.setOnClickListener { cancelQuote() }
+    addView(quotePreview, LayoutParams(-1, dp(40)))
     addView(inputBar, LayoutParams(-1, -2))
     inputBar.onInteraction = { dismissMessageMenu() }
     inputBar.onSendText = { dismissMessageMenu(); sendText(it) }
@@ -168,7 +232,16 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       dismissMessageMenu()
       when (action) {
         PteIMUIAction.IMAGE, PteIMUIAction.CAMERA, PteIMUIAction.VIDEO, PteIMUIAction.LOCATION, PteIMUIAction.FILE ->
-          PteIMUIAttachmentBridge.launch(context, client, conversationId, action) { error -> onAttachmentError?.invoke(error) }
+          PteIMUIAttachmentBridge.launch(
+            context, client, conversationId, action,
+            onError = { error -> onAttachmentError?.invoke(error) },
+            // COS upload completes on the bridge executor. Return to this
+            // View's queue before touching the retry map or rebuilding rows.
+            onQueued = { message, uri -> post {
+              rememberUploadRetrySource(message.clientMsgId, action, uri)
+              render()
+            } },
+          )
         PteIMUIAction.GIFT, PteIMUIAction.RED_PACKET, PteIMUIAction.ORDER -> onActionRequested?.invoke(action)
         PteIMUIAction.VOICE -> onActionRequested?.invoke(action)
       }
@@ -186,15 +259,37 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   fun setCustomInputActions(actions: List<PteIMUICustomInputAction>) { inputBar.setCustomActions(actions) }
   /** Replaces the common/all emoji groups. Emoji cells remain fixed at 44dp with 24×32 icon content. */
   fun setEmojiDataSource(source: PteIMUIEmojiDataSource) { inputBar.setEmojiDataSource(source) }
-  open fun sendText(text: String) { text.trim().takeIf { it.isNotEmpty() }?.let { client.sendText(conversationId, it); inputBar.clearText(); render() } }
+  open fun sendText(text: String) {
+    text.trim().takeIf { it.isNotEmpty() }?.let { value ->
+      client.sendText(conversationId, value, quotedMessage?.toQuote())
+      quotedMessage = null
+      refreshQuotePreview()
+      inputBar.clearText()
+      render()
+    }
+  }
   open fun sendEmoji(packageId: String, emojiId: String) { client.sendEmoji(conversationId, packageId, emojiId); render() }
+  /** Sends supported business messages through Core; custom payloads are intentionally host-owned. */
+  open fun sendCustomMessage(message: PteIMUICustomMessage) {
+    when (message.kind) {
+      PteIMUICustomMessage.Kind.GIFT -> client.sendGift(conversationId, message.content)
+      PteIMUICustomMessage.Kind.RED_PACKET -> client.sendRedPacket(conversationId, message.content)
+      PteIMUICustomMessage.Kind.ORDER -> client.sendOrder(conversationId, message.content)
+      PteIMUICustomMessage.Kind.CUSTOM -> onCustomMessageRequested?.invoke(message)
+    }
+    render()
+  }
+  /** Clears a selected quote without changing the current draft. */
+  open fun cancelQuote() { quotedMessage = null; refreshQuotePreview() }
   fun refresh() = render()
 
   open fun render() {
     dismissMessageMenu()
     messages.removeAllViews()
     messages.addView(dayDivider(), LayoutParams(-1, dp(44)))
-    client.localMessages(conversationId, limit = 100).forEach { messages.addView(messageView(it)) }
+    val timeline = client.localMessages(conversationId, limit = 100)
+    timeline.forEach { messages.addView(messageView(it)) }
+    markTimelineRead(timeline)
     scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
   }
   open fun messageView(message: PteIMMessage): View {
@@ -219,6 +314,15 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
           textSize = 11f; includeFontPadding = false; setTextColor(palette.secondaryText); gravity = Gravity.START
         }, LayoutParams(-2, dp(18)).apply { bottomMargin = dp(2) })
       }
+      message.quote?.let { quote ->
+        addView(TextView(context).apply {
+          text = "↪ ${quote.senderId?.takeIf(String::isNotBlank)?.plus(": ").orEmpty()}${quote.text}"
+          textSize = 10f; includeFontPadding = false; maxLines = 1
+          setTextColor(palette.secondaryText)
+          setPadding(dp(10), dp(5), dp(10), dp(4))
+          background = rounded(if (outgoing) Color.argb(42, 255, 255, 255) else palette.surface, palette.divider, 10)
+        }, LayoutParams(bodyWidth, -2).apply { bottomMargin = dp(3) })
+      }
       addView(body, LayoutParams(bodyWidth, bodyHeight))
       val reactions = reactionsFor(message)
       if (reactions.isNotEmpty()) addView(LinearLayout(context).apply {
@@ -234,6 +338,11 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
         }
       }, LayoutParams(-2, dp(30)).apply { topMargin = dp(4) })
       addView(deliveryView(message, outgoing), LayoutParams(-2, dp(18)))
+      if (outgoing && message.state == PteIMSendState.FAILED) addView(TextView(context).apply {
+        text = if (client.currentAppearance().language.isEnglish(context)) "Tap to retry" else "发送失败，点击重试"
+        textSize = 10f; includeFontPadding = false; setTextColor(Color.rgb(239, 75, 82)); gravity = Gravity.END
+        setPadding(0, dp(2), 0, dp(2)); setOnClickListener { retryMessage(message) }
+      }, LayoutParams(-2, dp(20)))
       setOnLongClickListener { showMessageMenu(message, this); true }
     }
     return LinearLayout(context).apply {
@@ -251,13 +360,23 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     PteIMMessageType.TEXT -> message.text.orEmpty(); PteIMMessageType.EMOJI -> message.emojiId.orEmpty(); PteIMMessageType.IMAGE -> "图片\nPhoto"; PteIMMessageType.VIDEO -> "视频\n${(message.media?.durationMs ?: 0) / 1000}s"; PteIMMessageType.VOICE -> "语音  ${(message.voice?.durationMs ?: 0) / 1000}s"; PteIMMessageType.LOCATION -> "位置\n${message.location?.name.orEmpty()}\n${message.location?.address.orEmpty()}"; PteIMMessageType.GIFT -> "礼物\n${message.business?.title.orEmpty()}\n${message.business?.subtitle.orEmpty()}"; PteIMMessageType.RED_PACKET -> "红包\n${message.business?.title.orEmpty()}\n${message.business?.subtitle.orEmpty()}"; PteIMMessageType.ORDER -> "订单\n${message.business?.title.orEmpty()}\n${message.business?.subtitle.orEmpty()}"; PteIMMessageType.FILE -> "文件\n${message.media?.fileName.orEmpty()}"
   }
   open fun applyTheme() {
-    palette = resolvePalette(); setBackgroundColor(chatCanvas()); header.setBackgroundColor(palette.surface); header.findViewWithTag<TextView>("pte-title")?.setTextColor(palette.primaryText); header.findViewWithTag<TextView>("pte-subtitle")?.apply { text = navigationSubtitleText ?: if (client.currentAppearance().language.isEnglish(context)) "Online" else "在线"; setTextColor(Color.rgb(0, 192, 120)) }; inputBar.applyPalette(palette)
+    palette = resolvePalette(); setBackgroundColor(chatCanvas()); header.setBackgroundColor(palette.surface); header.findViewWithTag<TextView>("pte-title")?.setTextColor(palette.primaryText); header.findViewWithTag<TextView>("pte-subtitle")?.apply { text = navigationSubtitleText ?: if (client.currentAppearance().language.isEnglish(context)) "Online" else "在线"; setTextColor(Color.rgb(0, 192, 120)) }
+    for (index in 0 until header.childCount) {
+      (header.getChildAt(index) as? ImageButton)?.takeIf { it.tag == "pte-navigation-icon" }?.setColorFilter(navigationIconColor())
+    }
+    inputBar.applyPalette(palette)
+    quotePreview.setBackgroundColor(palette.surface)
+    quotePreviewText.setTextColor(palette.secondaryText)
+    quotePreviewClose.setColorFilter(navigationIconColor())
+    refreshQuotePreview()
     val english = client.currentAppearance().language.isEnglish(context)
     inputBar.setCopy(if (english) "Say something..." else "说点什么...", if (english) "Send" else "发送", if (english) "Hold to Record" else "按住录音")
     render()
   }
   protected fun resolvePalette(): PteIMUIThemePalette = when (client.currentAppearance().themeMode) { PteIMThemeMode.DARK -> uiTheme.dark; PteIMThemeMode.LIGHT -> uiTheme.light; PteIMThemeMode.SYSTEM -> if (systemTheme(context).name == "DARK") uiTheme.dark else uiTheme.light }
   protected fun isDark(): Boolean = client.currentAppearance().themeMode == PteIMThemeMode.DARK || (client.currentAppearance().themeMode == PteIMThemeMode.SYSTEM && systemTheme(context).name == "DARK")
+  /** The supplied navigation artwork is white. Tint it for a real light-mode navigation surface. */
+  protected fun navigationIconColor(): Int = if (isDark()) Color.rgb(242, 244, 255) else Color.rgb(25, 30, 54)
   protected fun chatCanvas(): Int = if (palette.background == PteIMUITheme.blueVioletDark().background) Color.rgb(8, 8, 31) else Color.rgb(243, 244, 255)
   protected fun rounded(fill: Int, stroke: Int, radius: Int) = GradientDrawable().apply { setColor(fill); setStroke(dp(1), stroke); cornerRadius = dp(radius).toFloat() }
   protected fun gradient(start: Int, end: Int, radius: Int) = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(start, end)).apply { cornerRadius = dp(radius).toFloat() }
@@ -324,6 +443,8 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   /** 44 dp touch target with source artwork filling the entire navigation button. */
   protected open fun iconButton(resource: Int, description: String, clicked: () -> Unit): ImageButton = ImageButton(context).apply {
     setImageResource(resource)
+    tag = "pte-navigation-icon"
+    setColorFilter(navigationIconColor())
     contentDescription = description
     background = null
     scaleType = ImageView.ScaleType.FIT_XY
@@ -432,7 +553,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       },
       FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER)
     )
-    setOnClickListener { PteIMUIMediaPreviewActivity.open(context, message, PteIMUIMediaPreviewActivity.Kind.IMAGE) }
+    setOnClickListener { PteIMUIMediaPreviewActivity.open(context, message, PteIMUIMediaPreviewActivity.Kind.IMAGE, mediaPreviewActivityClass) }
   }
   /** Video card opens UIKit's native player and uses the supplied duration glyphs. */
   protected open fun videoCard(message: PteIMMessage): View = FrameLayout(context).apply {
@@ -458,7 +579,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
         textSize = 10f; includeFontPadding = false; gravity = Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE)
       }, LayoutParams(-2, dp(12)).apply { marginStart = dp(4) })
     }, FrameLayout.LayoutParams(-2, dp(24), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(8); bottomMargin = dp(8) })
-    setOnClickListener { PteIMUIMediaPreviewActivity.open(context, message, PteIMUIMediaPreviewActivity.Kind.VIDEO) }
+    setOnClickListener { PteIMUIMediaPreviewActivity.open(context, message, PteIMUIMediaPreviewActivity.Kind.VIDEO, mediaPreviewActivityClass) }
   }
   /** Formats all video durations as 00:00 so short clips do not use a `32s` suffix. */
   protected open fun videoDurationLabel(durationMs: Long): String {
@@ -508,6 +629,9 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       addView(TextView(context).apply { text = message.media?.fileName ?: "Project brief.pdf"; textSize = 13f; maxLines = 1; setTextColor(palette.primaryText) })
       addView(TextView(context).apply { text = "PDF · 2.4 MB"; textSize = 10f; setTextColor(palette.secondaryText); setPadding(0, dp(4), 0, 0) })
     }, LayoutParams(0, -2, 1f))
+    isClickable = true
+    isFocusable = true
+    setOnClickListener { PteIMUIFilePreviewActivity.open(context, message, filePreviewActivityClass) }
   }
   protected open fun orderCard(message: PteIMMessage): View = LinearLayout(context).apply {
     orientation = VERTICAL; background = if (isDark()) sharedCardGradient(16) else rounded(Color.WHITE, Color.TRANSPARENT, 16)
@@ -628,7 +752,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
             setTextColor(if (action == PteIMUIMessageAction.DELETE) Color.rgb(238, 75, 82) else palette.primaryText)
             setPadding(dp(5), 0, 0, 0)
           }, LayoutParams(-2, dp(36)))
-          setOnClickListener { onMessageActionRequested?.invoke(action, message); popup.dismiss() }
+          setOnClickListener { popup.dismiss(); performMessageAction(action, message) }
         }, LayoutParams(0, dp(48), 1f))
       }
     }
@@ -648,6 +772,132 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     popup.setOnDismissListener { if (activeMessageMenu === popup) activeMessageMenu = null }
     popup.showAtLocation(rootView, Gravity.TOP or Gravity.START, x, y)
   }
+  /**
+   * Executes the UIKit-owned half of a long-press action before notifying the
+   * embedding app. Recall/delete server endpoints stay host-controlled so an
+   * app can apply its own permission/audit policy without UIKit inventing one.
+   */
+  open fun performMessageAction(action: PteIMUIMessageAction, message: PteIMMessage) {
+    when (action) {
+      PteIMUIMessageAction.REACT -> Unit
+      PteIMUIMessageAction.QUOTE -> {
+        quotedMessage = message
+        refreshQuotePreview()
+        inputBar.focusTextInput()
+        onQuoteRequested?.invoke(message)
+        PteIMUINotice.info(context, if (client.currentAppearance().language.isEnglish(context)) "Quoting message" else "已引用消息")
+      }
+      PteIMUIMessageAction.COPY -> {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("PteIM message", messageCopyText(message)))
+        onMessageCopied?.invoke(message)
+        PteIMUINotice.success(context, if (client.currentAppearance().language.isEnglish(context)) "Copied" else "已复制")
+      }
+      PteIMUIMessageAction.DELETE -> {
+        client.deleteLocalMessage(message)
+        clearUploadRetrySource(message.clientMsgId)
+        onMessageDeleted?.invoke(message)
+        render()
+      }
+      PteIMUIMessageAction.REVOKE -> {
+        // The current realtime protocol does not accept a recall envelope.
+        // Hide instantly, then let the host call its authorised recall API.
+        client.deleteLocalMessage(message)
+        clearUploadRetrySource(message.clientMsgId)
+        onMessageRevoked?.invoke(message)
+        render()
+      }
+    }
+    onMessageActionRequested?.invoke(action, message)
+  }
+
+  /** Retries a failed upload from its retained content URI, otherwise requeues Core's durable outbox row. */
+  open fun retryMessage(message: PteIMMessage) {
+    val source = uploadRetrySources.remove(message.clientMsgId) ?: persistedUploadRetrySource(message.clientMsgId)
+    if (source != null) {
+      clearUploadRetrySource(message.clientMsgId)
+      client.deleteLocalMessage(message)
+      val (action, uri) = source
+      // The private picker is deliberately not re-opened for a known URI.
+      // Invoke the same Core upload path directly so retry is one tap.
+      val queued = when (action) {
+        PteIMUIAction.IMAGE, PteIMUIAction.CAMERA -> client.uploadAndSendImage(conversationId, uri)
+        PteIMUIAction.VIDEO -> client.uploadAndSendVideo(conversationId, uri)
+        PteIMUIAction.FILE -> client.uploadAndSendFile(conversationId, uri)
+        else -> return
+      }
+      rememberUploadRetrySource(queued.clientMsgId, action, uri)
+      onMessageRetryRequested?.invoke(queued)
+      render()
+      return
+    }
+    client.retryMessage(message)?.let {
+      onMessageRetryRequested?.invoke(it)
+      render()
+    } ?: PteIMUINotice.error(context, if (client.currentAppearance().language.isEnglish(context)) "Message cannot be retried" else "消息无法重试")
+  }
+
+  protected open fun messageCopyText(message: PteIMMessage): String = when (message.type) {
+    PteIMMessageType.TEXT -> message.text.orEmpty()
+    PteIMMessageType.EMOJI -> message.emojiId.orEmpty()
+    PteIMMessageType.LOCATION -> listOf(message.location?.name, message.location?.address).filterNotNull().joinToString("\n")
+    PteIMMessageType.FILE -> message.media?.url ?: message.media?.fileName.orEmpty()
+    PteIMMessageType.IMAGE, PteIMMessageType.VIDEO -> message.media?.url.orEmpty()
+    else -> message.business?.actionUrl ?: message.business?.title.orEmpty()
+  }
+
+  private fun markTimelineRead(timeline: List<PteIMMessage>) {
+    val newestIncoming = timeline.filter { it.senderId != client.currentUserId() }.maxByOrNull { it.serverSeq ?: 0L } ?: return
+    val sequence = newestIncoming.serverSeq ?: return
+    val remoteConversationId = conversationId.toLongOrNull() ?: return
+    if (sequence <= latestReadSequence) return
+    latestReadSequence = sequence
+    client.markConversationRead(remoteConversationId, sequence) { }
+  }
+
+  private fun PteIMMessage.toQuote(): PteIMQuote = PteIMQuote(
+    clientMsgId = clientMsgId,
+    serverMsgId = serverMsgId,
+    senderId = senderId,
+    text = messageCopyText(this).take(180),
+  )
+
+  private fun rememberUploadRetrySource(clientMsgId: String, action: PteIMUIAction, uri: android.net.Uri) {
+    uploadRetrySources[clientMsgId] = action to uri
+    uploadRetryStore.edit()
+      .putString("$clientMsgId.action", action.name)
+      .putString("$clientMsgId.uri", uri.toString())
+      .apply()
+  }
+
+  private fun persistedUploadRetrySource(clientMsgId: String): Pair<PteIMUIAction, android.net.Uri>? {
+    val action = uploadRetryStore.getString("$clientMsgId.action", null)
+      ?.let { runCatching { PteIMUIAction.valueOf(it) }.getOrNull() }
+      ?: return null
+    val uri = uploadRetryStore.getString("$clientMsgId.uri", null)
+      ?.let(android.net.Uri::parse)
+      ?: return null
+    return action to uri
+  }
+
+  private fun clearUploadRetrySource(clientMsgId: String) {
+    uploadRetrySources.remove(clientMsgId)
+    uploadRetryStore.edit()
+      .remove("$clientMsgId.action")
+      .remove("$clientMsgId.uri")
+      .apply()
+  }
+
+  /** Keeps quote metadata explicit and cancellable before it is sent. */
+  private fun refreshQuotePreview() {
+    val message = quotedMessage
+    quotePreview.visibility = if (message == null) GONE else VISIBLE
+    if (message != null) {
+      val sender = message.senderNickname?.takeIf { it.isNotBlank() } ?: message.senderId.orEmpty()
+      quotePreviewText.text = "↪ ${if (sender.isBlank()) "" else "$sender: "}${messageCopyText(message).take(120)}"
+    }
+  }
+
   private fun dismissMessageMenu() { activeMessageMenu?.dismiss(); activeMessageMenu = null }
   /** Any non-composer gesture returns chat to its resting state. */
   private fun collapseTransientUi() { dismissMessageMenu(); inputBar.closeTransientInput() }

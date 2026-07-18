@@ -2,6 +2,7 @@ package com.ptelive.im.uidemo
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.BitmapFactory
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -32,10 +33,14 @@ import com.ptelive.im.ui.PteIMUIAction
 import com.ptelive.im.ui.PteIMUIChatView
 import com.ptelive.im.ui.PteIMUIContactListMode
 import com.ptelive.im.ui.PteIMUINavigationBar
+import com.ptelive.im.ui.PteIMUINotice
+import com.ptelive.im.ui.PteIMUINoticeStyle
+import com.ptelive.im.ui.PteIMUINoticeType
 import com.ptelive.im.ui.PteIMUITheme
 import com.ptelive.im.ui.PteIMUIThemePalette
 import com.ptelive.im.ui.PteIMUIKit
 import java.util.Calendar
+import java.util.Locale
 
 /**
  * Application-layer sample: [PteIMUIDemoApplication] owns domains at startup;
@@ -56,6 +61,7 @@ class PteIMUIDemoActivity : Activity() {
   private val darkBorder = Color.rgb(57, 52, 90)
 
   private var client: PteIMSDK? = null
+  private var sessionCredential: PteIMUIDemoCredential? = null
   private var credentialListener: PteIMListener? = null
   private lateinit var sessionStore: PteIMUIDemoSessionStore
   private lateinit var credentialProvider: PteIMUIDemoCredentialProvider
@@ -81,10 +87,13 @@ class PteIMUIDemoActivity : Activity() {
       scheduleAutomaticThemeRefresh()
     }
   }
-  private lateinit var userId: EditText
-  private lateinit var userSig: EditText
+  private lateinit var mobile: EditText
+  private lateinit var nickname: EditText
+  private lateinit var password: EditText
+  private lateinit var captchaCode: EditText
+  private lateinit var captchaImage: ImageView
+  private var captchaId = ""
   private lateinit var status: TextView
-
   private val friends = listOf(PteIMUIDemoFriend("Alice", 10002), PteIMUIDemoFriend("Bob", 10003))
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,6 +104,7 @@ class PteIMUIDemoActivity : Activity() {
     window.statusBarColor = canvas
     window.navigationBarColor = Color.WHITE
     setContentView(loginView())
+    startLocalDemoSessionIfEligible()
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
       val callback = android.window.OnBackInvokedCallback { navigateBack() }
       predictiveBackCallback = callback
@@ -103,7 +113,6 @@ class PteIMUIDemoActivity : Activity() {
         callback,
       )
     }
-    restoreDemoSession()
   }
 
   override fun onResume() {
@@ -133,8 +142,32 @@ class PteIMUIDemoActivity : Activity() {
     super.onDestroy()
   }
 
-  private fun loginView(): View {
-    visibleScreen = PteIMUIDemoScreen.LOGIN
+  private fun loginView(): View = authenticationView(register = false)
+
+  /**
+   * Debug builds always exercise the complete business-login → UserSig → IM
+   * login chain against the local api-im service.  A user who explicitly logs
+   * out remains on the business-login page, which keeps that integration
+   * example available without silently signing back in.
+   */
+  private fun startLocalDemoSessionIfEligible() {
+    if (!BuildConfig.DEBUG || !sessionStore.shouldAutoLoginLocalDemo()) return
+    Thread {
+      runCatching { credentialProvider.quickLogin() }
+        .onSuccess { credential -> runOnUiThread { startSession(credential) } }
+        .onFailure { error -> runOnUiThread {
+          status.text = "本地 Demo 登录失败：${error.message}"
+          status.visibility = View.VISIBLE
+          notice(error.message ?: "本地 Demo 登录失败", PteIMUINoticeType.ERROR)
+        } }
+    }.apply { name = "PteIMUIDemoLocalQuickLogin" }.start()
+  }
+
+  /** Registration is a dedicated screen so login never contains a nickname field. */
+  private fun registerView(): View = authenticationView(register = true)
+
+  private fun authenticationView(register: Boolean): View {
+    visibleScreen = if (register) PteIMUIDemoScreen.REGISTER else PteIMUIDemoScreen.LOGIN
     val navigationPalette = loginNavigationPalette()
     PteIMUINavigationBar.applySystemBars(this, navigationPalette, darkMode)
     val root = FrameLayout(this).apply {
@@ -157,7 +190,7 @@ class PteIMUIDemoActivity : Activity() {
     // actual 44 dp navigation row in the root. It starts immediately below
     // the live system status-bar inset and is never clipped by the form inset.
     content.addView(View(this), lp(-1, dp(138)))
-    val header = loginHeader()
+    val header = loginHeader(register)
     root.addView(header, FrameLayout.LayoutParams(-1, dp(44)))
     root.setOnApplyWindowInsetsListener { _, insets ->
       (header.layoutParams as FrameLayout.LayoutParams).apply {
@@ -178,34 +211,63 @@ class PteIMUIDemoActivity : Activity() {
       background = rounded(if (darkMode) darkCard else Color.WHITE, if (darkMode) darkBorder else Color.TRANSPARENT, 24)
       elevation = if (darkMode) 0f else dp(8).toFloat()
     }
-    val appId = credentialField(if (english) "Enter AppID" else "请输入AppID", InputType.TYPE_CLASS_NUMBER).also { if (!darkMode) it.setText("432532532") }
-    userId = credentialField(if (english) "Enter user ID" else "请输入用户 ID", InputType.TYPE_CLASS_NUMBER).also { if (!darkMode) it.setText("123654") }
-    userSig = credentialField(if (english) "Paste your UserSig token" else "请粘贴 UserSig 令牌", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD).also {
-      it.minLines = 3
-      it.gravity = Gravity.TOP
-      // UserSig is a multiline value: keep all four inner edges at 10 dp.
-      it.setPadding(dp(10), dp(10), dp(10), dp(10))
+    mobile = credentialField(if (english) "Mobile (+86 or international)" else "手机号（中国或国际）", InputType.TYPE_CLASS_PHONE)
+    nickname = credentialField(if (english) "Nickname (required to register)" else "昵称（注册必填）", InputType.TYPE_CLASS_TEXT)
+    password = credentialField(if (english) "Password" else "请输入密码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD).also {
+      it.transformationMethod = PasswordTransformationMethod.getInstance()
+    }
+    captchaCode = credentialField(if (english) "Verification code" else "请输入图形验证码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS).apply {
+      filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+      setOnFocusChangeListener { _, _ -> text?.toString()?.uppercase(Locale.ROOT)?.let(::setText) }
+    }
+    captchaImage = ImageView(this).apply {
+      scaleType = ImageView.ScaleType.CENTER_CROP
+      background = rounded(if (darkMode) darkInput else lavender, Color.TRANSPARENT, 12)
+      setOnClickListener { refreshCaptcha() }
     }
     status = label("").apply { textSize = 12f; gravity = Gravity.CENTER; setTextColor(Color.rgb(190, 55, 70)); visibility = View.GONE }
-    card.addView(formLabel("SDKAppID")); card.addView(appId, lp(-1, dp(46), bottom = 10))
-    card.addView(formLabel(if (english) "User ID" else "用户 ID")); card.addView(userId, lp(-1, dp(46), bottom = 10))
-    card.addView(formLabel(if (english) "User Signature (UserSig)" else "用户签名（UserSig）")); card.addView(userSig, lp(-1, dp(82)))
-    card.addView(View(this), lp(-1, dp(63)))
-    card.addView(gradientButton(if (english) "Login" else "登录") { login(appId.text.toString()) }, lp(-1, dp(50)))
+    card.addView(formLabel(if (english) "Mobile" else "手机号")); card.addView(mobile, lp(-1, dp(46), bottom = 10))
+    if (register) {
+      card.addView(formLabel(if (english) "Nickname" else "昵称")); card.addView(nickname, lp(-1, dp(46), bottom = 10))
+    }
+    card.addView(formLabel(if (english) "Password" else "密码")); card.addView(password, lp(-1, dp(46), bottom = 10))
+    card.addView(formLabel(if (english) "Verification code" else "图形验证码（点击图片刷新）"))
+    val captchaRow = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      addView(captchaCode, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(10) })
+      addView(captchaImage, LinearLayout.LayoutParams(dp(132), dp(46)))
+    }
+    card.addView(captchaRow, lp(-1, dp(46), bottom = 18))
+    card.addView(gradientButton(if (register) (if (english) "Register" else "注册") else (if (english) "Login" else "登录")) { businessLogin(register = register) }, lp(-1, dp(50)))
+    if (!register) card.addView(Button(this).apply {
+      text = if (english) "Create demo account" else "注册演示账号"
+      setTextColor(if (darkMode) darkText else purple)
+      setBackgroundColor(Color.TRANSPARENT)
+      setOnClickListener {
+        status.visibility = View.GONE
+        setContentView(registerView())
+      }
+    }, lp(-1, dp(46), top = 6))
     card.addView(status, lp(-1, -2, top = 12))
     content.addView(card)
+    root.post { refreshCaptcha() }
     return root
   }
 
-  private fun loginHeader(): View = PteIMUINavigationBar(this).apply {
+  private fun loginHeader(register: Boolean = false): View = PteIMUINavigationBar(this).apply {
     apply(loginNavigationPalette(), if (darkMode) PteIMThemeMode.DARK else PteIMThemeMode.LIGHT, selectedLanguage)
+    showLanguageControl = !register
+    if (register) onBackRequested = {
+      status.visibility = View.GONE
+      setContentView(loginView())
+    }
     onLanguageSelected = { language ->
       applyLanguageSelection(language)
-      setContentView(loginView())
+      setContentView(if (visibleScreen == PteIMUIDemoScreen.REGISTER) registerView() else loginView())
     }
     onThemeSelected = { mode ->
       applyThemeSelection(mode)
-      setContentView(loginView())
+      setContentView(if (visibleScreen == PteIMUIDemoScreen.REGISTER) registerView() else loginView())
     }
   }
 
@@ -225,48 +287,51 @@ class PteIMUIDemoActivity : Activity() {
     addView(label(if (english) "Secure · Private · Efficient" else "安全 · 私密 · 高效通讯").apply { textSize = 14f; gravity = Gravity.CENTER; setTextColor(if (darkMode) darkMuted else muted) }, lp(-1, -2, top = 12))
   }
 
-  private fun login(sdkAppId: String) {
-    val id = userId.text.toString().trim()
-    val sig = userSig.text.toString().trim()
-    if (id.toLongOrNull() == null || sig.isBlank()) {
-      status.text = "业务后端应返回有效的 userId 与短期 UserSig"; status.visibility = View.VISIBLE; return
-    }
-    runCatching {
-      PteIMUIDemoCredential(sdkAppId.toLongOrNull() ?: 0, id.toLong(), sig, 0)
-    }.onSuccess { credential -> startSession(credential, restore = false) }
-      .onFailure { error -> status.text = "IM 登录失败：${error.message}"; status.visibility = View.VISIBLE }
-  }
-
-  /**
-   * Reissues a fresh server credential on every Debug launch. Only user ID and
-   * an explicit-logout flag are stored; UserSig never leaves process memory.
-   */
-  private fun restoreDemoSession() {
-    if (!BuildConfig.DEBUG || !sessionStore.shouldRestore()) return
+  private fun refreshCaptcha() {
+    if (!::captchaImage.isInitialized) return
+    captchaId = ""
     Thread {
-      runCatching { credentialProvider.issue(sessionStore.userId()) }
-        .onSuccess { credential -> runOnUiThread { startSession(credential, restore = true) } }
-        .onFailure { error -> runOnUiThread {
-          // A visual-acceptance build remains inspectable without the local
-          // Docker stack. This client is intentionally offline-only: it has
-          // no persisted UserSig and the isolated review conversation never
-          // queues a message to the IM service. A real business credential
-          // always takes precedence as soon as api-im is reachable again.
-          Log.w("PteIMUIDemo", "local test account unavailable; opening offline UI fixture", error)
-          startSession(
-            PteIMUIDemoCredential(
-              sdkAppId = 432_532_532L,
-              userId = PteIMUIDemoSessionStore.demoPrimaryUserId,
-              userSig = "offline-ui-review-session",
-              expiresAt = 0,
-            ),
-            restore = true,
-          )
+      runCatching { credentialProvider.captcha() }
+        .onSuccess { captcha -> runOnUiThread {
+          captchaId = captcha.id
+          captchaImage.setImageBitmap(BitmapFactory.decodeByteArray(captcha.png, 0, captcha.png.size))
         } }
-    }.apply { name = "PteIMUIDemoRestore" }.start()
+        .onFailure { error -> runOnUiThread { status.text = "验证码加载失败：${error.message}"; status.visibility = View.VISIBLE; notice(status.text, PteIMUINoticeType.ERROR) } }
+    }.apply { name = "PteIMUIDemoCaptcha" }.start()
   }
 
-  private fun startSession(credential: PteIMUIDemoCredential, restore: Boolean) {
+  private fun businessLogin(register: Boolean) {
+    val phone = mobile.text.toString().trim()
+    val displayName = nickname.text.toString().trim()
+    val secret = password.text.toString()
+    val code = captchaCode.text.toString().trim()
+    if (phone.isBlank() || (register && displayName.length < 2) || secret.length < 8 || code.isBlank() || captchaId.isBlank()) {
+      status.text = if (register) {
+        if (english) "Enter mobile, nickname, 8+ character password and verification code" else "请输入手机号、注册昵称、至少 8 位密码和图形验证码"
+      } else {
+        if (english) "Enter mobile, 8+ character password and verification code" else "请输入手机号、至少 8 位密码和图形验证码"
+      }
+      status.visibility = View.VISIBLE
+      return
+    }
+    status.text = if (english) "Signing in…" else "正在登录…"
+    status.visibility = View.VISIBLE
+    Thread {
+      runCatching {
+        if (register) credentialProvider.register(phone, displayName, secret, captchaId, code)
+        else credentialProvider.login(phone, secret, captchaId, code)
+      }.onSuccess { credential -> runOnUiThread { startSession(credential) } }
+        .onFailure { error -> runOnUiThread {
+          status.text = (if (register) "注册失败：" else "登录失败：") + error.message
+          status.visibility = View.VISIBLE
+          notice(status.text, PteIMUINoticeType.ERROR)
+          captchaCode.setText("")
+          refreshCaptcha()
+        } }
+    }.apply { name = "PteIMUIDemoBusinessLogin" }.start()
+  }
+
+  private fun startSession(credential: PteIMUIDemoCredential) {
     credentialListener?.let { listener -> client?.removeListener(listener) }
     client?.stop()
     runCatching {
@@ -275,52 +340,36 @@ class PteIMUIDemoActivity : Activity() {
       )
     }.onSuccess { value ->
       client = value
+      sessionCredential = credential
       value.updateAppearance(themeMode = resolvedThemeMode(), language = selectedLanguage)
       sessionStore.markLoggedIn(credential.userId)
-      attachCredentialLifecycle(value, credential)
+      attachCredentialLifecycle(value)
       if (BuildConfig.DEBUG) {
-        // The Debug package is a visual acceptance app: it always creates a
-        // short-lived local session then lands directly on the complete chat
-        // fixture. Release continues through the business home flow.
-        seedDemoData(value, credential)
+        // A fresh local install lands on the visual fixture so every message
+        // type and composer interaction can be verified immediately. The
+        // production path starts on the actual conversation list.
         openChat(PteIMUIDemoChatView.reviewConversationId, "Work Team 工作群")
+        window.decorView.post {
+          notice(if (english) "Local demo signed in" else "本地 Demo 登录成功", PteIMUINoticeType.SUCCESS)
+        }
       } else {
         setContentView(homeView())
       }
     }.onFailure { error ->
       status.text = "IM 登录失败：${error.message}"
       status.visibility = View.VISIBLE
+      notice(status.text, PteIMUINoticeType.ERROR)
     }
   }
 
-  private fun attachCredentialLifecycle(value: PteIMSDK, credential: PteIMUIDemoCredential) {
+  private fun attachCredentialLifecycle(value: PteIMSDK) {
     credentialListener = object : PteIMListener {
-      override fun onUserSigWillExpire() = refreshUserSig(value, credential.userId)
-      override fun onUserSigExpired() = refreshUserSig(value, credential.userId)
+      override fun onUserSigExpired() = runOnUiThread {
+        value.stop()
+        client = null
+        setContentView(loginView())
+      }
     }.also(value::addListener)
-  }
-
-  private fun refreshUserSig(value: PteIMSDK, userId: Long) {
-    if (!BuildConfig.DEBUG) return
-    Thread {
-      runCatching { credentialProvider.issue(userId) }
-        .onSuccess { fresh -> value.renewUserSig(fresh.userSig) }
-    }.apply { name = "PteIMUIDemoRenew" }.start()
-  }
-
-  private fun seedDemoData(value: PteIMSDK, credential: PteIMUIDemoCredential) {
-    if (sessionStore.seeded()) {
-      value.syncConversationsNow()
-      return
-    }
-    Thread {
-      runCatching { credentialProvider.seed(credential) }
-        .onSuccess {
-          sessionStore.markSeeded()
-          value.syncConversationsNow()
-        }
-        .onFailure { error -> Log.w("PteIMUIDemo", "server-backed demo seed failed", error) }
-    }.apply { name = "PteIMUIDemoSeed" }.start()
   }
 
   private fun homeView(selected: PteIMUIDemoTab = PteIMUIDemoTab.CHATS): View {
@@ -379,7 +428,7 @@ class PteIMUIDemoActivity : Activity() {
     val value = client ?: return View(this)
     val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(canvas) }
     val actions = LinearLayout(this).apply { gravity = Gravity.CENTER; setPadding(dp(18), dp(10), dp(18), dp(10)); background = rounded(Color.WHITE, Color.TRANSPARENT, 0) }
-    actions.addView(quickButton("添加好友") { businessNotice("添加好友") }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) })
+    actions.addView(quickButton("添加好友") { openDemoUserList() }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) })
     actions.addView(quickButton("发起群聊") { openDemoGroupChat() }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(8) })
     wrap.addView(actions)
     wrap.addView(
@@ -624,7 +673,7 @@ class PteIMUIDemoActivity : Activity() {
       it.onMoreRequested = { businessNotice(if (english) "Conversation settings" else "会话设置") }
       it.onActionRequested = ::handleAction
       it.onAttachmentError = { error ->
-        businessNotice(error.message ?: if (english) "Attachment failed" else "附件发送失败")
+        businessNotice(error.message ?: if (english) "Attachment failed" else "附件发送失败", PteIMUINoticeType.ERROR)
       }
       // UIKit owns the visible recording state. A production embedding can
       // connect this callback to its recorder without changing the UI kit.
@@ -700,10 +749,12 @@ class PteIMUIDemoActivity : Activity() {
     client?.updateAppearance(themeMode = resolvedThemeMode())
     when (visibleScreen) {
       PteIMUIDemoScreen.LOGIN -> setContentView(loginView())
+      PteIMUIDemoScreen.REGISTER -> setContentView(registerView())
       PteIMUIDemoScreen.HOME -> setContentView(homeView(activeTab))
       PteIMUIDemoScreen.CHAT -> if (activeConversationId.isNotBlank()) openChat(activeConversationId, activeConversationTitle)
       PteIMUIDemoScreen.SETTINGS -> setContentView(settingsScreen())
       PteIMUIDemoScreen.LANGUAGE -> setContentView(languageSettingsScreen())
+      PteIMUIDemoScreen.DEMO_USERS -> openDemoUserList()
     }
   }
 
@@ -727,7 +778,7 @@ class PteIMUIDemoActivity : Activity() {
 
   private fun openDemoGroupChat() {
     client?.createGroupConversation("PteIMUIDemo Group", friends.map { it.userId }) { result -> runOnUiThread {
-      result.onSuccess { conversation -> openChat(conversation.id.toString(), conversation.title) }.onFailure { businessNotice("创建群组失败：${it.message}") }
+      result.onSuccess { conversation -> openChat(conversation.id.toString(), conversation.title) }.onFailure { businessNotice("创建群组失败：${it.message}", PteIMUINoticeType.ERROR) }
     } }
   }
 
@@ -753,15 +804,48 @@ class PteIMUIDemoActivity : Activity() {
 
   private fun navigateBack(): Boolean {
     when (visibleScreen) {
+      PteIMUIDemoScreen.REGISTER -> setContentView(loginView())
       PteIMUIDemoScreen.CHAT -> setContentView(homeView(PteIMUIDemoTab.CHATS))
       PteIMUIDemoScreen.SETTINGS -> setContentView(homeView(PteIMUIDemoTab.ME))
       PteIMUIDemoScreen.LANGUAGE -> returnFromLanguageSettings()
+      PteIMUIDemoScreen.DEMO_USERS -> setContentView(homeView(PteIMUIDemoTab.CONTACTS))
       else -> return false
     }
     return true
   }
 
-  private fun businessNotice(message: String) { android.widget.Toast.makeText(this, "$message 由业务层实现", android.widget.Toast.LENGTH_SHORT).show() }
+  private fun openDemoUserList() {
+    val credential = sessionCredential ?: return
+    visibleScreen = PteIMUIDemoScreen.DEMO_USERS
+    Thread {
+      runCatching { credentialProvider.users(credential) }
+        .onSuccess { users -> runOnUiThread { setContentView(demoUserListScreen(users, credential)) } }
+        .onFailure { error -> runOnUiThread { businessNotice("加载演示用户失败：${error.message}", PteIMUINoticeType.ERROR); setContentView(homeView(PteIMUIDemoTab.CONTACTS)) } }
+    }.apply { name = "PteIMUIDemoUsers" }.start()
+  }
+
+  private fun demoUserListScreen(users: List<PteIMUIDemoRegisteredUser>, credential: PteIMUIDemoCredential): View = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL; setBackgroundColor(if (darkMode) darkCanvas else canvas)
+    addView(quickButton(if (english) "‹ Registered demo users" else "‹ 已注册演示用户") { setContentView(homeView(PteIMUIDemoTab.CONTACTS)) }, lp(-1, dp(52), left = 16, right = 16, top = 12))
+    val list = ScrollView(this@PteIMUIDemoActivity)
+    val rows = LinearLayout(this@PteIMUIDemoActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(18)) }
+    list.addView(rows)
+    users.forEach { user -> rows.addView(quickButton("${user.nickname}  ·  ${user.mobile}") {
+      Thread { runCatching { credentialProvider.addFriend(credential, user.userId) }.onSuccess { runOnUiThread { businessNotice("已添加 ${user.nickname}，现在可以单聊", PteIMUINoticeType.SUCCESS) } }.onFailure { error -> runOnUiThread { businessNotice("添加失败：${error.message}", PteIMUINoticeType.ERROR) } } }.start()
+    }, lp(-1, dp(48), bottom = 10)) }
+    addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+  }
+
+  private fun businessNotice(message: String, type: PteIMUINoticeType = PteIMUINoticeType.INFO) = notice("$message 由业务层实现", type)
+
+  private fun notice(message: CharSequence, type: PteIMUINoticeType = PteIMUINoticeType.INFO) {
+    PteIMUINotice.show(
+      window.decorView,
+      message,
+      type,
+      PteIMUINoticeStyle(darkMode = darkMode),
+    )
+  }
   private fun credentialField(hint: String, inputType: Int): EditText = EditText(this).apply {
     this.hint = hint
     this.inputType = inputType
@@ -799,4 +883,4 @@ class PteIMUIDemoActivity : Activity() {
 
 private data class PteIMUIDemoFriend(val name: String, val userId: Long)
 private enum class PteIMUIDemoTab { CHATS, CONTACTS, ME }
-private enum class PteIMUIDemoScreen { LOGIN, HOME, CHAT, SETTINGS, LANGUAGE }
+private enum class PteIMUIDemoScreen { LOGIN, REGISTER, HOME, CHAT, SETTINGS, LANGUAGE, DEMO_USERS }

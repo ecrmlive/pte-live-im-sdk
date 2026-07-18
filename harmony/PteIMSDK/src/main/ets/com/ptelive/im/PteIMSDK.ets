@@ -70,6 +70,8 @@ export class PteIMSDK {
   private base: PteIMBaseConfig
   private store: PteIMRdbStore
   private e2ee: PteIME2EE
+  /** Optional Commerce extension; it shares UserSig and no additional socket. */
+  readonly commerce: PteIMCommerce
 
   constructor(config: PteIMLoginConfig, base: PteIMBaseConfig, store: PteIMRdbStore) {
     this.config = config
@@ -77,6 +79,7 @@ export class PteIMSDK {
     this.store = store
     this.e2ee = new PteIME2EE(config, store)
     this.appearance = new PteIMAppearance(base.themeMode, base.language)
+    this.commerce = new PteIMCommerce(this)
   }
 
   static configure(context: Context, baseConfig: PteIMBaseConfig): PteIMSDKBootstrap {
@@ -156,6 +159,27 @@ export class PteIMSDK {
   async sendGift(conversationId: string, content: PteIMBusinessContent): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.GIFT, '', '', '', null, null, null, content)) }
   async sendRedPacket(conversationId: string, content: PteIMBusinessContent): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.RED_PACKET, '', '', '', null, null, null, content)) }
   async sendOrder(conversationId: string, content: PteIMBusinessContent): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.ORDER, '', '', '', null, null, null, content)) }
+  /** Sends a host-defined message envelope. The server must explicitly allow the custom type. */
+  async sendCustom(conversationId: string, content: PteIMBusinessContent): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.CUSTOM, '', '', '', null, null, null, content)) }
+  /** Sends text while retaining quote metadata for UIKit and other clients. */
+  async sendTextWithQuote(conversationId: string, text: string, quoteClientMsgId: string, quoteText: string): Promise<PteIMMessage> {
+    const message = new PteIMMessage(conversationId, PteIMMessageType.TEXT, text)
+    message.quoteClientMsgId = quoteClientMsgId
+    message.quoteText = quoteText
+    return await this.send(message)
+  }
+
+  /** Explicit user retry for a failed/interrupted durable outbox item. */
+  async retryMessage(clientMsgId: string): Promise<void> {
+    await this.store.retry(clientMsgId)
+    this.listeners.forEach((listener: PteIMListener) => listener.onMessageStateChanged(clientMsgId, PteIMSendState.PENDING))
+    await this.flushOutbox()
+  }
+
+  /** Removes only the current device copy. Remote deletion/revoke remains server-authoritative. */
+  async deleteLocalMessage(clientMsgId: string): Promise<void> {
+    await this.store.removeMessage(clientMsgId)
+  }
 
   async syncNow(): Promise<void> {
     if (this.syncing) return
@@ -507,6 +531,18 @@ export class PteIMSDK {
     } catch (error) { throw new Error(`PteIM API request failed (${path}): ${String(error)}`) }
     finally { request.destroy() }
   }
+  async commerceRequest(path: string, body: WireObject): Promise<WireObject> {
+    if (this.base.commerceDomain.length === 0) throw new Error('commerceDomain is not configured')
+    const request = http.createHttp()
+    try {
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: this.apiRequestHeaders(), extraData: JSON.stringify(body) }
+      const response = await request.request(`${this.base.commerceDomain.replace(/\/$/, '')}${path}`, options)
+      if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`Commerce failed with HTTP ${response.responseCode}`)
+      const root = JSON.parse(response.result.toString()) as WireObject
+      if (this.numberValue(root, 'code') !== 1) throw new Error(this.stringValue(root, 'msg'))
+      return root['data'] as WireObject
+    } finally { request.destroy() }
+  }
   private remoteConversation(value: WireObject): PteIMRemoteConversation { return new PteIMRemoteConversation(this.numberValue(value, 'id'), this.stringValue(value, 'type'), this.stringValue(value, 'title'), this.stringValue(value, 'avatar'), this.numberValue(value, 'last_message_seq'), this.stringValue(value, 'last_message_snapshot'), this.numberValue(value, 'last_message_at'), this.numberValue(value, 'unread_count')) }
   private pushDevice(value: WireObject): PteIMPushDevice { const out = new PteIMPushDevice(); out.deviceId = this.stringValue(value, 'deviceId'); const platform = this.stringValue(value, 'platform'); out.platform = platform === 'android' ? PteIMPushPlatform.ANDROID : platform === 'ios' ? PteIMPushPlatform.IOS : platform === 'web' ? PteIMPushPlatform.WEB : platform === 'wechat' ? PteIMPushPlatform.WECHAT : PteIMPushPlatform.HARMONY; out.notificationEnabled = this.boolValue(value, 'notificationEnabled'); out.lastSeenAt = this.numberValue(value, 'lastSeenAt'); return out }
   private userProfile(value: WireObject): PteIMUserProfile {
@@ -544,10 +580,12 @@ export class PteIMSDK {
     const media = type === PteIMMessageType.IMAGE || type === PteIMMessageType.VIDEO || type === PteIMMessageType.FILE ? new PteIMMedia(this.resolveCosUrl(this.stringValue(content, 'url')), this.resolveCosUrl(this.stringValue(content, 'thumbnailUrl')), this.resolveCosUrl(this.stringValue(content, 'coverUrl')), this.numberValue(content, 'width'), this.numberValue(content, 'height'), this.numberValue(content, 'durationMs'), this.numberValue(content, 'sizeBytes'), this.stringValue(content, 'fileName'), this.stringValue(content, 'mimeType')) : null
     const voice = type === PteIMMessageType.VOICE ? new PteIMVoice(this.resolveCosUrl(this.stringValue(content, 'url')), this.numberValue(content, 'durationMs'), this.stringValue(content, 'waveform'), this.numberValue(content, 'sizeBytes')) : null
     const location = type === PteIMMessageType.LOCATION ? new PteIMLocation(this.numberValue(content, 'latitude'), this.numberValue(content, 'longitude'), this.stringValue(content, 'name'), this.stringValue(content, 'address')) : null
-    const business = type === PteIMMessageType.GIFT || type === PteIMMessageType.RED_PACKET || type === PteIMMessageType.ORDER ? new PteIMBusinessContent(this.stringValue(content, 'businessId'), this.stringValue(content, 'title'), this.stringValue(content, 'subtitle'), this.stringValue(content, 'actionUrl')) : null
+    const business = type === PteIMMessageType.GIFT || type === PteIMMessageType.RED_PACKET || type === PteIMMessageType.ORDER || type === PteIMMessageType.CUSTOM ? new PteIMBusinessContent(this.stringValue(content, 'businessId'), this.stringValue(content, 'title'), this.stringValue(content, 'subtitle'), this.stringValue(content, 'actionUrl')) : null
     const message = new PteIMMessage(this.stringValue(value, 'conversationId'), type, this.stringValue(content, 'text'), this.stringValue(content, 'packageId'), this.stringValue(content, 'emojiId'), media, voice, location, business, this.stringValue(value, 'clientMsgId'), this.numberValue(value, 'createdAt'), PteIMSendState.SENT)
     message.senderId = this.stringValue(value, 'senderId')
     message.serverMsgId = this.stringValue(value, 'serverMsgId'); message.serverSeq = this.numberValue(value, 'serverSeq')
+    message.quoteClientMsgId = this.stringValue(content, 'quoteClientMsgId')
+    message.quoteText = this.stringValue(content, 'quoteText')
     return message
   }
   private async messageFromRemoteWire(value: WireObject): Promise<PteIMMessage> {
@@ -563,6 +601,22 @@ export class PteIMSDK {
   private stringValue(value: WireObject, key: string): string { const item = value[key]; return item === undefined || item === null ? '' : item.toString() }
   private numberValue(value: WireObject, key: string): number { const item = value[key]; return item === undefined || item === null ? 0 : Number(item.toString()) }
   private boolValue(value: WireObject, key: string): boolean { return this.stringValue(value, key) === 'true' }
+}
+
+/** Commerce namespace; callers pass the same contract used by Android/iOS. */
+export class PteIMCommerce {
+  private sdk: PteIMSDK
+  constructor(sdk: PteIMSDK) { this.sdk = sdk }
+  capabilities(): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/capabilities', {}) }
+  gifts(): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/gifts', {}) }
+  wallet(): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/wallet', {}) }
+  backpack(): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/backpack', {}) }
+  orders(limit: number = 50): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/orders', { 'limit': limit }) }
+  sendGift(request: WireObject): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/gifts/send', request) }
+  useBackpack(request: WireObject): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/backpack/use', request) }
+  createRedPacket(request: WireObject): Promise<WireObject> { return this.sdk.commerceRequest('/v1/commerce/red-packets/create', request) }
+  redPacket(id: string): Promise<WireObject> { return this.sdk.commerceRequest(`/v1/commerce/red-packets/${id}`, {}) }
+  claimRedPacket(id: string): Promise<WireObject> { return this.sdk.commerceRequest(`/v1/commerce/red-packets/${id}/claim`, {}) }
 }
 
 export class PteIMSDKBootstrap {

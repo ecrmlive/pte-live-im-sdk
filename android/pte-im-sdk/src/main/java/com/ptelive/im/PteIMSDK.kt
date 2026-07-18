@@ -42,6 +42,8 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   private var outboxRetryFuture: ScheduledFuture<*>? = null
   private val listeners = linkedSetOf<PteIMListener>()
   @Volatile private var appearance = PteIMAppearance(initialConfig.base.themeMode, initialConfig.base.language)
+  /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
+  val commerce: PteIMCommerce by lazy { PteIMCommerce(this) }
 
   companion object {
     fun configure(context: Context, baseConfig: PteIMBaseConfig): PteIMSDKBootstrap = PteIMSDKBootstrap(context.applicationContext, baseConfig)
@@ -122,8 +124,8 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun syncState(cursor: String = "", limit: Int = 100, callback: (Result<PteIMStateChangePage>) -> Unit) { executor.execute { callback(runCatching { val root = postSdkJson("/v1/im/state/sync", JSONObject().put("cursor", cursor).put("limit", limit)); val list = root.optJSONArray("changes") ?: JSONArray(); PteIMStateChangePage((0 until list.length()).map { i -> list.getJSONObject(i).let { PteIMStateChange(it.getString("id"), it.getString("entityType"), it.getString("entityId"), it.getString("operation"), it.optLong("createdAt")) } }, root.optString("nextCursor"), root.optBoolean("hasMore")) }) } }
   fun fetchDefaultSetting(callback: (Result<PteIMDefaultSetting>) -> Unit) { executor.execute { callback(runCatching { postSdkJson("/v1/im/settings/default", JSONObject()).let { PteIMDefaultSetting(it.optString("chatPrerequisite"), it.optBoolean("notificationEnabled"), it.optString("groupJoinMode")) } }) } }
 
-  fun sendText(conversationId: String, text: String): PteIMMessage = send(
-    PteIMMessage(conversationId = conversationId, type = PteIMMessageType.TEXT, text = text),
+  fun sendText(conversationId: String, text: String, quote: PteIMQuote? = null): PteIMMessage = send(
+    PteIMMessage(conversationId = conversationId, type = PteIMMessageType.TEXT, text = text, quote = quote),
   )
 
   fun sendEmoji(conversationId: String, packageId: String, emojiId: String): PteIMMessage = send(
@@ -164,6 +166,25 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun sendOrder(conversationId: String, content: PteIMBusinessContent): PteIMMessage = send(
     PteIMMessage(conversationId, PteIMMessageType.ORDER, business = content),
   )
+
+  /**
+   * Requeues a terminally failed outgoing message with its original
+   * `clientMsgId`, preserving server-side idempotency for text and rich cards.
+   * Upload failures require the original local URI and are retried by UIKit.
+   */
+  fun retryMessage(message: PteIMMessage): PteIMMessage? {
+    if (message.senderId != config.userId || message.state != PteIMSendState.FAILED) return null
+    val retried = store.retry(message.clientMsgId)?.let(::storedMessageToModel) ?: return null
+    listeners.forEach { it.onMessageStateChanged(retried.clientMsgId, PteIMSendState.PENDING) }
+    flushOutbox()
+    return retried
+  }
+
+  /** Deletes only this account's local cached message; it never deletes remote history. */
+  fun deleteLocalMessage(message: PteIMMessage) {
+    store.deleteLocal(message.clientMsgId)
+    listeners.forEach { it.onMessageStateChanged(message.clientMsgId, message.state) }
+  }
 
   /** Uploads through apiDomain and then sends an image message with the same client message ID. */
   fun uploadAndSendImage(conversationId: String, uri: Uri, onProgress: (Long, Long?) -> Unit = { _, _ -> }): PteIMMessage =
@@ -455,6 +476,26 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     return root.opt("data") ?: JSONObject()
   }
 
+  internal fun executeCommerce(block: () -> Unit) { executor.execute(block) }
+
+  internal fun postCommerceJson(path: String, payload: JSONObject): JSONObject {
+    val domain = config.commerceDomain?.trimEnd('/') ?: error("commerceDomain is not configured")
+    val connection = URL(domain + path).openConnection() as HttpURLConnection
+    return try {
+      connection.requestMethod = "POST"
+      connection.setRequestProperty("Content-Type", "application/json")
+      connection.setRequestProperty("Authorization", "Bearer ${config.userSig}")
+      connection.setRequestProperty("X-Pte-Sdk-AppId", config.sdkAppId.toString())
+      connection.setRequestProperty("X-Pte-User-Id", config.userId)
+      connection.doOutput = true
+      connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+      check(connection.responseCode in 200..299) { "Commerce request failed with HTTP ${connection.responseCode}" }
+      val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+      check(root.optInt("code", 0) == 1) { root.optString("msg", "Commerce request failed") }
+      root.opt("data") as? JSONObject ?: JSONObject()
+    } finally { connection.disconnect() }
+  }
+
   private fun profileFromJson(value: JSONObject): PteIMUserProfile = PteIMUserProfile(
     userId = value.getLong("user_id"), nickname = value.optString("nickname").takeIf { it.isNotEmpty() },
     avatar = value.optString("avatar").takeIf { it.isNotEmpty() },
@@ -569,11 +610,21 @@ private fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
   val business = if (type in setOf(PteIMMessageType.GIFT, PteIMMessageType.RED_PACKET, PteIMMessageType.ORDER)) content.optNullableString("businessId")?.let { id -> PteIMBusinessContent(
     businessId = id, title = content.getString("title"), subtitle = content.optNullableString("subtitle"), actionUrl = content.optNullableString("actionUrl"),
   ) } else null
+  val quote = content.optJSONObject("quote")?.let { value ->
+    value.optNullableString("clientMsgId")?.let { clientMsgId ->
+      PteIMQuote(
+        clientMsgId = clientMsgId,
+        serverMsgId = value.optNullableString("serverMsgId"),
+        senderId = value.optNullableString("senderId"),
+        text = value.optString("text"),
+      )
+    }
+  }
   return PteIMMessage(
     conversationId = json.getString("conversationId"), senderId = json.optNullableString("senderId"),
     senderNickname = json.optNullableString("senderNickname") ?: json.optNullableString("senderName") ?: json.optNullableString("nickname"), type = type,
     text = content.optNullableString("text"), packageId = content.optNullableString("packageId"), emojiId = content.optNullableString("emojiId"),
-    media = media, voice = voice, location = location, business = business, clientMsgId = json.getString("clientMsgId"), serverMsgId = json.optNullableString("serverMsgId"),
+    media = media, voice = voice, location = location, business = business, quote = quote, clientMsgId = json.getString("clientMsgId"), serverMsgId = json.optNullableString("serverMsgId"),
     serverSeq = json.optLong("serverSeq").takeIf { it > 0 }, createdAt = json.optLong("createdAt", System.currentTimeMillis()), state = PteIMSendState.SENT,
   )
 }

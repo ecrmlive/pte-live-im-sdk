@@ -145,6 +145,22 @@ export class PteIMRdbStore {
     } catch (error) { throw new Error(`PteIM RDB failed message update failed: ${String(error)}`) }
   }
 
+  /** Moves one failed or interrupted local message back into the durable outbox. */
+  async retry(clientMsgId: string): Promise<void> {
+    try {
+      await this.store.executeSql('UPDATE messages SET state=? WHERE client_msg_id=?', [PteIMSendState.PENDING, clientMsgId])
+      await this.store.executeSql('INSERT OR REPLACE INTO outbox(client_msg_id,retry_count,next_retry_at) VALUES(?,0,0)', [clientMsgId])
+    } catch (error) { throw new Error(`PteIM RDB retry message failed: ${String(error)}`) }
+  }
+
+  /** Deletes a device-local message and cancels any pending outbox delivery. */
+  async removeMessage(clientMsgId: string): Promise<void> {
+    try {
+      await this.store.executeSql('DELETE FROM outbox WHERE client_msg_id=?', [clientMsgId])
+      await this.store.executeSql('DELETE FROM messages WHERE client_msg_id=?', [clientMsgId])
+    } catch (error) { throw new Error(`PteIM RDB delete message failed: ${String(error)}`) }
+  }
+
   async apply(messages: PteIMMessage[], cursor: string): Promise<void> {
     try {
       for (let index = 0; index < messages.length; index++) await this.upsert(messages[index], PteIMSendState.SENT)

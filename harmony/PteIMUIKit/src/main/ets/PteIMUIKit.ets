@@ -1,4 +1,4 @@
-import { PteIMLanguage, PteIMSDK, PteIMThemeMode } from '@ptelive/pte-im-sdk'
+import { PteIMLanguage, PteIMLocation, PteIMMessage, PteIMSDK, PteIMThemeMode } from '@ptelive/pte-im-sdk'
 import { PteIMUITheme } from './PteIMUITheme'
 
 /** Host-owned operations requested by the built-in chat controls. */
@@ -45,7 +45,10 @@ export function PteIMUIActionTitle(action: PteIMUIAction, language: PteIMLanguag
   return english ? 'Voice' : '语音'
 }
 
-/** A host-owned action delegate. It keeps UIKit independent of media pickers and business pages. */
+/**
+ * Receives host-owned business actions. UIKit natively owns image/video/file picking;
+ * red packet, gift, order and custom actions remain business-owned.
+ */
 export class PteIMUIActionHandler {
   private callback: (action: PteIMUIAction) => void
   private businessCallback: (action: PteIMUIAction) => void
@@ -58,6 +61,54 @@ export class PteIMUIActionHandler {
   request(action: PteIMUIAction): void { this.callback(action) }
   requestBusiness(action: PteIMUIAction): void { this.businessCallback(action) }
   requestCustom(action: PteIMUICustomAction): void { this.customCallback(action) }
+}
+
+/** Server-authoritative chat actions. Override only the operations your backend supports. */
+export class PteIMUIMessageOperationHandler {
+  private readonly reactionCallback: (message: PteIMMessage, emoji: string, selected: boolean) => void
+  private readonly quoteCallback: (message: PteIMMessage) => void
+  private readonly revokeCallback: (message: PteIMMessage) => void
+  private readonly deleteCallback: (message: PteIMMessage) => void
+
+  constructor(
+    reactionCallback: (message: PteIMMessage, emoji: string, selected: boolean) => void = (_message: PteIMMessage, _emoji: string, _selected: boolean) => {},
+    quoteCallback: (message: PteIMMessage) => void = (_message: PteIMMessage) => {},
+    revokeCallback: (message: PteIMMessage) => void = (_message: PteIMMessage) => {},
+    deleteCallback: (message: PteIMMessage) => void = (_message: PteIMMessage) => {},
+  ) {
+    this.reactionCallback = reactionCallback; this.quoteCallback = quoteCallback
+    this.revokeCallback = revokeCallback; this.deleteCallback = deleteCallback
+  }
+
+  react(message: PteIMMessage, emoji: string, selected: boolean): void { this.reactionCallback(message, emoji, selected) }
+  quote(message: PteIMMessage): void { this.quoteCallback(message) }
+  revoke(message: PteIMMessage): void { this.revokeCallback(message) }
+  delete(message: PteIMMessage): void { this.deleteCallback(message) }
+}
+
+/** Hosts can provide per-message read receipts without coupling UIKit to a specific server protocol. */
+export class PteIMUIReadReceiptProvider {
+  isRead(_message: PteIMMessage): boolean { return false }
+}
+
+/** Inject a full map picker when the host ships a map SDK; UIKit falls back to current location. */
+export class PteIMUILocationPickerHandler {
+  async pick(): Promise<PteIMLocation | null> { return null }
+}
+
+/** Extensible preview/file-save hook. UIKit owns presentation while hosts may replace platform storage behaviour. */
+export class PteIMUIMediaPreviewHandler {
+  saveImage(_uri: string): void {}
+  saveVideo(_uri: string): void {}
+  openFile(_uri: string, _fileName: string): void {}
+  saveFile(_uri: string, _fileName: string): void {}
+}
+
+/** V1 ArkUI does not allow function @Prop values; use this small route delegate for preview dismissal. */
+export class PteIMUIMediaPreviewNavigationHandler {
+  private readonly closeCallback: () => void
+  constructor(closeCallback: () => void = () => {}) { this.closeCallback = closeCallback }
+  close(): void { this.closeCallback() }
 }
 
 /** A host-owned selection delegate for the cache-first conversation list. */
@@ -74,10 +125,12 @@ export class PteIMUIConversationHandler {
 /** Routes the chat back action to the host instead of assuming a navigation stack. */
 export class PteIMUIChatNavigationHandler {
   private callback: () => void
+  private moreCallback: () => void
 
-  constructor(callback: () => void = () => {}) { this.callback = callback }
+  constructor(callback: () => void = () => {}, moreCallback: () => void = () => {}) { this.callback = callback; this.moreCallback = moreCallback }
 
   back(): void { this.callback() }
+  more(): void { this.moreCallback() }
 }
 
 /** Lets host apps persist appearance selections made from the conversation header. */

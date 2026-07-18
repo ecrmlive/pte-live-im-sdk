@@ -2,19 +2,25 @@ import CryptoKit
 import Foundation
 
 /** Implements the api-im P-256/A256GCM response envelope. */
-internal enum PteIMResponseCipher {
+public enum PteIMResponseCipher {
   private static let context = Data("pte-live-api-response-v1".utf8)
 
-  static func requestKey() -> P256.KeyAgreement.PrivateKey { P256.KeyAgreement.PrivateKey() }
+  public static func requestKey() -> P256.KeyAgreement.PrivateKey { P256.KeyAgreement.PrivateKey() }
 
-  static func requestPublicKey(_ key: P256.KeyAgreement.PrivateKey) -> String {
-    base64URL(key.publicKey.rawRepresentation)
+  public static func requestPublicKey(_ key: P256.KeyAgreement.PrivateKey) -> String {
+    // CryptoKit exposes P-256 public keys as the 64-byte X || Y value, while
+    // the shared API contract uses the 65-byte X9.63 representation (04 || X
+    // || Y), matching Android and the Go server implementation.
+    base64URL(Data([0x04]) + key.publicKey.rawRepresentation)
   }
 
-  static func decrypt(_ value: Data, with key: P256.KeyAgreement.PrivateKey) throws -> Data {
+  public static func decrypt(_ value: Data, with key: P256.KeyAgreement.PrivateKey) throws -> Data {
     let envelope = try JSONDecoder().decode(Envelope.self, from: value)
     guard envelope.version == 1, envelope.algorithm == "P-256/A256GCM" else { throw PteIMError.invalidResponse }
-    let serverKey = try P256.KeyAgreement.PublicKey(rawRepresentation: try base64URLDecode(envelope.ephemeralPublicKey))
+    let encodedServerKey = try base64URLDecode(envelope.ephemeralPublicKey)
+    let serverKeyBytes = encodedServerKey.first == 0x04 ? Data(encodedServerKey.dropFirst()) : encodedServerKey
+    guard serverKeyBytes.count == 64 else { throw PteIMError.invalidResponse }
+    let serverKey = try P256.KeyAgreement.PublicKey(rawRepresentation: serverKeyBytes)
     let secret = try key.sharedSecretFromKeyAgreement(with: serverKey)
     let salt = try base64URLDecode(envelope.salt)
     let nonce = try base64URLDecode(envelope.nonce)

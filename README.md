@@ -8,9 +8,9 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 
 | 产品 | 职责 | 不负责的内容 |
 | --- | --- | --- |
-| `PteIMSDK` | 配置、UserSig 登录、WSS、消息、好友/群组关系、分页同步、本地加密缓存、COS 上传、E2EE、主题/语言状态 | 业务登录、支付、系统选择器 |
-| `PteIMUIKit` | 会话列表、联系人/群组列表、一对一/群组聊天、文本/表情、发送状态、亮暗/中英文、业务动作回调 | 签发 UserSig、保存密钥、替宿主完成支付/定位/选文件 |
-| `PteIMUIDemo` | 业务登录 → 取得 `userId`/短期 `userSig` → IM 登录 → 好友、会话、群组、我的 | 生产业务后端实现 |
+| `PteIMSDK` | 配置、UserSig 登录、WSS、消息、好友/群组关系、分页同步、本地加密缓存、COS 上传、E2EE、主题/语言状态、可选 Commerce 扩展 | 业务登录、现金支付、系统选择器 |
+| `PteIMUIKit` | 会话列表、联系人/群组列表、一对一/群组聊天、文本/表情、标准附件选择与预览、发送状态、亮暗/中英文、业务动作回调 | 签发 UserSig、保存密钥、替宿主完成支付、红包、礼物和订单业务 |
+| `PteIMUIDemo` | 手机号/昵称/密码/图形验证码 → 取得 `userId`/短期 `userSig` → IM 登录 → 好友、会话、群组、我的 | 生产业务后端实现 |
 
 ## 仓库
 
@@ -19,6 +19,11 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 | [Pte IM 服务端](https://github.com/ptedom/pte-live-im) | IM 服务、部署、服务端接口实现 |
 | [本仓库](https://github.com/ptedom/pte-live-im-sdk) | 四端 PteIMSDK / PteIMUIKit / PteIMUIDemo |
 | 项目官网 | 由业务项目配置；客户端不硬编码官网或密钥 |
+
+## 发布
+
+统一发布流程请按 [RELEASE.md](/Users/daniel/Documents/GitHub/pte-live-im-sdk/RELEASE.md) 执行。
+当前 uni-app x 约定：打 `v*` Tag 后自动发布，版本以 tag 版本自动对齐（如 `v1.0.0`）。
 
 ## 平台与目录
 
@@ -51,7 +56,7 @@ Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 
 应用启动阶段只配置域名和显示偏好；登录阶段才传入用户身份。不要把 UserSig、COS 临时凭据或服务器密钥提交到仓库。
 
 ```text
-PteIMBaseConfig(apiDomain, imDomain, cosDomain, themeMode, language)
+PteIMBaseConfig(apiDomain, imDomain, cosDomain, commerceDomain?, themeMode, language)
 PteIMLoginConfig(sdkAppId, userId, userSig)
 ```
 
@@ -71,6 +76,22 @@ im.openSingleConversation(peerUserId) { result ->
   }
 }
 ```
+
+## IM Commerce 扩展
+
+配置可选 `commerceDomain` 后，四端均通过同一个 `im.commerce`（HarmonyOS）或 `im.commerce`（Android/iOS/UTS）访问礼物、背包、订单、红包和虚拟币余额；它复用现有 UserSig，不创建第二次登录或 WebSocket 连接。所有金额均为 `int64` 最小单位，当前仅支持 `COIN` 虚拟币。
+
+```kotlin
+im.commerce.sendGift(
+  PteIMGiftSendRequest(clientRequestId = requestId, sku = "rose", quantity = 1, roomId = roomId, sceneType = "live")
+) { order ->
+  order.onSuccess { value ->
+    // 如需单聊/群聊卡片，再用既有 sendGift 发送仅含 orderId 的 E2EE 业务引用。
+  }
+}
+```
+
+红包、礼物和订单的业务状态由 `pte-live-im-commerce` 保存，直播、语聊、社交房间事件经可靠 Outbox 投递到 IM。UIKit 仍只负责展示和点击回调，不承担扣币、支付或订单状态。完整端到端契约见 [Commerce SDK 契约](https://github.com/ptedom/pte-live-im-commerce/blob/main/docs/SDK_CONTRACT.md)。
 
 ### iOS
 
@@ -110,7 +131,7 @@ im.start()
 
 ## 运行 PteIMUIDemo
 
-每个 Demo 都不保存输入的 UserSig。它们只是业务打通的结构示例：将示例账号校验替换为您的业务登录 API，再使用 API 返回的 `userId` 和短期 `userSig` 登录 PteIMSDK。Android Debug Demo 可对本机 `pte-live-im` 自动请求一个服务端签发的短期测试 UserSig，并只保存测试 `userId`、稳定设备标识和“已退出”状态；每次冷启动都会重新签发，UserSig 不会写入磁盘。首次 Debug 登录会直接打开 `Work Team 工作群` 的完整聊天视觉夹具，返回后可进入会话、联系人与群组业务壳；Release 仍从业务登录页开始。
+每个 Demo 都通过 `api-im` 的真实演示业务流程登录：注册使用手机号、唯一昵称、密码与一次性图形验证码；登录使用手机号、密码与图形验证码。中国大陆手机号可直接输入 11 位号码，国际号码使用 E.164 格式（例如 `+14155552671`）。后端绑定默认 IM App 并返回 `userId` 和短期 `userSig`，客户端仅在内存中使用 UserSig，不保存密码、验证码或 UserSig。登录后可从“联系人 → 添加好友”进入已注册演示用户列表，完成真实的双向好友关系创建。
 
 ```sh
 # Android（仓库已固定 Gradle Wrapper 9.5.0）
@@ -159,7 +180,9 @@ try await im.unregisterPushDevice(deviceId: device.deviceId, platform: .ios)
 
 PteIMUIKit 采用“消息内容单元 + 独立输入条 + 宿主业务回调”的分层方式，参考 MessageKit 的可定制消息单元与 InputBar 思路，但不引入任何第三方 UI 依赖。四端均提供独立的 `PteIMUIInputBar`；它可以脱离聊天页单独复用。
 
-输入条固定顺序为：`语音切换` → `输入框 / 按住说话` → `+` → `表情` → `发送`。点击语音后，中间区域变为“按住说话”；开始和结束录音只通知宿主，录音权限、编码、上传完成后调用 Core 的 `sendVoice` 仍由业务负责。`+` 面板内置图片、拍摄、视频、定位、文件、礼物、红包、订单；表情面板内置默认表情项。两种面板均通过回调将选择结果交给宿主。
+Android 的 `PteIMUINotice` 是 UIKit 内置反馈组件，提供 `success`、`error`、`info` 三种语义提示；默认底部弹出，也可配置居中、显示时长、亮暗色板和独立提示颜色。它会自动避免键盘与导航栏，并替换同一窗口内上一条提示。
+
+输入条固定顺序为：`语音切换` → `输入框 / 按住说话` → `+` → `表情` → `发送`。点击语音后，中间区域变为“按住说话”；开始和结束录音只通知宿主，录音权限、编码、上传完成后调用 Core 的 `sendVoice` 仍由业务负责。Android `+` 面板内置图片、拍摄、视频、文件和位置选择：UIKit 使用系统选择器、COS 上传与 Core 消息发送；位置使用 UIKit 自身的当前位置/地点搜索/坐标确认页。礼物、红包、订单和自定义消息只输出统一 Core 消息格式与宿主回调，不完成支付或业务详情。表情面板内置默认表情项。
 
 默认视觉是蓝紫渐变发送气泡与发送按钮，并为亮/暗模式提供两套完全独立的组件色板：背景、会话面、输入栏、收发气泡、渐变、文字、图标、分割线、表情面板和更多面板均可分别配置。
 
@@ -194,13 +217,15 @@ Android 使用 `PteIMUITheme(light = …, dark = …)` 并传给 `PteIMUIKit.cre
 
 三端聊天页与 iOS 一致提供标题副文案（在线状态/群成员数）、消息状态时间、文本/表情/语音与图片、视频、定位、红包、礼物、订单、文件富消息卡片。Android 使用 `navigationSubtitleText`、`reactionProvider` 和 `onReactionChanged`；其中 `PteIMUIReaction.reactedByCurrentUser` 声明当前用户是否已反应，UIKit 会乐观地执行新增/取消、仅在数量大于 1 时显示数字，并通过回调交由宿主持久化。HarmonyOS 使用 `navigationSubtitleText`、`PteIMUIReactionProvider`；UTS 使用 `subtitle`、`:reaction-provider`。UIKit 不把业务反应写入 Core。
 
-Android 的图片和视频卡片点击后进入 UIKit 原生预览（图片全屏预览、视频使用系统 `VideoView` 播放）。定位卡片使用地图缩略图，不叠加定位图标；点击后按高德、百度、腾讯、Google、系统地图的顺序检测并携带目的地唤起外置地图。二级导航的返回与更多均为 44 dp 点击区并使用满幅图标。长按菜单始终可引用；仅文本消息显示复制；撤回与删除仅对当前用户发送的消息显示。
+Android 的图片和视频卡片点击后进入 UIKit 原生预览：`PteIMUIMediaPreviewActivity` 是 `open` 页面，图片点击关闭、长按保存相册；视频支持暂停/播放、关闭和底部进度条。文件进入 `PteIMUIFilePreviewActivity`（同为 `open` 页面），点击交给系统预览、长按保存到系统文件。定位卡片使用地图缩略图，不叠加定位图标；点击后按高德、百度、腾讯、Google、系统地图的顺序检测并携带目的地唤起外置地图。二级导航的返回与更多均为 44 dp 点击区并使用满幅图标。长按菜单始终可引用；仅文本消息显示复制；撤回与删除仅对当前用户发送的消息显示。UIKit 会本地即时更新删除/撤回并通过回调交由业务调用其已授权的服务端撤回接口。
 
 会话与联系人页面均提供设计稿对应的品牌标题栏、亮暗切换入口、语言切换入口、搜索/快捷操作区、渐变头像、时间和分隔层级；列表数据、头像点击、添加好友/建群和跳转仍通过公开回调交给宿主业务层。Android 会话页的 `PteIMUIConversationPresentation` 可通过 `presentationTransformer` 重写昵称、预览、时间、头像、在线状态与未读数；`onCreateConversation`、`onThemeModeRequested`、`onLanguageRequested` 交给宿主处理业务路由和持久化，`maxVisibleConversations` 只控制展示数量，不改变 Core 同步或分页。Android 允许覆写 `conversationHeader()`、`conversationRow(item)`、`contactHeader()`、`contactRow()`；HarmonyOS 与 UTS 保持组件属性和事件形式，便于按宿主页面重排。
 
 #### Android 继承与重写
 
 Android 的三个 UIKit 入口均为 `open class`，不需要 fork SDK。`PteIMUIConversationListView` 可覆写 `conversationHeader()`、`searchBar()`、`createConversationCell()`/`conversationRow()`、`selectConversation()`，并使用 `onAvatarTapped` 接管头像事件；固定导航栏与搜索栏、下拉刷新和 Core 分页同步仍由 UIKit 保留。`PteIMUIContactListView` 可覆写 `contactHeader()`、`createContactCell()`/`contactRow()`、`presentation()` 和 `select()`，并使用 `onAvatarTapped` 进入宿主资料页。`PteIMUIChatView` 可覆写 `buildHeader()`、`messageView()`、`messageBody()`、`messageAvatar()`、`voiceBubble()`、`businessCard()`、`showMessageMenu()`；`inputBar` 与 `header` 为 `protected`，可通过 `addNavigationExtension()` 增加宿主导航项。
+
+`PteIMUIChatView` 内置文本和 Unicode 表情混合发送、失败重试、已读上报、引用、复制、仅本地删除、乐观表情反应；`onMessageRevoked`、`onMessageDeleted`、`onMessageRetryRequested` 和 `onReactionChanged` 用于把结果同步到业务服务。图片、视频、文件的选择、COS 上传、发送与失败重试由 UIKit 完成；`mediaPreviewActivityClass`、`filePreviewActivityClass` 可分别替换成继承自 `PteIMUIMediaPreviewActivity`、`PteIMUIFilePreviewActivity` 的宿主页面。`sendCustomMessage(PteIMUICustomMessage)` 为红包、礼物、订单和自定义业务消息提供统一入口，`CUSTOM` 仅触发 `onCustomMessageRequested`。
 
 ```kotlin
 class OrderChatView(context: Context, client: PteIMSDK, id: String) :

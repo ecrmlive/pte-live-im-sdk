@@ -1,0 +1,18 @@
+<template>
+  <view v-if="visible" class="pte-im-ui-video-preview">
+    <button class="pte-im-ui-video-close" @click="$emit('close')"><image :src="dark ? '/uni_modules/pte-im-uikit/static/chat/close-dark.png' : '/uni_modules/pte-im-uikit/static/chat/close-light.png'" mode="aspectFit" /></button>
+    <video class="pte-im-ui-preview-video" :src="src" :poster="poster" controls="true" autoplay="true" />
+  </view>
+</template>
+
+<script lang="uts">
+/** A standalone video preview surface. Hosts may wrap this component to extend player controls or analytics. */
+export default {
+  props: { visible: { type: Boolean, default: false }, src: { type: String, default: '' }, poster: { type: String, default: '' }, dark: { type: Boolean, default: false } },
+  emits: ['close'],
+}
+</script>
+
+<style>
+.pte-im-ui-video-preview { position: fixed; z-index: 1000; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; background-color: #000000; }.pte-im-ui-preview-video { width: 100%; }.pte-im-ui-video-close { position: absolute; z-index: 1; top: 14px; right: 14px; display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; margin: 0; padding: 8px; border: 0; border-radius: 22px; background-color: rgba(0, 0, 0, .36); }.pte-im-ui-video-close image { width: 28px; height: 28px; }
+</style>

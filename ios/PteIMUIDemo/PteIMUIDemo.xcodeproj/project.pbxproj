@@ -18,6 +18,7 @@
 		C7AA0442926AA70B8FD7D9CD /* PteIMUILaunchMark.png in Resources */ = {isa = PBXBuildFile; fileRef = B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */; };
 		FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */; };
 		A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */; };
+		D3E0A001B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */; };
 		C2F6B3D7A1E84B9C8D2F4A61 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */; };
 		FF94628F820E023EC4935D1A /* PteIMUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AD7ABEDB728809768AEC0EA5 /* PteIMUIKit */; };
 /* End PBXBuildFile section */
@@ -33,6 +34,7 @@
 		ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PteIMUILogo@2x.png"; sourceTree = "<group>"; };
 		B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoHomeTabsController.swift; sourceTree = "<group>"; };
 		A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoMeViewController.swift; sourceTree = "<group>"; };
+		D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoBusinessAPI.swift; sourceTree = "<group>"; };
 		B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchMark.png; sourceTree = "<group>"; };
 		BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILogo.png; sourceTree = "<group>"; };
 		C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 				36F05CBE6499DC7122679FCE /* PteIMUIDemoAppDelegate.swift */,
 				B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */,
 				A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */,
+				D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */,
 				3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */,
 				C591A0AA7B6D0C6859701810 /* Resources */,
 			);
@@ -189,6 +192,7 @@
 				972C9DFBBB82FC421C2D9427 /* PteIMUIDemoAppDelegate.swift in Sources */,
 				FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */,
 				A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */,
+				D3E0A001B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift in Sources */,
 				89D79E1C8301A65228B19C13 /* PteIMUIDemoViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -258,7 +262,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PteIMUIDemo/Info.plist;
+				INFOPLIST_FILE = PteIMUIDemo/Info-Debug.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

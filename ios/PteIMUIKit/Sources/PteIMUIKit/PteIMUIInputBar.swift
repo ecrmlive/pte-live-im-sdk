@@ -27,6 +27,8 @@ open class PteIMUIInputBar: UIView, UITextViewDelegate {
   public weak var delegate: PteIMUIInputBarDelegate?
   public var onSendText: ((String) -> Void)?
   public var onAction: ((PteIMUIInputBarAction) -> Void)?
+  /** Lets a chat consume an emoji before it is inserted in the draft. */
+  public var onEmojiSelected: ((String) -> Bool)?
   public var onVoiceRecordingChanged: ((Bool) -> Void)?
   public var skin: PteIMUISkin { didSet { theme = skin.theme; applySkin() } }
   public var enabledActions: Set<PteIMUIAction> = Set(PteIMUIAction.allCases) { didSet { rebuildMorePanel() } }
@@ -443,6 +445,7 @@ open class PteIMUIInputBar: UIView, UITextViewDelegate {
     onAction?(value)
   }
   private func selectEmoji(_ emojiId: String) {
+    if onEmojiSelected?(emojiId) == true { return }
     // Emoji selection edits the draft at the caret. Sending remains explicit:
     // keyboard Send while typing, or the panel Send button while emoji is open.
     let current = input.text ?? ""

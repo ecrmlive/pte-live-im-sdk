@@ -16,12 +16,23 @@ export type PteIMBaseConfig = {
   apiDomain: string
   imDomain: string
   cosDomain: string
+  /** Optional host-owned AMap configuration. Never place a server Web Service secret here. */
+  map?: PteIMMapConfig
+  /** Optional Commerce extension origin. It reuses the active IM UserSig. */
+  commerceDomain?: string
   themeMode?: 'system' | 'light' | 'dark'
   language?: 'system' | 'zh-CN' | 'en-US'
   /** Required to persist UTS messages, outbox data, or sync cursors on H5/mini-program. */
   localStorageCipher?: PteIMLocalStorageCipher
   /** Supplied by the H5/WeChat entry module; applications normally do not set this themselves. */
   cryptoRandomSource?: PteIMSecureRandomSource
+}
+
+/** Keys must be restricted by H5 origin or WeChat Mini Program AppID in the AMap console. */
+export type PteIMMapConfig = {
+  provider: 'amap'
+  h5Key?: string
+  wechatMiniProgramKey?: string
 }
 
 export type PteIMLoginConfig = {
@@ -75,6 +86,12 @@ export type PteIMIncomingMessage = {
   type: string
   createdAt: number
   serverSeq?: number
+  quoteMessageId?: string
+  quoteSnapshot?: string
+  /** 1=normal, 2=recalled, 3=globally deleted. */
+  status?: number
+  recalledAt?: number
+  deletedAt?: number
   content: any
 }
 export type PteIMMessageStateChange = { clientMsgId: string, state: PteIMSendState }
@@ -98,13 +115,30 @@ export type PteIMRemoteConversation = { id: number, type: string, title: string,
 export type PteIMConversationPage = { total: number, items: PteIMRemoteConversation[] }
 export type PteIMRemoteMessage = { messageId: number, conversationId: number, senderId: number, clientMsgId: string, type: string, content: string, payload?: string, seq: number, sentAt: number, recalledAt?: number }
 export type PteIMMessagePage = { items: PteIMRemoteMessage[] }
+/** Commerce keeps business state server-side; all amounts are integer minor units. */
+export type PteIMCommerce = {
+  capabilities(callback: (result: any | null, error: string | null) => void): void
+  gifts(callback: (result: any | null, error: string | null) => void): void
+  wallet(callback: (result: any | null, error: string | null) => void): void
+  backpack(callback: (result: any | null, error: string | null) => void): void
+  orders(limit: number, callback: (result: any | null, error: string | null) => void): void
+  sendGift(request: any, callback: (result: any | null, error: string | null) => void): void
+  useBackpack(request: any, callback: (result: any | null, error: string | null) => void): void
+  createRedPacket(request: any, callback: (result: any | null, error: string | null) => void): void
+  redPacket(id: string, callback: (result: any | null, error: string | null) => void): void
+  claimRedPacket(id: string, callback: (result: any | null, error: string | null) => void): void
+}
 
 export interface PteIMSDKClient {
+  /** Optional first-party Commerce extension; no second socket or login. */
+  commerce: PteIMCommerce
   start(): void
   stop(): void
   renewUserSig(userSig: string): void
   updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance
   currentAppearance(): PteIMAppearance
+  /** Read-only map configuration supplied during SDK bootstrap. */
+  mapConfig(): PteIMMapConfig | null
   currentUserId(): string
   fetchMyProfile(callback: (result: PteIMUserProfile | null, error: string | null) => void): void
   updateMyProfile(update: PteIMUserProfileUpdate, callback: (result: PteIMUserProfile | null, error: string | null) => void): void
@@ -135,6 +169,13 @@ export interface PteIMSDKClient {
   openSingleConversation(peerUserId: number, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
   createGroupConversation(title: string, memberIds: number[], avatar: string | null, callback: (result: PteIMRemoteConversation | null, error: string | null) => void): void
   markConversationRead(conversationId: number, seq: number, callback: (error: string | null) => void): void
+  /** Per-device delivery/read receipts. Message ids remain strings to avoid JS precision loss. */
+  acknowledgeMessages(conversationId: number, messageIds: string[], ackType: 'delivered' | 'read', deviceId: string, callback: (error: string | null) => void): void
+  recallMessage(serverMsgId: string, callback: (error: string | null) => void): void
+  /** Hides a message only for the signed-in user. */
+  deleteMessage(serverMsgId: string, callback: (error: string | null) => void): void
+  /** Immediately retries a queued send after a transient transport failure. */
+  retryMessage(clientMsgId: string): boolean
   fetchMessageHistory(conversationId: number, beforeSeq: number, limit: number, callback: (result: PteIMMessagePage | null, error: string | null) => void): void
   sendText(conversationId: string, text: string): string
   sendEmoji(conversationId: string, packageId: string, emojiId: string): string

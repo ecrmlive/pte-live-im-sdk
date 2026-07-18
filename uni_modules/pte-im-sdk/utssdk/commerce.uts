@@ -1,0 +1,19 @@
+import { PteIMCommerce } from './interface.uts'
+
+type CommerceRequest = (path: string, data: any, callback: (data: any | null, error: string | null) => void) => void
+
+/** Shared UTS Commerce namespace. It uses the IM SDK's existing UserSig. */
+export class CrossPlatformPteIMCommerce implements PteIMCommerce {
+  private request: CommerceRequest
+  constructor(request: CommerceRequest) { this.request = request }
+  capabilities(callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/capabilities', {}, callback) }
+  gifts(callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/gifts', {}, callback) }
+  wallet(callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/wallet', {}, callback) }
+  backpack(callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/backpack', {}, callback) }
+  orders(limit: number, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/orders', { limit }, callback) }
+  sendGift(request: any, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/gifts/send', request, callback) }
+  useBackpack(request: any, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/backpack/use', request, callback) }
+  createRedPacket(request: any, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/red-packets/create', request, callback) }
+  redPacket(id: string, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/red-packets/' + id, {}, callback) }
+  claimRedPacket(id: string, callback: (result: any | null, error: string | null) => void): void { this.request('/v1/commerce/red-packets/' + id + '/claim', {}, callback) }
+}

@@ -1,80 +1,136 @@
 <template>
   <view class="pte-im-ui-chat" :class="themeClass" :style="themeStyle">
     <view class="pte-im-ui-navigation">
-      <text class="pte-im-ui-navigation-back">‹</text>
+      <button class="pte-im-ui-navigation-button" @click="$emit('back')"><image src="/uni_modules/pte-im-uikit/static/chat/back.png" mode="aspectFit" /></button>
       <view class="pte-im-ui-navigation-title-wrap"><text class="pte-im-ui-title">{{ title || conversationId }}</text><text class="pte-im-ui-subtitle">{{ subtitle || (language === 'en-US' ? 'Online' : '在线') }}</text></view>
-      <view class="pte-im-ui-navigation-actions"><text>⌕</text><text>◉</text><text>•••</text></view>
+      <view class="pte-im-ui-navigation-actions"><button class="pte-im-ui-navigation-button" @click="$emit('voice-call')"><image src="/uni_modules/pte-im-uikit/static/chat/voice-call.png" mode="aspectFit" /></button><button class="pte-im-ui-navigation-button" @click="$emit('video-call')"><image src="/uni_modules/pte-im-uikit/static/chat/video-call.png" mode="aspectFit" /></button><button class="pte-im-ui-navigation-button" @click="$emit('more')"><image src="/uni_modules/pte-im-uikit/static/chat/more-menu.png" mode="aspectFit" /></button></view>
     </view>
+
     <scroll-view class="pte-im-ui-messages" scroll-y="true" :scroll-into-view="latestMessageId">
-      <view v-for="message in messages" :id="message.clientMsgId" :key="message.clientMsgId" class="pte-im-ui-message-row" :class="message.senderId === currentUserId ? 'pte-im-ui-outgoing-row' : 'pte-im-ui-incoming-row'">
-        <view class="pte-im-ui-message-stack" :class="message.senderId === currentUserId ? 'pte-im-ui-stack-outgoing' : 'pte-im-ui-stack-incoming'">
-          <view class="pte-im-ui-message" :class="[message.senderId === currentUserId ? 'pte-im-ui-outgoing' : 'pte-im-ui-incoming', richType(message)]"><text>{{ label(message) }}</text></view>
-          <view v-if="reactions(message).length > 0" class="pte-im-ui-reactions"><text v-for="reaction in reactions(message)" :key="reaction.emoji" class="pte-im-ui-reaction">{{ reaction.emoji }} {{ reaction.count }}</text></view>
-          <text class="pte-im-ui-delivery">{{ deliveryLine(message) }}</text>
+      <view v-for="message in messages" :id="message.clientMsgId" :key="message.clientMsgId" class="pte-im-ui-message-row" :class="isOutgoing(message) ? 'pte-im-ui-outgoing-row' : 'pte-im-ui-incoming-row'">
+        <view class="pte-im-ui-avatar"><text>{{ avatar(message) }}</text></view>
+        <view class="pte-im-ui-message-stack" :class="isOutgoing(message) ? 'pte-im-ui-stack-outgoing' : 'pte-im-ui-stack-incoming'">
+          <view v-if="selectedMessageId === message.clientMsgId" class="pte-im-ui-message-actions"><button v-for="emoji in quickReactions" :key="emoji" :class="reactionSelected(message, emoji) ? 'is-selected' : ''" @click="toggleReaction(message, emoji)">{{ emoji }}</button></view>
+          <view v-if="selectedMessageId === message.clientMsgId" class="pte-im-ui-message-actions pte-im-ui-message-tools"><button @click="performMessageAction('quote', message)"><image :src="actionIcon('quote')" mode="aspectFit" /><text>{{ copy('quote') }}</text></button><button @click="performMessageAction('copy', message)"><image :src="actionIcon('copy')" mode="aspectFit" /><text>{{ copy('copy') }}</text></button><button @click="performMessageAction('delete', message)"><image :src="actionIcon('delete')" mode="aspectFit" /><text>{{ copy('delete') }}</text></button><button v-if="isOutgoing(message)" @click="performMessageAction('revoke', message)"><image :src="actionIcon('revoke')" mode="aspectFit" /><text>{{ copy('revoke') }}</text></button></view>
+          <view class="pte-im-ui-message" :class="[isOutgoing(message) ? 'pte-im-ui-outgoing' : 'pte-im-ui-incoming', richType(message)]" @longpress="showMessageMenu(message)">
+            <view v-if="String(message.quoteSnapshot ?? '').length > 0" class="pte-im-ui-inline-quote"><text>{{ String(message.quoteSnapshot) }}</text></view>
+            <text v-if="message.status === 2" class="pte-im-ui-message-text pte-im-ui-recalled">{{ copy('recalled') }}</text>
+            <text v-else-if="message.type === 'text' || message.type === 'emoji'" class="pte-im-ui-message-text">{{ messageText(message) }}</text>
+            <image v-else-if="message.type === 'image'" class="pte-im-ui-media-image" :src="mediaURL(message)" mode="aspectFill" @click="previewImage(message)" @longpress="saveImage(message)" />
+            <view v-else-if="message.type === 'video'" class="pte-im-ui-video-card" @click="previewVideo(message)"><image class="pte-im-ui-video-cover" :src="videoPoster(message) || mediaURL(message)" mode="aspectFill" /><text>{{ copy('video') }} · {{ duration(message) }}</text></view>
+            <view v-else-if="message.type === 'voice'" class="pte-im-ui-voice-card" @click="playVoice(message)"><text>{{ copy('voice') }} · {{ duration(message) }}</text></view>
+            <view v-else-if="message.type === 'location'" class="pte-im-ui-location-card" @click="openLocation(message)"><text class="pte-im-ui-card-title">{{ content(message).name || copy('location') }}</text><text>{{ content(message).address || '' }}</text></view>
+            <view v-else-if="message.type === 'file'" class="pte-im-ui-file-card" @click="openFile(message)"><text class="pte-im-ui-card-title">{{ content(message).fileName || copy('file') }}</text><text>{{ fileSize(message) }}</text></view>
+            <view v-else class="pte-im-ui-business-card" @click="$emit('business-action', message)"><text class="pte-im-ui-card-title">{{ businessTitle(message) }}</text><text>{{ content(message).subtitle || '' }}</text></view>
+          </view>
+          <view v-if="reactions(message).length > 0" class="pte-im-ui-reactions"><button v-for="reaction in reactions(message)" :key="reaction.emoji" class="pte-im-ui-reaction" @click="requestReaction(message, reaction.emoji)">{{ reaction.emoji }} {{ reaction.count }}</button></view>
+          <view class="pte-im-ui-delivery"><text>{{ timestamp(message) }}</text><text v-if="isOutgoing(message)" :class="deliveryState(message) === 'failed' ? 'is-failed' : ''">{{ deliveryCopy(message) }}</text></view>
         </view>
       </view>
     </scroll-view>
-    <PteIMUIInputBar v-model="draft" :language="language" @send="sendText" @emoji="sendEmoji" @action="action" @voice="voice" />
+
+    <view v-if="quotedMessage != null" class="pte-im-ui-quote-bar"><view><text class="pte-im-ui-quote-name">{{ copy('quote') }}</text><text>{{ messageText(quotedMessage) }}</text></view><button @click="quotedMessage = null"><image :src="isDark ? '/uni_modules/pte-im-uikit/static/chat/close-dark.png' : '/uni_modules/pte-im-uikit/static/chat/close-light.png'" mode="aspectFit" /></button></view>
+    <PteIMUIInputBar v-model="draft" :language="language" :dark="isDark" :emojis="emojis" :custom-actions="customActions" @send="sendText" @action="handleInputAction" @voice-recording="onVoiceRecording" />
+    <PteIMUIImagePreview :visible="previewMessage != null && previewMessage.type === 'image'" :src="previewMessage == null ? '' : mediaURL(previewMessage)" @close="previewMessage = null" @save="saveCurrentImage" />
+    <PteIMUIVideoPreview :visible="previewMessage != null && previewMessage.type === 'video'" :src="previewMessage == null ? '' : mediaURL(previewMessage)" :poster="previewMessage == null ? '' : videoPoster(previewMessage)" :dark="isDark" @close="previewMessage = null" />
   </view>
 </template>
 
 <script lang="uts">
-import { PteIMIncomingMessage, PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
-import { PteIMUIAction, PteIMUIChatController, PteIMUIKit, PteIMUIReaction, PteIMUIReactionProvider, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIKitFacade.uts'
+import { PteIMIncomingMessage, PteIMLocation, PteIMSDKClient } from '../../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMUIAction, PteIMUICustomAction, PteIMUIEmoji, PteIMUIInputAction, PteIMUIChatController, PteIMUIKit, PteIMUIMapNavigationHandler, PteIMUIReaction, PteIMUIReactionProvider, PteIMUITheme, PteIMUIThemePalette } from '../../utssdk/PteIMUIKitFacade.uts'
+import PteIMUIInputBar from '../PteIMUIInputBar/PteIMUIInputBar.uvue'
+import PteIMUIImagePreview from '../PteIMUIImagePreview/PteIMUIImagePreview.uvue'
+import PteIMUIVideoPreview from '../PteIMUIVideoPreview/PteIMUIVideoPreview.uvue'
 
 export default {
-  props: { client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, subtitle: { type: String, default: '' }, theme: { type: Object, default: null }, reactionProvider: { type: Object, default: null } },
-  emits: ['action', 'voice-recording'],
-  data() { return { messages: [] as PteIMIncomingMessage[], draft: '', language: 'zh-CN', currentUserId: '', themeClass: '', themeStyle: {} as any, latestMessageId: '', controller: null as PteIMUIChatController | null } },
+  components: { PteIMUIInputBar, PteIMUIImagePreview, PteIMUIVideoPreview },
+  props: {
+    client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, subtitle: { type: String, default: '' }, theme: { type: Object, default: null }, reactionProvider: { type: Object, default: null },
+    emojis: { type: Array, default: () => [] as PteIMUIEmoji[] }, customActions: { type: Array, default: () => [] as PteIMUICustomAction[] }, mediaResolver: { type: Function, default: null }, mapNavigationHandler: { type: Object, default: null },
+  },
+  emits: ['action', 'back', 'more', 'voice-call', 'video-call', 'voice-recording', 'message-action', 'business-action', 'location-navigation', 'error'],
+  data() { return { messages: [] as PteIMIncomingMessage[], draft: '', language: 'zh-CN', currentUserId: '', themeClass: '', themeStyle: {} as any, latestMessageId: '', isDark: false, controller: null as PteIMUIChatController | null, quotedMessage: null as PteIMIncomingMessage | null, selectedMessageId: '', localReactionStates: {} as any, quickReactions: ['👍', '❤️', '😂', '😮', '😭', '🙏'], previewMessage: null as PteIMIncomingMessage | null, recorder: null as any, recordingCancelled: false } },
   mounted() {
     const client = this.client as PteIMSDKClient
     this.currentUserId = client.currentUserId()
     const controller = PteIMUIKit.createChatController(client, this.conversationId)
     controller.onChanged = () => { this.messages = controller.messages; this.latestMessageId = this.messages.length > 0 ? this.messages[this.messages.length - 1].clientMsgId : ''; const appearance = client.currentAppearance(); this.language = appearance.language === 'en-US' ? 'en-US' : 'zh-CN'; this.applyTheme() }
-    controller.onActionRequested = (action: PteIMUIAction) => this.$emit('action', action)
     this.controller = controller; controller.refresh(); this.applyTheme()
   },
-  beforeUnmount() { this.controller?.dispose() },
+  beforeUnmount() { this.controller?.dispose(); this.controller = null },
   methods: {
     sendText(value: string) { this.controller?.sendText(value) },
-    sendEmoji(payload: any) { this.controller?.sendEmoji(String(payload.packageId ?? 'default'), String(payload.emojiId ?? 'smile_001')) },
-    action(action: PteIMUIAction) { this.controller?.requestAction(action) },
-    voice(recording: boolean) { this.$emit('voice-recording', recording) },
-    applyTheme() { const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const mode = (this.client as PteIMSDKClient).currentAppearance().themeMode; const dark = mode === 'dark' || (mode === 'system' && uni.getSystemInfoSync().theme === 'dark'); const palette = dark ? theme.dark : theme.light; this.themeClass = dark ? 'pte-im-ui-dark' : 'pte-im-ui-light'; this.themeStyle = this.cssVariables(palette) },
+    content(message: PteIMIncomingMessage): any { return message.content as any },
+    isOutgoing(message: PteIMIncomingMessage): boolean { return message.senderId === this.currentUserId },
+    avatar(message: PteIMIncomingMessage): string { const id = String(message.senderId ?? ''); return id === this.currentUserId ? 'M' : (id.length > 0 ? id.substring(0, 1).toUpperCase() : '?') },
+    mediaURL(message: PteIMIncomingMessage): string { const raw = String(this.content(message).url ?? ''); const resolver = this.mediaResolver as any; return resolver == null ? raw : String(resolver(raw, message)) },
+    videoPoster(message: PteIMIncomingMessage): string { const value = this.content(message); return String(value.coverUrl ?? value.thumbnailUrl ?? '') },
+    duration(message: PteIMIncomingMessage): string { return Math.max(0, Math.ceil(Number(this.content(message).durationMs ?? 0) / 1000)).toString() + 's' },
+    fileSize(message: PteIMIncomingMessage): string { const value = Number(this.content(message).sizeBytes ?? 0); if (value <= 0) return ''; return value >= 1048576 ? (value / 1048576).toFixed(1) + ' MB' : Math.ceil(value / 1024).toString() + ' KB' },
+    messageText(message: PteIMIncomingMessage): string { const value = this.content(message); return message.type === 'emoji' ? String(value.emojiId ?? '') : String(value.text ?? '') },
+    businessTitle(message: PteIMIncomingMessage): string { const type = message.type === 'red_packet' ? copyText(this.language, 'redPacket') : message.type === 'gift' ? copyText(this.language, 'gift') : message.type === 'order' ? copyText(this.language, 'order') : copyText(this.language, 'business'); return type + (String(this.content(message).title ?? '').length > 0 ? ' · ' + String(this.content(message).title) : '') },
+    richType(message: PteIMIncomingMessage): string { return ['image', 'video', 'location', 'gift', 'red_packet', 'order', 'file', 'voice'].indexOf(message.type) >= 0 ? 'pte-im-ui-rich-' + message.type : '' },
+    timestamp(message: PteIMIncomingMessage): string { const value = new Date(message.createdAt); return String(value.getHours()).padStart(2, '0') + ':' + String(value.getMinutes()).padStart(2, '0') },
+    deliveryState(message: PteIMIncomingMessage): string { return this.controller?.stateFor(message.clientMsgId) ?? 'sent' },
+    deliveryCopy(message: PteIMIncomingMessage): string { const state = this.deliveryState(message); return state === 'uploading' ? copyText(this.language, 'uploading') : state === 'pending' ? copyText(this.language, 'sending') : state === 'failed' ? copyText(this.language, 'failed') : '✓✓' },
+    reactions(message: PteIMIncomingMessage): PteIMUIReaction[] { const provider = this.reactionProvider as PteIMUIReactionProvider | null; const values = provider == null ? [] : provider.reactionsFor(message).filter((reaction: PteIMUIReaction) => reaction.emoji.length > 0 && reaction.count > 0); const result = [] as PteIMUIReaction[]; const seen = [] as string[]; values.forEach((reaction: PteIMUIReaction) => { const selected = this.reactionSelected(message, reaction.emoji); const persisted = provider != null && provider.reactedByMe(message, reaction.emoji); const delta = selected && !persisted ? 1 : (!selected && persisted ? -1 : 0); result.push({ emoji: reaction.emoji, count: Math.max(0, reaction.count + delta) } as PteIMUIReaction); seen.push(reaction.emoji) }); this.quickReactions.forEach((emoji: string) => { if (seen.indexOf(emoji) < 0 && this.reactionSelected(message, emoji)) result.push({ emoji, count: 1 } as PteIMUIReaction) }); return result.filter((reaction: PteIMUIReaction) => reaction.count > 0) },
+    reactionSelected(message: PteIMIncomingMessage, emoji: string): boolean { const key = message.clientMsgId + ':' + emoji; const local = this.localReactionStates[key]; if (local != null) return Boolean(local); const provider = this.reactionProvider as PteIMUIReactionProvider | null; return provider != null && provider.reactedByMe(message, emoji) },
+    toggleReaction(message: PteIMIncomingMessage, emoji: string) { const key = message.clientMsgId + ':' + emoji; const selected = !this.reactionSelected(message, emoji); this.localReactionStates[key] = selected; this.$emit('message-action', { action: 'reaction', message, emoji, selected }); },
+    requestReaction(message: PteIMIncomingMessage, emoji: string) { this.toggleReaction(message, emoji) },
+    actionIcon(action: string): string { const suffix = this.isDark ? 'dark' : 'light'; return '/uni_modules/pte-im-uikit/static/chat/' + action + '-' + suffix + '.png' },
+    showMessageMenu(message: PteIMIncomingMessage) { this.selectedMessageId = this.selectedMessageId === message.clientMsgId ? '' : message.clientMsgId },
+    performMessageAction(action: string, message: PteIMIncomingMessage) { this.selectedMessageId = ''; if (action === 'quote') { this.quotedMessage = message; return }; if (action === 'copy') { uni.setClipboardData({ data: this.messageText(message) }); return }; if (action === 'retry') { if (!(this.client as PteIMSDKClient).retryMessage(message.clientMsgId)) this.$emit('error', copyText(this.language, 'retryUnavailable')); return }; if (action === 'delete' || action === 'revoke') { const serverMsgId = String(message.serverMsgId ?? ''); if (serverMsgId.length === 0) { this.$emit('error', copyText(this.language, 'messageNotSynced')); return }; const client = this.client as PteIMSDKClient; const complete = (error: string | null): void => { if (error != null) { this.$emit('error', error); return }; client.syncNow(); this.controller?.refresh() }; if (action === 'delete') client.deleteMessage(serverMsgId, complete); else client.recallMessage(serverMsgId, complete); return }; this.$emit('message-action', { action, message }) },
+    previewImage(message: PteIMIncomingMessage) { if (this.mediaURL(message).length > 0) this.previewMessage = message },
+    previewVideo(message: PteIMIncomingMessage) { if (this.mediaURL(message).length > 0) this.previewMessage = message },
+    saveImage(message: PteIMIncomingMessage) { const url = this.mediaURL(message); if (url.length === 0) return; if (url.indexOf('http://') === 0 || url.indexOf('https://') === 0) { uni.downloadFile({ url, success: (result: any) => this.saveImageFile(String(result.tempFilePath)), fail: (_error: any) => this.$emit('error', copyText(this.language, 'saveImageFailed')) }); return }; this.saveImageFile(url) },
+    saveCurrentImage() { if (this.previewMessage != null) this.saveImage(this.previewMessage) },
+    saveImageFile(filePath: string) { uni.saveImageToPhotosAlbum({ filePath, fail: (_error: any) => this.$emit('error', copyText(this.language, 'saveImageFailed')) }) },
+    playVoice(message: PteIMIncomingMessage) { const url = this.mediaURL(message); if (url.length > 0) { const audio = uni.createInnerAudioContext(); audio.src = url; audio.play() } },
+    openLocation(message: PteIMIncomingMessage) { const value = this.content(message); const location = { latitude: Number(value.latitude), longitude: Number(value.longitude), name: String(value.name ?? ''), address: String(value.address ?? '') } as PteIMLocation; const config = (this.client as PteIMSDKClient).mapConfig(); const amapURI = this.amapNavigationURI(location, config == null ? '' : String(config.h5Key ?? '')); const handler = this.mapNavigationHandler as PteIMUIMapNavigationHandler | null; this.$emit('location-navigation', { location, config, amapURI }); if (handler != null && handler.open(location, config, amapURI)) return; uni.openLocation({ latitude: location.latitude, longitude: location.longitude, name: location.name, address: location.address }) },
+    amapNavigationURI(location: PteIMLocation, key: string): string { const parts = ['https://uri.amap.com/marker?position=' + encodeURIComponent(location.longitude.toString() + ',' + location.latitude.toString()), 'name=' + encodeURIComponent(location.name), 'coordinate=gaode', 'callnative=1', 'src=pte-im-uikit']; if (key.length > 0) parts.push('key=' + encodeURIComponent(key)); return parts.join('&') },
+    openFile(message: PteIMIncomingMessage) { const url = this.mediaURL(message); if (url.length === 0) return; uni.downloadFile({ url, success: (result: any) => uni.openDocument({ filePath: result.tempFilePath, showMenu: true }), fail: (_error: any) => this.$emit('error', copyText(this.language, 'openFileFailed')) }) },
+    handleInputAction(input: PteIMUIInputAction) { if (typeof input !== 'string') { this.$emit('action', input); return }; if (input === 'image' || input === 'camera' || input === 'video') { this.pickMedia(input); return }; if (input === 'file') { this.pickFile(); return }; if (input === 'location') { this.pickLocation(); return }; this.$emit('action', input as PteIMUIAction) },
+    pickMedia(type: string) {
+      // #ifdef MP-WEIXIN
+      uni.chooseMedia({ count: 1, mediaType: type === 'video' ? ['video'] : ['image'], sourceType: type === 'camera' ? ['camera'] : ['album', 'camera'], success: (result: any) => { const path = String(result.tempFiles[0].tempFilePath); const client = this.client as PteIMSDKClient; const id = type === 'video' ? client.uploadAndSendVideo(this.conversationId, path) : client.uploadAndSendImage(this.conversationId, path); this.controller?.trackOutgoing(id, type === 'video' ? 'video' : 'image', { url: path }) }, fail: (_error: any) => {} })
+      // #endif
+      // #ifdef WEB
+      this.$emit('action', type as PteIMUIAction)
+      // #endif
+    },
+    pickFile() {
+      // #ifdef MP-WEIXIN
+      uni.chooseMessageFile({ count: 1, type: 'file', success: (result: any) => { const file = result.tempFiles[0]; const path = String(file.path); const id = (this.client as PteIMSDKClient).uploadAndSendFile(this.conversationId, path); this.controller?.trackOutgoing(id, 'file', { url: path, fileName: String(file.name ?? '') }) } })
+      // #endif
+      // #ifdef WEB
+      this.$emit('action', 'file')
+      // #endif
+    },
+    pickLocation() {
+      // #ifdef MP-WEIXIN
+      uni.chooseLocation({ success: (value: any) => { const location = { latitude: Number(value.latitude), longitude: Number(value.longitude), name: String(value.name ?? ''), address: String(value.address ?? '') } as PteIMLocation; const id = (this.client as PteIMSDKClient).sendLocation(this.conversationId, location); this.controller?.trackOutgoing(id, 'location', location) } })
+      // #endif
+      // #ifdef WEB
+      this.$emit('action', 'location')
+      // #endif
+    },
+    onVoiceRecording(payload: any) { const active = Boolean(payload.recording); this.$emit('voice-recording', payload); if (active) this.startRecording(); else this.stopRecording(Boolean(payload.cancelled)) },
+    startRecording() {
+      // #ifdef MP-WEIXIN
+      const manager = uni.getRecorderManager(); this.recorder = manager; this.recordingCancelled = false; manager.onStop((result: any) => { if (this.recordingCancelled) return; const duration = Math.max(1, Number(result.duration ?? 0)); const id = (this.client as PteIMSDKClient).uploadAndSendVoice(this.conversationId, String(result.tempFilePath), duration); this.controller?.trackOutgoing(id, 'voice', { url: String(result.tempFilePath), durationMs: duration }) }); manager.start({ duration: 60000, format: 'mp3' })
+      // #endif
+    },
+    stopRecording(cancelled: boolean) { this.recordingCancelled = cancelled; if (this.recorder != null) this.recorder.stop(); this.recorder = null },
+    applyTheme() { const theme = (this.theme as PteIMUITheme | null) ?? new PteIMUITheme(); const mode = (this.client as PteIMSDKClient).currentAppearance().themeMode; this.isDark = mode === 'dark' || (mode === 'system' && uni.getSystemInfoSync().theme === 'dark'); const palette = this.isDark ? theme.dark : theme.light; this.themeClass = this.isDark ? 'pte-im-ui-dark' : 'pte-im-ui-light'; this.themeStyle = this.cssVariables(palette) },
     cssVariables(palette: PteIMUIThemePalette): any { return { '--pte-im-ui-background': palette.background, '--pte-im-ui-surface': palette.surface, '--pte-im-ui-composer': palette.composer, '--pte-im-ui-incoming': palette.incoming, '--pte-im-ui-outgoing-start': palette.outgoingStart, '--pte-im-ui-outgoing-end': palette.outgoingEnd, '--pte-im-ui-text': palette.text, '--pte-im-ui-muted': palette.muted, '--pte-im-ui-incoming-text': palette.incomingText, '--pte-im-ui-outgoing-text': palette.outgoingText, '--pte-im-ui-icon': palette.icon, '--pte-im-ui-divider': palette.divider, '--pte-im-ui-panel': palette.panel, '--pte-im-ui-panel-item': palette.panelItem, '--pte-im-ui-composer-input': palette.composerInput } },
-    reactions(message: PteIMIncomingMessage): PteIMUIReaction[] { const provider = this.reactionProvider as PteIMUIReactionProvider | null; return provider == null ? [] : provider.reactionsFor(message).filter((reaction: PteIMUIReaction) => reaction.emoji.length > 0 && reaction.count > 0) },
-    richType(message: PteIMIncomingMessage): string { return ['image', 'video', 'location', 'gift', 'red_packet', 'order', 'file'].indexOf(message.type) >= 0 ? 'pte-im-ui-rich-' + message.type : '' },
-    deliveryLine(message: PteIMIncomingMessage): string { const value = new Date(message.createdAt); const hour = String(value.getHours()).padStart(2, '0'); const minute = String(value.getMinutes()).padStart(2, '0'); const outgoing = message.senderId === this.currentUserId; return hour + ':' + minute + (outgoing ? (message.state === 'sent' ? '  ✓✓' : '  …') : '') },
-    label(message: PteIMIncomingMessage): string { const content = message.content as any; const en = this.language === 'en-US'; if (message.type === 'text') return String(content.text ?? ''); if (message.type === 'emoji') return String(content.emojiId ?? ''); if (message.type === 'image') return en ? 'Photo' : '图片'; if (message.type === 'video') return (en ? 'Video' : '视频') + '\n' + String(Math.floor(Number(content.durationMs ?? 0) / 1000)) + 's'; if (message.type === 'voice') return (en ? 'Voice' : '语音') + '  ' + String(Math.floor(Number(content.durationMs ?? 0) / 1000)) + 's'; if (message.type === 'location') return (en ? 'Location' : '位置') + '\n' + String(content.name ?? '') + '\n' + String(content.address ?? ''); if (message.type === 'gift') return (en ? 'Gift' : '礼物') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); if (message.type === 'red_packet') return (en ? 'Red packet' : '红包') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); if (message.type === 'order') return (en ? 'Order' : '订单') + '\n' + String(content.title ?? '') + '\n' + String(content.subtitle ?? ''); return (en ? 'File' : '文件') + '\n' + String(content.fileName ?? '') },
+    copy(key: string): string { return copyText(this.language, key) },
   },
 }
+
+function copyText(language: string, key: string): string { const en = language === 'en-US'; if (key === 'voice') return en ? 'Voice message' : '语音消息'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'file') return en ? 'File' : '文件'; if (key === 'quote') return en ? 'Reply' : '引用'; if (key === 'copy') return en ? 'Copy' : '复制'; if (key === 'delete') return en ? 'Delete' : '删除'; if (key === 'revoke') return en ? 'Recall' : '撤回'; if (key === 'recalled') return en ? 'This message was recalled' : '此消息已撤回'; if (key === 'reaction') return en ? 'React' : '添加表情'; if (key === 'retry') return en ? 'Retry' : '重发'; if (key === 'retryUnavailable') return en ? 'This message can no longer be retried' : '这条消息无法重新发送'; if (key === 'messageNotSynced') return en ? 'Wait for the message to finish sending' : '消息尚未发送完成'; if (key === 'uploading') return en ? 'Uploading' : '上传中'; if (key === 'sending') return en ? 'Sending' : '发送中'; if (key === 'failed') return en ? 'Failed' : '发送失败'; if (key === 'saveImageFailed') return en ? 'Unable to save image' : '图片保存失败'; if (key === 'openFileFailed') return en ? 'Unable to open file' : '文件打开失败'; if (key === 'redPacket') return en ? 'Red Packet' : '红包'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'order') return en ? 'Order' : '订单'; return en ? 'Business message' : '业务消息' }
 </script>
 
 <style>
-.pte-im-ui-chat { display: flex; flex-direction: column; height: 100%; background-color: var(--pte-im-ui-background); color: var(--pte-im-ui-text); }
-.pte-im-ui-navigation { min-height: 96rpx; display: flex; align-items: center; padding: 0 16rpx; box-sizing: border-box; background-color: var(--pte-im-ui-surface); }
-.pte-im-ui-navigation-back { width: 70rpx; color: var(--pte-im-ui-icon); font-size: 58rpx; line-height: 72rpx; }
-.pte-im-ui-navigation-title-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
-.pte-im-ui-title { color: var(--pte-im-ui-text); font-size: 32rpx; line-height: 38rpx; font-weight: 600; max-width: 340rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pte-im-ui-subtitle { margin-top: 2rpx; color: var(--pte-im-ui-outgoing-start); font-size: 21rpx; line-height: 26rpx; }
-.pte-im-ui-navigation-actions { width: 192rpx; display: flex; justify-content: space-between; align-items: center; color: var(--pte-im-ui-icon); font-size: 32rpx; }
-.pte-im-ui-messages { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
-.pte-im-ui-message-row { display: flex; width: 100%; margin: 10rpx 0; }
-.pte-im-ui-incoming-row { justify-content: flex-start; }
-.pte-im-ui-outgoing-row { justify-content: flex-end; }
-.pte-im-ui-message { max-width: 78%; padding: 18rpx 22rpx; border-radius: 24rpx; color: var(--pte-im-ui-incoming-text); font-size: 28rpx; line-height: 40rpx; }
-.pte-im-ui-message-stack { display: flex; flex-direction: column; max-width: 78%; }
-.pte-im-ui-stack-incoming { align-items: flex-start; }
-.pte-im-ui-stack-outgoing { align-items: flex-end; }
-.pte-im-ui-incoming { background-color: var(--pte-im-ui-incoming); }
-.pte-im-ui-outgoing { color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); }
-.pte-im-ui-rich-image { width: 396rpx; color: #123C38; background-image: linear-gradient(135deg, #79e2be, #51bfaa); }
-.pte-im-ui-rich-video { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #0e111c, #202942); }
-.pte-im-ui-rich-gift { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #7940ef, #361e77); }
-.pte-im-ui-rich-red_packet { width: 396rpx; color: #FFFFFF; background-image: linear-gradient(135deg, #d6442d, #84211a); }
-.pte-im-ui-rich-location, .pte-im-ui-rich-order, .pte-im-ui-rich-file { width: 396rpx; }
-.pte-im-ui-reactions { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 8rpx; }
-.pte-im-ui-reaction { padding: 5rpx 12rpx; color: var(--pte-im-ui-text); border: 1rpx solid var(--pte-im-ui-divider); border-radius: 24rpx; background-color: var(--pte-im-ui-surface); font-size: 20rpx; }
-.pte-im-ui-delivery { margin-top: 5rpx; color: var(--pte-im-ui-muted); font-size: 20rpx; line-height: 26rpx; }
-.pte-im-ui-stack-outgoing .pte-im-ui-delivery { color: var(--pte-im-ui-outgoing-end); }
+.pte-im-ui-chat { display: flex; flex-direction: column; height: 100%; background-color: var(--pte-im-ui-background); color: var(--pte-im-ui-text); }.pte-im-ui-navigation { display: flex; min-height: 44px; align-items: center; padding: 0 8px; box-sizing: border-box; background-color: var(--pte-im-ui-surface); border-bottom: 1px solid var(--pte-im-ui-divider); }.pte-im-ui-navigation-button { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; margin: 0; padding: 6px; border: 0; background: transparent; }.pte-im-ui-navigation-button image { width: 24px; height: 24px; }.pte-im-ui-navigation-title-wrap { flex: 1; display: flex; min-width: 0; flex-direction: column; justify-content: center; }.pte-im-ui-title { overflow: hidden; color: var(--pte-im-ui-text); font-size: 16px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.pte-im-ui-subtitle { color: #20B778; font-size: 11px; }.pte-im-ui-navigation-actions { display: flex; }.pte-im-ui-messages { flex: 1; min-height: 0; padding: 18px 16px; box-sizing: border-box; }.pte-im-ui-message-row { display: flex; width: 100%; margin: 10px 0; align-items: flex-start; }.pte-im-ui-outgoing-row { flex-direction: row-reverse; }.pte-im-ui-avatar { display: flex; width: 28px; min-width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 14px; color: #FFFFFF; background-color: #8757F6; font-size: 12px; font-weight: 600; }.pte-im-ui-message-stack { display: flex; max-width: calc(100% - 42px); flex-direction: column; }.pte-im-ui-stack-incoming { margin-left: 8px; align-items: flex-start; }.pte-im-ui-stack-outgoing { margin-right: 8px; align-items: flex-end; }.pte-im-ui-message-actions { display: flex; gap: 4px; max-width: 100%; margin-bottom: 4px; padding: 4px; border-radius: 10px; background-color: var(--pte-im-ui-surface); box-shadow: 0 4px 14px rgba(11, 16, 40, .16); }.pte-im-ui-message-actions button { display: flex; min-width: 28px; height: 28px; align-items: center; justify-content: center; margin: 0; padding: 0 5px; border: 0; border-radius: 8px; background: transparent; color: var(--pte-im-ui-text); font-size: 16px; }.pte-im-ui-message-actions button.is-selected { background-color: var(--pte-im-ui-panel); }.pte-im-ui-message-tools button { gap: 3px; padding: 0 6px; font-size: 10px; }.pte-im-ui-message-tools image { width: 15px; height: 15px; }.pte-im-ui-message { max-width: 100%; padding: 12px 14px; border-radius: 14px; box-sizing: border-box; color: var(--pte-im-ui-incoming-text); font-size: 14px; line-height: 21px; }.pte-im-ui-inline-quote { max-width: 220px; margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid var(--pte-im-ui-divider); color: var(--pte-im-ui-muted); font-size: 11px; line-height: 15px; }.pte-im-ui-recalled { color: var(--pte-im-ui-muted); font-style: italic; }.pte-im-ui-message-text { white-space: pre-wrap; word-break: break-all; }.pte-im-ui-incoming { background-color: var(--pte-im-ui-incoming); }.pte-im-ui-outgoing { color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(100deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); }.pte-im-ui-media-image { display: block; width: 206px; height: 154px; border-radius: 8px; }.pte-im-ui-rich-image { padding: 0; overflow: hidden; }.pte-im-ui-rich-video, .pte-im-ui-rich-file, .pte-im-ui-rich-location, .pte-im-ui-rich-voice, .pte-im-ui-business-card { min-width: 186px; }.pte-im-ui-video-cover { width: 218px; height: 142px; border-radius: 8px; }.pte-im-ui-video-card, .pte-im-ui-location-card, .pte-im-ui-file-card, .pte-im-ui-voice-card, .pte-im-ui-business-card { display: flex; flex-direction: column; }.pte-im-ui-card-title { font-weight: 600; }.pte-im-ui-location-card, .pte-im-ui-file-card, .pte-im-ui-business-card { gap: 5px; }.pte-im-ui-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }.pte-im-ui-reaction { min-height: 24px; padding: 2px 8px; border: 1px solid var(--pte-im-ui-divider); border-radius: 12px; color: var(--pte-im-ui-text); background-color: var(--pte-im-ui-surface); font-size: 11px; }.pte-im-ui-delivery { display: flex; gap: 5px; margin-top: 4px; color: var(--pte-im-ui-muted); font-size: 10px; }.pte-im-ui-delivery .is-failed { color: #F25353; }.pte-im-ui-quote-bar { display: flex; min-height: 44px; align-items: center; justify-content: space-between; padding: 6px 14px; border-top: 1px solid var(--pte-im-ui-divider); color: var(--pte-im-ui-muted); background-color: var(--pte-im-ui-panel); font-size: 11px; }.pte-im-ui-quote-bar view { display: flex; min-width: 0; flex: 1; flex-direction: column; }.pte-im-ui-quote-name { color: var(--pte-im-ui-outgoing-end); }.pte-im-ui-quote-bar button { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; margin: 0; border: 0; background: transparent; }.pte-im-ui-quote-bar button image { width: 22px; height: 22px; }
 </style>

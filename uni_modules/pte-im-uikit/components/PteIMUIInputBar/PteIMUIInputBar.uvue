@@ -1,55 +1,108 @@
 <template>
-  <view class="pte-im-ui-input-root">
-    <view class="pte-im-ui-input-shell" :class="panel ? 'pte-im-ui-input-expanded' : ''">
-      <button class="pte-im-ui-input-icon" @click="voiceMode = !voiceMode">{{ voiceMode ? copy('keyboard') : copy('voice') }}</button>
-      <button v-if="voiceMode" class="pte-im-ui-hold" @touchstart="voice(true)" @touchend="voice(false)" @touchcancel="voice(false)">{{ copy('hold') }}</button>
-      <input v-else v-model="draftValue" class="pte-im-ui-input-field" :placeholder="copy('message')" @confirm="sendText" />
-      <button v-if="!panel" class="pte-im-ui-input-icon pte-im-ui-plus" @click="toggle('more')">＋</button>
-      <button class="pte-im-ui-input-icon" @click="toggle('emoji')">{{ copy('emoji') }}</button>
-      <button v-if="!panel" class="pte-im-ui-send" @click="sendText">{{ copy('send') }}</button>
-      <button v-else class="pte-im-ui-input-icon pte-im-ui-close" @click="panel = ''">×</button>
+  <view class="pte-im-ui-input-root" :class="dark ? 'is-dark' : ''">
+    <view class="pte-im-ui-composer-row">
+      <button class="pte-im-ui-composer-icon" @click="toggleVoice">
+        <image :src="voiceIcon" mode="aspectFit" />
+      </button>
+
+      <button v-if="voiceMode" class="pte-im-ui-hold-to-talk" :class="recordingCancelled ? 'is-cancelled' : ''" @touchstart="beginVoice" @touchmove="moveVoice" @touchend="finishVoice" @touchcancel="cancelVoice" @touchleave="leaveVoice">
+        {{ recording ? (recordingCancelled ? copy('releaseCancel') : copy('speaking')) : copy('hold') }}
+      </button>
+      <textarea v-else v-model="draftValue" class="pte-im-ui-textarea" :maxlength="maxLength" :placeholder="copy('message')" :auto-height="true" :show-confirm-bar="false" @confirm="sendText" />
+
+      <button class="pte-im-ui-composer-icon" @click="toggleEmoji">
+        <image :src="emojiIcon" mode="aspectFit" />
+      </button>
+      <button class="pte-im-ui-composer-icon" @click="toggleMore">
+        <image :src="moreIcon" mode="aspectFit" />
+      </button>
+      <button v-if="mode === 'keyboard' && draftValue.trim().length > 0" class="pte-im-ui-keyboard-send" @click="sendText"><image :src="sendIcon" mode="aspectFit" /></button>
     </view>
-    <view v-if="panel === 'emoji'" class="pte-im-ui-input-panel">
-      <button v-for="item in emojis" :key="item.id" class="pte-im-ui-panel-item pte-im-ui-emoji-item" @click="pickEmoji(item.id)">{{ item.label }}</button>
+
+    <view v-if="mode === 'emoji'" class="pte-im-ui-panel pte-im-ui-emoji-panel">
+      <view class="pte-im-ui-emoji-tabs">
+        <button :class="['pte-im-ui-emoji-tab', { selected: emojiGroup === 'common' }]" @click="emojiGroup = 'common'">{{ copy('common') }}</button>
+        <button :class="['pte-im-ui-emoji-tab', { selected: emojiGroup === 'all' }]" @click="emojiGroup = 'all'">{{ copy('all') }}</button>
+      </view>
+      <scroll-view class="pte-im-ui-emoji-scroll" scroll-y="true">
+        <view class="pte-im-ui-emoji-grid">
+          <button v-for="item in visibleEmojis()" :key="item.id" class="pte-im-ui-emoji-cell" @click="insertEmoji(item)">
+            <image v-if="item.imageUrl" class="pte-im-ui-emoji-image" :src="item.imageUrl" mode="aspectFit" />
+            <text v-else>{{ item.value }}</text>
+          </button>
+        </view>
+      </scroll-view>
+      <view class="pte-im-ui-panel-footer">
+        <button class="pte-im-ui-panel-control" @click="backspace"><image :src="backspaceIcon" mode="aspectFit" /></button>
+        <button class="pte-im-ui-panel-send" :disabled="draftValue.trim().length === 0" @click="sendText"><image :src="sendIcon" mode="aspectFit" /></button>
+      </view>
     </view>
-    <view v-if="panel === 'more'" class="pte-im-ui-input-panel">
-      <button v-for="action in moreActions" :key="action" class="pte-im-ui-panel-item" @click="pickAction(action)">{{ copy(action) }}</button>
+
+    <view v-if="mode === 'more'" class="pte-im-ui-panel pte-im-ui-more-panel">
+      <view class="pte-im-ui-more-grid">
+        <button v-for="item in visibleActions()" :key="actionKey(item)" class="pte-im-ui-more-cell" @click="pickAction(item)">
+          <image class="pte-im-ui-more-icon" :src="actionIcon(item)" mode="aspectFit" />
+          <text>{{ actionTitle(item) }}</text>
+        </button>
+      </view>
     </view>
   </view>
 </template>
 
 <script lang="uts">
-import { PteIMUIAction } from '../../utssdk/PteIMUIKitFacade.uts'
+import { PteIMUIAction, PteIMUICustomAction, PteIMUIEmoji, PteIMUIInputAction } from '../../utssdk/PteIMUIKitFacade.uts'
 
 export default {
-  props: { modelValue: { type: String, default: '' }, language: { type: String, default: 'zh-CN' } },
-  emits: ['update:modelValue', 'send', 'emoji', 'action', 'voice'],
+  props: {
+    modelValue: { type: String, default: '' }, language: { type: String, default: 'zh-CN' }, dark: { type: Boolean, default: false },
+    maxLength: { type: Number, default: 200 }, emojis: { type: Array, default: () => [] as PteIMUIEmoji[] }, customActions: { type: Array, default: () => [] as PteIMUICustomAction[] }
+  },
+  emits: ['update:modelValue', 'send', 'action', 'voice-recording'],
   data() {
-    return { draftValue: this.modelValue as string, voiceMode: false, panel: '', emojis: [{ id: '😀', label: '😀' }, { id: '👋', label: '👋' }, { id: '🐶', label: '🐶' }, { id: '🍎', label: '🍎' }, { id: '✈️', label: '✈️' }, { id: '⚽️', label: '⚽️' }, { id: '💡', label: '💡' }, { id: '🔣', label: '🔣' }], moreActions: ['image', 'camera', 'video', 'location', 'file', 'red_packet', 'gift', 'order'] as PteIMUIAction[] }
+    return {
+      draftValue: this.modelValue as string, mode: 'keyboard', voiceMode: false, recording: false, recordingCancelled: false, emojiGroup: 'common',
+      defaultEmojis: [
+        { id: 'grin', value: '😀', group: 'common' }, { id: 'smile', value: '😊', group: 'common' }, { id: 'laugh', value: '😂', group: 'common' }, { id: 'heart', value: '❤️', group: 'common' }, { id: 'thumbs-up', value: '👍', group: 'common' }, { id: 'wave', value: '👋', group: 'common' },
+        { id: 'wink', value: '😉', group: 'all' }, { id: 'kiss', value: '😘', group: 'all' }, { id: 'sad', value: '😢', group: 'all' }, { id: 'angry', value: '😠', group: 'all' }, { id: 'surprised', value: '😮', group: 'all' }, { id: 'party', value: '🥳', group: 'all' }, { id: 'fire', value: '🔥', group: 'all' }, { id: 'ok', value: '👌', group: 'all' }, { id: 'clap', value: '👏', group: 'all' }, { id: 'rose', value: '🌹', group: 'all' },
+      ] as PteIMUIEmoji[],
+      builtInActions: ['image', 'camera', 'video', 'location', 'file', 'red_packet', 'gift', 'order'] as PteIMUIAction[],
+    }
   },
   watch: { modelValue(value: string) { if (value !== this.draftValue) this.draftValue = value }, draftValue(value: string) { this.$emit('update:modelValue', value) } },
+  computed: {
+    voiceIcon(): string { return this.icon(this.voiceMode ? 'keyboard' : 'voice') },
+    emojiIcon(): string { return this.icon(this.mode === 'emoji' ? 'keyboard-emoji' : 'emoji') },
+    moreIcon(): string { return this.icon(this.mode === 'more' ? 'close' : 'more') },
+    sendIcon(): string { return '/uni_modules/pte-im-uikit/static/chat/send-' + (this.dark ? 'dark' : 'light') + '.png' },
+    backspaceIcon(): string { return '/uni_modules/pte-im-uikit/static/chat/backspace-' + (this.dark ? 'dark' : 'light') + '.png' },
+  },
   methods: {
-    toggle(value: string) { this.panel = this.panel === value ? '' : value },
-    sendText() { const value = this.draftValue.trim(); if (value.length > 0) { this.$emit('send', value); this.draftValue = ''; this.panel = '' } },
-    pickEmoji(emojiId: string) { this.$emit('emoji', { packageId: 'default', emojiId }); this.panel = '' },
-    pickAction(action: PteIMUIAction) { this.$emit('action', action); this.panel = '' },
-    voice(recording: boolean) { this.$emit('voice', recording) },
-    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Message' : '输入消息'; if (key === 'send') return en ? 'Send' : '发送'; if (key === 'hold') return en ? 'Hold to talk' : '按住说话'; if (key === 'voice') return en ? 'Voice' : '语音'; if (key === 'keyboard') return en ? 'Keyboard' : '键盘'; if (key === 'emoji') return en ? 'Emoji' : '表情'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'camera') return en ? 'Camera' : '拍摄'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '位置'; if (key === 'file') return en ? 'File' : '文件'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'red_packet') return en ? 'Red packet' : '红包'; return en ? 'Order' : '订单' },
+    icon(name: string): string { return '/uni_modules/pte-im-uikit/static/chat/' + name + '-' + (this.dark ? 'dark' : 'light') + '.png' },
+    toggleVoice() { this.voiceMode = !this.voiceMode; this.mode = 'keyboard'; this.recording = false; this.recordingCancelled = false },
+    toggleEmoji() { this.mode = this.mode === 'emoji' ? 'keyboard' : 'emoji'; this.voiceMode = false },
+    toggleMore() { this.mode = this.mode === 'more' ? 'keyboard' : 'more'; this.voiceMode = false },
+    beginVoice() { this.recording = true; this.recordingCancelled = false; this.$emit('voice-recording', { recording: true, cancelled: false }) },
+    moveVoice(_event: any) { if (this.recording) this.recordingCancelled = false },
+    leaveVoice() { if (this.recording) this.recordingCancelled = true },
+    finishVoice() { if (!this.recording) return; const cancelled = this.recordingCancelled; this.recording = false; this.recordingCancelled = false; this.$emit('voice-recording', { recording: false, cancelled }) },
+    cancelVoice() { if (!this.recording) return; this.recording = false; this.recordingCancelled = false; this.$emit('voice-recording', { recording: false, cancelled: true }) },
+    visibleEmojis(): PteIMUIEmoji[] { const source = (this.emojis as PteIMUIEmoji[]).length > 0 ? this.emojis as PteIMUIEmoji[] : this.defaultEmojis; return this.emojiGroup === 'common' ? source.filter((item: PteIMUIEmoji) => item.group !== 'all') : source },
+    visibleActions(): PteIMUIInputAction[] { const all = (this.builtInActions as PteIMUIInputAction[]).concat(this.customActions as PteIMUICustomAction[]); return all.slice(0, 12) },
+    insertEmoji(item: PteIMUIEmoji) { if (this.draftValue.length + item.value.length > Number(this.maxLength)) return; this.draftValue += item.value },
+    backspace() { if (this.draftValue.length > 0) this.draftValue = this.draftValue.substring(0, this.draftValue.length - 1) },
+    sendText() { const value = this.draftValue.trim(); if (value.length === 0) return; this.$emit('send', value); this.draftValue = ''; this.mode = 'keyboard' },
+    actionKey(item: PteIMUIInputAction): string { return typeof item === 'string' ? item : item.id },
+    actionIcon(item: PteIMUIInputAction): string { if (typeof item !== 'string') return item.iconUrl; return '/uni_modules/pte-im-uikit/static/chat/action-' + (item === 'red_packet' ? 'red-packet' : item) + '.png' },
+    actionTitle(item: PteIMUIInputAction): string { if (typeof item !== 'string') return item.title; return this.copy(item) },
+    pickAction(item: PteIMUIInputAction) { this.mode = 'keyboard'; this.$emit('action', item) },
+    copy(key: string): string { const en = this.language === 'en-US'; if (key === 'message') return en ? 'Say something' : '说点什么'; if (key === 'hold') return en ? 'Hold to talk' : '按住说话'; if (key === 'speaking') return en ? 'Speaking…' : '正在说话'; if (key === 'releaseCancel') return en ? 'Release to cancel' : '松开手取消录音'; if (key === 'common') return en ? 'Recent' : '常用表情'; if (key === 'all') return en ? 'All' : '全部表情'; if (key === 'image') return en ? 'Image' : '图片'; if (key === 'camera') return en ? 'Camera' : '相机'; if (key === 'video') return en ? 'Video' : '视频'; if (key === 'location') return en ? 'Location' : '定位'; if (key === 'file') return en ? 'File' : '文件'; if (key === 'gift') return en ? 'Gift' : '礼物'; if (key === 'red_packet') return en ? 'Red Packet' : '红包'; return en ? 'Order' : '订单' },
   },
 }
 </script>
 
 <style>
-.pte-im-ui-input-root { padding: 16rpx 20rpx; background-color: var(--pte-im-ui-composer); }
-.pte-im-ui-input-shell { display: flex; align-items: center; min-height: 80rpx; padding: 0 10rpx; border: 1px solid var(--pte-im-ui-divider); border-radius: 42rpx; background-color: var(--pte-im-ui-surface); }
-.pte-im-ui-input-expanded { border-color: transparent; background-color: transparent; }
-.pte-im-ui-input-icon { min-width: 68rpx; padding: 0 8rpx; color: var(--pte-im-ui-icon); background-color: transparent; border: 0; font-size: 22rpx; }
-.pte-im-ui-plus { font-size: 40rpx; line-height: 1; }
-.pte-im-ui-input-field { flex: 1; min-width: 0; height: 72rpx; padding: 0 10rpx; color: var(--pte-im-ui-text); background-color: transparent; font-size: 28rpx; }
-.pte-im-ui-input-expanded .pte-im-ui-input-field { background-color: var(--pte-im-ui-composer-input); border-radius: 24rpx; }
-.pte-im-ui-hold { flex: 1; height: 60rpx; color: var(--pte-im-ui-text); background-color: var(--pte-im-ui-panel-item); border-radius: 28rpx; font-size: 26rpx; }
-.pte-im-ui-send { min-width: 88rpx; height: 60rpx; margin-left: 4rpx; color: var(--pte-im-ui-outgoing-text); background-image: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); border-radius: 30rpx; font-size: 24rpx; }
-.pte-im-ui-input-panel { display: flex; flex-wrap: wrap; padding-top: 14rpx; background-color: var(--pte-im-ui-panel); }
-.pte-im-ui-panel-item { width: 23%; min-width: 0; height: 104rpx; margin: 6rpx 1%; color: var(--pte-im-ui-icon); background-color: var(--pte-im-ui-panel-item); border: 0; border-radius: 18rpx; font-size: 20rpx; }
-.pte-im-ui-emoji-item { font-size: 36rpx; }
+.pte-im-ui-input-root { background-color: var(--pte-im-ui-composer); border-top: 1px solid var(--pte-im-ui-divider); }.pte-im-ui-composer-row { display: flex; align-items: flex-end; min-height: 56px; padding: 8px 12px; box-sizing: border-box; }.pte-im-ui-composer-icon, .pte-im-ui-keyboard-send { display: flex; width: 40px; min-width: 40px; height: 40px; align-items: center; justify-content: center; margin: 0; padding: 2px; border: 0; background-color: transparent; }.pte-im-ui-composer-icon image, .pte-im-ui-keyboard-send image { width: 28px; height: 28px; }.pte-im-ui-keyboard-send { width: 44px; min-width: 44px; }.pte-im-ui-keyboard-send image { width: 36px; height: 32px; }
+.pte-im-ui-textarea, .pte-im-ui-hold-to-talk { flex: 1; min-width: 0; min-height: 40px; max-height: 100px; margin: 0 4px; padding: 8px 10px; border: 0; border-radius: 10px; box-sizing: border-box; color: var(--pte-im-ui-text); background-color: var(--pte-im-ui-composer-input); font-size: 14px; line-height: 24px; }.pte-im-ui-textarea { overflow-y: auto; }.pte-im-ui-hold-to-talk { height: 40px; padding: 0 10px; color: var(--pte-im-ui-text); font-size: 14px; line-height: 40px; text-align: center; }.pte-im-ui-hold-to-talk.is-cancelled { color: #FFFFFF; background-color: #FA4D50; }
+.pte-im-ui-panel { border-top: 1px solid var(--pte-im-ui-divider); background-color: var(--pte-im-ui-panel); }.pte-im-ui-emoji-panel { height: 294px; display: flex; flex-direction: column; }.pte-im-ui-emoji-tabs { display: flex; height: 42px; padding: 0 12px; border-bottom: 1px solid var(--pte-im-ui-divider); }.pte-im-ui-emoji-tab { height: 42px; margin: 0 14px 0 0; padding: 0 8px; border: 0; border-bottom: 2px solid transparent; color: var(--pte-im-ui-muted); background: transparent; font-size: 12px; }.pte-im-ui-emoji-tab.selected { border-bottom-color: var(--pte-im-ui-outgoing-end); color: var(--pte-im-ui-outgoing-end); font-weight: 600; }.pte-im-ui-emoji-scroll { flex: 1; min-height: 0; }.pte-im-ui-emoji-grid { display: flex; flex-wrap: wrap; padding: 8px 10px; }.pte-im-ui-emoji-cell { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; margin: 1px; padding: 0; border: 0; color: var(--pte-im-ui-text); background: transparent; font-size: 24px; }.pte-im-ui-emoji-image { width: 24px; height: 32px; }.pte-im-ui-panel-footer { display: flex; height: 52px; align-items: center; justify-content: flex-end; padding: 0 12px; border-top: 1px solid var(--pte-im-ui-divider); }.pte-im-ui-panel-control, .pte-im-ui-panel-send { display: flex; width: 44px; height: 40px; align-items: center; justify-content: center; margin: 0 0 0 10px; padding: 0; border: 0; background: transparent; }.pte-im-ui-panel-control image { width: 32px; height: 28px; }.pte-im-ui-panel-send image { width: 40px; height: 36px; }.pte-im-ui-panel-send:disabled { opacity: .4; }
+.pte-im-ui-more-panel { padding: 14px 18px 24px; }.pte-im-ui-more-grid { display: flex; flex-wrap: wrap; }.pte-im-ui-more-cell { display: flex; width: 25%; min-width: 0; height: 94px; flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding: 0; border: 0; color: var(--pte-im-ui-muted); background: transparent; font-size: 11px; }.pte-im-ui-more-icon { width: 52px; height: 52px; margin-bottom: 6px; }
 </style>

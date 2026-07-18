@@ -47,12 +47,26 @@ final class PteIMUIDemoApplicationSession {
   let baseConfig: PteIMBaseConfig
   let bootstrap: PteIMSDKBootstrap
   init() throws {
+    #if DEBUG
+    // The iOS Simulator shares localhost with the development Mac. Keeping
+    // these values in Info-Debug.plist makes the local endpoint explicit.
+    let apiDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugAPIDomain") as? String ?? "http://127.0.0.1:11504"
+    let imDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugIMDomain") as? String ?? "ws://127.0.0.1:11510/ws"
+    let cosDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugCOSDomain") as? String ?? "http://127.0.0.1:9000"
+    let allowInsecureLocalhost = true
+    #else
+    let apiDomain = "https://api-im.ptelive.com"
+    let imDomain = "wss://wss.ptelive.com/ws"
+    let cosDomain = "https://cos.ptelive.com"
+    let allowInsecureLocalhost = false
+    #endif
     baseConfig = try PteIMBaseConfig(
-      apiDomain: "https://api-im.ptelive.com",
-      imDomain: "wss://wss.ptelive.com/ws",
-      cosDomain: "https://cos.ptelive.com",
+      apiDomain: apiDomain,
+      imDomain: imDomain,
+      cosDomain: cosDomain,
       themeMode: .system,
-      language: .system
+      language: .system,
+      allowInsecureLocalhost: allowInsecureLocalhost
     )
     bootstrap = PteIMSDK.configure(baseConfig)
   }

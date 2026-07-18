@@ -66,6 +66,31 @@ internal class PteIMRoomStore(context: Context, storeKey: String) {
     delete("outbox", "client_msg_id = ?", arrayOf(clientMsgId))
   }
 
+  /** Re-enqueues a failed local message using the original client message ID. */
+  fun retry(clientMsgId: String): StoredMessage? = db.transactionResult {
+    val message = db.query(
+      "SELECT payload, server_msg_id, server_seq, created_at, state FROM messages WHERE client_msg_id = ?",
+      arrayOf(clientMsgId),
+    ).use { cursor ->
+      if (!cursor.moveToFirst()) return@transactionResult null
+      StoredMessage(cipher.decrypt(cursor.getString(0)), cursor.getStringOrNull(1), cursor.getLongOrNull(2), cursor.getLong(3), cursor.getString(4))
+    }
+    if (message.state != PteIMSendState.FAILED.name) return@transactionResult null
+    update("messages", PTE_IM_CONFLICT_REPLACE, ContentValues().apply { put("state", PteIMSendState.PENDING.name) }, "client_msg_id = ?", arrayOf(clientMsgId))
+    insert("outbox", PTE_IM_CONFLICT_REPLACE, ContentValues().apply {
+      put("client_msg_id", clientMsgId)
+      put("retry_count", 0)
+      put("next_retry_at", 0)
+    })
+    message.copy(state = PteIMSendState.PENDING.name)
+  }
+
+  /** Removes one account-local timeline item and any pending network retry. */
+  fun deleteLocal(clientMsgId: String) = db.transaction {
+    delete("outbox", "client_msg_id = ?", arrayOf(clientMsgId))
+    delete("messages", "client_msg_id = ?", arrayOf(clientMsgId))
+  }
+
   fun applyDelta(nextCursor: String, messages: List<PteIMMessage>) = db.transaction {
     messages.forEach { insertMessage(this, it.copy(state = PteIMSendState.SENT)) }
     update("sync_state", PTE_IM_CONFLICT_REPLACE, ContentValues().apply { put("cursor", cipher.encrypt(nextCursor)) }, "id = 1", null)

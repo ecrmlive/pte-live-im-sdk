@@ -1,0 +1,109 @@
+name: Release uni-app x packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-uniappx:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      NPM_REGISTRY: ${{ secrets.NPM_REGISTRY }}
+      NPM_SCOPE: ptedom
+      CORE_PKG_DIR: uni_modules/pte-im-sdk
+      UIKIT_PKG_DIR: uni_modules/pte-im-uikit
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version and registry
+        run: |
+          if ! echo "${{ steps.version.outputs.VERSION }}" | rg -q '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid version: ${{ steps.version.outputs.VERSION }}"; exit 1
+          fi
+          if [ -z "${NPM_REGISTRY}" ]; then
+            echo "NPM_REGISTRY secret is required."; exit 1
+          fi
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "NPM_TOKEN secret is required."; exit 1
+          fi
+
+      - name: Prepare private npm config
+        id: npmrc_private
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NPMRC_FILE="$RUNNER_TEMP/private-npmrc"
+          echo "registry=${NPM_REGISTRY}" > "$NPMRC_FILE"
+          echo "@${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> "$NPMRC_FILE"
+          NODE_SCRIPT="
+          const registry = process.env.NPM_REGISTRY;
+          const token = process.env.NPM_TOKEN;
+          const u = new URL(registry);
+          let hostPath = `${u.host}${u.pathname}`;
+          if (!hostPath.endsWith('/')) hostPath += '/';
+          console.log(`//${hostPath}:_authToken=${token}`);
+          "
+          echo "$NODE_SCRIPT" | node > /tmp/npmrc-auth-token-line
+          AUTH_LINE="$(cat /tmp/npmrc-auth-token-line | tr -d '\\r')"
+          echo "$AUTH_LINE" >> "$NPMRC_FILE"
+          echo "path=$NPMRC_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Set versions
+        run: |
+          for pkg in "$CORE_PKG_DIR" "$UIKIT_PKG_DIR"; do
+            (cd "$pkg" && npm pkg set version="${{ steps.version.outputs.VERSION }}")
+          done
+          (cd "$UIKIT_PKG_DIR" && npm pkg set dependencies."@ptedom/pte-im-uniappx-core"="^${{ steps.version.outputs.VERSION }}" && npm pkg set peerDependencies."@ptedom/pte-im-uniappx-core"="^${{ steps.version.outputs.VERSION }}")
+
+      - name: Publish to private registry
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ steps.npmrc_private.outputs.path }}
+        run: |
+          cd "$CORE_PKG_DIR"
+          npm publish --registry "$NPM_REGISTRY"
+          cd ../pte-im-uikit
+          npm publish --registry "$NPM_REGISTRY"
+
+      - name: Prepare GitHub Packages config
+        if: ${{ vars.PUBLISH_GH_PACKAGES == 'true' }}
+        id: npmrc_github
+        env:
+          GH_PACKAGES_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+        run: |
+          GH_TOKEN_FINAL="${GH_PACKAGES_TOKEN:-${GITHUB_TOKEN}}"
+          if [ -z "$GH_TOKEN_FINAL" ]; then
+            echo "GitHub package publish token is not available."; exit 1
+          fi
+          NPMRC_FILE="$RUNNER_TEMP/github-npmrc"
+          echo "@${NPM_SCOPE}:registry=https://npm.pkg.github.com/" > "$NPMRC_FILE"
+          echo "//npm.pkg.github.com/:_authToken=$GH_TOKEN_FINAL" >> "$NPMRC_FILE"
+          echo "path=$NPMRC_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to GitHub Packages
+        if: ${{ vars.PUBLISH_GH_PACKAGES == 'true' }}
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ steps.npmrc_github.outputs.path }}
+        run: |
+          cd "$CORE_PKG_DIR"
+          npm publish --registry https://npm.pkg.github.com/ --access public
+          cd ../pte-im-uikit
+          npm publish --registry https://npm.pkg.github.com/ --access public

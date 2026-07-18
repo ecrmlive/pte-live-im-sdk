@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>iosamap</string>
+		<string>baidumap</string>
+		<string>qqmap</string>
+		<string>comgooglemaps</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Debug only: permits HTTP and development TLS endpoints on the local network. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>PTEIMDebugAPIDomain</key>
+	<string>http://127.0.0.1:11504</string>
+	<key>PTEIMDebugCOSDomain</key>
+	<string>http://127.0.0.1:9000</string>
+	<key>PTEIMDebugIMDomain</key>
+	<string>ws://127.0.0.1:11510/ws</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于在聊天中拍摄并发送图片或视频。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>用于在聊天中发送当前位置。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于在聊天中选择图片和视频。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将长按保存的聊天图片写入系统相册。</string>
+	<key>UILaunchStoryboardName</key>
+	<string>PteIMUILaunchScreen</string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+</dict>
+</plist>

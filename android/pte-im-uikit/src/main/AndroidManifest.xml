@@ -13,6 +13,8 @@
   </queries>
   <application>
     <activity android:name=".PteIMUIAttachmentPickerActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    <activity android:name=".PteIMUILocationPickerActivity" android:exported="false" android:theme="@android:style/Theme.Material.NoActionBar" />
     <activity android:name=".PteIMUIMediaPreviewActivity" android:exported="false" android:theme="@android:style/Theme.Material.NoActionBar" />
+    <activity android:name=".PteIMUIFilePreviewActivity" android:exported="false" android:theme="@android:style/Theme.Material.NoActionBar" />
   </application>
 </manifest>

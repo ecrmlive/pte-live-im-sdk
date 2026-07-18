@@ -5,12 +5,16 @@ import { PteIMBaseConfig, PteIMLanguage, PteIMSDK, PteIMThemeMode } from '@pteli
 export default class EntryAbility extends UIAbility {
   onCreate(_want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     AppStorage.setOrCreate('pteDemoContext', this.context)
-    // Domains belong to the application lifecycle, never to a login form.
+    // The SDK itself requires a secure public API origin. Demo authentication
+    // can fall back to the local development service when the public endpoint
+    // is unavailable (handled by Index.ets).
+    const apiDomain = 'https://api-im.ptelive.com'
     const base = new PteIMBaseConfig(
-      'https://api-im.ptelive.com', 'wss://wss.ptelive.com/ws', 'https://cos.ptelive.com',
+      apiDomain, 'wss://wss.ptelive.com/ws', 'https://cos.ptelive.com',
       PteIMThemeMode.SYSTEM, PteIMLanguage.EN_US,
     )
     base.validate()
+    AppStorage.setOrCreate('pteDemoApiDomain', apiDomain)
     AppStorage.setOrCreate('pteDemoBootstrap', PteIMSDK.configure(this.context, base))
   }
 

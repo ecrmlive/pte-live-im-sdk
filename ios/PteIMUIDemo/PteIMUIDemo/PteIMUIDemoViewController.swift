@@ -1,6 +1,7 @@
 import UIKit
 import ObjectiveC
 import PteIMUIKit
+import PteIMSDK
 
 /**
  `PteIMUIDemo` is an application-layer example. Its business service signs a user in and
@@ -8,14 +9,19 @@ import PteIMUIKit
  */
 final class PteIMUIDemoViewController: UIViewController {
   private let applicationSession: PteIMUIDemoApplicationSession
+  /** The registration flow is pushed as its own controller, rather than toggling fields in place. */
+  private let isRegistrationPage: Bool
   private let appId = PteIMUIDemoViewController.field("", "SDK App ID returned by business login", keyboard: .numberPad)
   private let account = PteIMUIDemoViewController.field("demo-user", "Business account")
   private let password = PteIMUIDemoViewController.field("", "Business password (demo only)", secure: true)
   private let userId = PteIMUIDemoViewController.field("10001", "IM user ID returned by business login", keyboard: .numberPad)
   private let userSig = PteIMUIDemoViewController.field("", "Short-lived UserSig returned by business login", secure: true)
   private let conversationId = PteIMUIDemoViewController.field("", "Active conversation ID (set by IM service)")
-  private let status = UILabel()
+  private let captchaImage = UIImageView()
   private var client: PteIMSDK?
+  private let businessAPI: PteIMUIDemoBusinessAPI
+  private var captchaID = ""
+  private var businessCredential: PteIMUIDemoBusinessCredential?
   private var friends = [PteIMUIDemoFriend(name: "Alice", userId: "10002"), PteIMUIDemoFriend(name: "Bob", userId: "10003")]
   private var configurationStack: UIStackView?
   /** Login happens before an SDK user exists, so its preference is app-scoped. */
@@ -30,13 +36,19 @@ final class PteIMUIDemoViewController: UIViewController {
   private weak var loginSubtitleLabel: UILabel?
   private weak var loginButton: PteIMUIDemoGradientButton?
   private var loginFormLabels = [UILabel]()
+  private weak var mobileFormLabel: UILabel?
+  private weak var nicknameFormLabel: UILabel?
+  private weak var passwordFormLabel: UILabel?
+  private weak var captchaFormLabel: UILabel?
   #if DEBUG
   private var didRunAutomation = false
   private var didOpenLocalPreview = false
   #endif
 
-  init(applicationSession: PteIMUIDemoApplicationSession) {
+  init(applicationSession: PteIMUIDemoApplicationSession, isRegistrationPage: Bool = false) {
     self.applicationSession = applicationSession
+    self.isRegistrationPage = isRegistrationPage
+    self.businessAPI = PteIMUIDemoBusinessAPI(apiDomain: applicationSession.baseConfig.apiDomain)
     super.init(nibName: nil, bundle: nil)
   }
   required init?(coder: NSCoder) { nil }
@@ -46,11 +58,11 @@ final class PteIMUIDemoViewController: UIViewController {
     restoreLoginAppearancePreferences()
     navigationItem.hidesBackButton = true
     navigationController?.setNavigationBarHidden(true, animated: false)
-    view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+    view.backgroundColor = UIColor(red: 0.957, green: 0.957, blue: 1.00, alpha: 1)
     conversationId.isEnabled = false
-    account.text = "PteIMUIDemo"; password.text = ""
-    appId.text = "432532532"
-    userId.text = "123654"
+    account.text = ""; password.text = ""
+    appId.text = ""
+    userId.text = ""
     userSig.text = ""
 
     let scrollView = UIScrollView(); scrollView.alwaysBounceVertical = true; scrollView.showsVerticalScrollIndicator = false; scrollView.backgroundColor = view.backgroundColor
@@ -73,6 +85,9 @@ final class PteIMUIDemoViewController: UIViewController {
       PteIMUIDemoLoginAppearancePreferences.save(themeMode: mode)
       self.applyLoginAppearance()
     }
+    if isRegistrationPage {
+      header.onBack = { [weak self] in self?.navigationController?.popViewController(animated: true) }
+    }
     let navigationChrome = UIView(); navigationChrome.translatesAutoresizingMaskIntoConstraints = false; navigationChrome.backgroundColor = loginNavigationPalette().surfaceColor
     loginNavigationChrome = navigationChrome
     view.addSubview(navigationChrome); navigationChrome.addSubview(header)
@@ -88,25 +103,41 @@ final class PteIMUIDemoViewController: UIViewController {
     let brand = UIStackView(arrangedSubviews: [logo, titleLabel, subtitle]); brand.axis = .vertical; brand.alignment = .center; brand.spacing = 8; brand.setCustomSpacing(28, after: logo); logo.widthAnchor.constraint(equalToConstant: 96).isActive = true; logo.heightAnchor.constraint(equalToConstant: 96).isActive = true
 
     let card = UIView(); card.backgroundColor = .white; card.layer.cornerRadius = 24; card.layer.shadowColor = UIColor.black.cgColor; card.layer.shadowOpacity = 0.12; card.layer.shadowRadius = 18; card.layer.shadowOffset = CGSize(width: 0, height: 9)
-    let login = PteIMUIDemoGradientButton(title: "Login"); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
-    [appId, userId, userSig].forEach { field in field.borderStyle = .none; field.backgroundColor = UIColor(red: 0.92, green: 0.90, blue: 1, alpha: 1); field.layer.cornerRadius = 18; field.setLeftPadding(16); field.heightAnchor.constraint(equalToConstant: field == userSig ? 80 : 46).isActive = true }
-    appId.placeholder = "SDKAppID"; userId.placeholder = "User ID"; userSig.placeholder = "Paste your UserSig token"
-    // The primary login surface follows the supplied design exactly. Debug UI
-    // preview is still available through its launch argument and never becomes
-    // persistent product chrome. Status text appears only when login fails.
-    status.font = .preferredFont(forTextStyle: .footnote); status.textColor = .secondaryLabel; status.textAlignment = .center; status.numberOfLines = 0; status.isHidden = true
+    let login = PteIMUIDemoGradientButton(title: isRegistrationPage ? "Register" : "Login"); login.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
+    let register = UIButton(type: .system); register.setTitle("Create demo account", for: .normal); register.addTarget(self, action: #selector(registerTapped), for: .touchUpInside)
+    [appId, account, userId, userSig].forEach { field in
+      field.borderStyle = .none
+      field.backgroundColor = UIColor(red: 0.929, green: 0.914, blue: 1.00, alpha: 1)
+      field.layer.cornerRadius = 18
+      field.setLeftPadding(16)
+      field.heightAnchor.constraint(equalToConstant: 46).isActive = true
+    }
+    appId.placeholder = "Mobile (+86 or international)"; account.placeholder = "Nickname (required to register)"; userId.placeholder = "Verification code"; userSig.placeholder = "Password"
+    captchaImage.contentMode = .scaleAspectFit; captchaImage.backgroundColor = UIColor(red: 0.929, green: 0.914, blue: 1, alpha: 1); captchaImage.layer.cornerRadius = 12; captchaImage.clipsToBounds = true; captchaImage.isUserInteractionEnabled = true; captchaImage.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(refreshCaptcha)))
+    captchaImage.widthAnchor.constraint(equalToConstant: 132).isActive = true
+    captchaImage.heightAnchor.constraint(equalToConstant: 46).isActive = true
     // The reference keeps a deliberate breath between credentials and the primary action.
-    let actionSpacer = UIView(); actionSpacer.heightAnchor.constraint(equalToConstant: 40).isActive = true
-    let sdkLabel = PteIMUIDemoLabel("SDKAppID", style: .subheadline, color: .label)
-    let userLabel = PteIMUIDemoLabel("User ID", style: .subheadline, color: .label)
-    let sigLabel = PteIMUIDemoLabel("User Signature (UserSig)", style: .subheadline, color: .label)
-    let cardStack = UIStackView(arrangedSubviews: [sdkLabel, appId, userLabel, userId, sigLabel, userSig, actionSpacer, login, status]); cardStack.axis = .vertical; cardStack.spacing = 9
+    let mobileLabel = PteIMUIDemoLabel("Mobile", style: .subheadline, color: .label)
+    let nickLabel = PteIMUIDemoLabel("Nickname", style: .subheadline, color: .label)
+    let passwordLabel = PteIMUIDemoLabel("Password", style: .subheadline, color: .label)
+    let captchaLabel = PteIMUIDemoLabel("Verification code", style: .subheadline, color: .label)
+    let captchaRow = UIStackView(arrangedSubviews: [userId, captchaImage])
+    captchaRow.axis = .horizontal
+    captchaRow.alignment = .fill
+    captchaRow.distribution = .fill
+    captchaRow.spacing = 10
+    var formViews: [UIView] = [mobileLabel, appId]
+    if isRegistrationPage { formViews += [nickLabel, account] }
+    formViews += [passwordLabel, userSig, captchaLabel, captchaRow, login]
+    if !isRegistrationPage { formViews.append(register) }
+    let cardStack = UIStackView(arrangedSubviews: formViews); cardStack.axis = .vertical; cardStack.spacing = 9
     card.addSubview(cardStack); cardStack.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 26), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24), login.heightAnchor.constraint(equalToConstant: 48)])
+    NSLayoutConstraint.activate([cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24), cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24), cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 26), cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24), login.heightAnchor.constraint(equalToConstant: 50)])
 
     let topSpacer = UIView(); topSpacer.heightAnchor.constraint(equalToConstant: 50).isActive = true
     content.addArrangedSubview(topSpacer); content.addArrangedSubview(brand); content.setCustomSpacing(40, after: brand); content.addArrangedSubview(card)
-    loginCard = card; loginTitleLabel = titleLabel; loginSubtitleLabel = subtitle; loginButton = login; loginFormLabels = [sdkLabel, userLabel, sigLabel]
+    loginCard = card; loginTitleLabel = titleLabel; loginSubtitleLabel = subtitle; loginButton = login; loginFormLabels = isRegistrationPage ? [mobileLabel, nickLabel, passwordLabel, captchaLabel] : [mobileLabel, passwordLabel, captchaLabel]
+    mobileFormLabel = mobileLabel; nicknameFormLabel = isRegistrationPage ? nickLabel : nil; passwordFormLabel = passwordLabel; captchaFormLabel = captchaLabel
     NSLayoutConstraint.activate([
       scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor), scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       scrollView.topAnchor.constraint(equalTo: navigationChrome.bottomAnchor), scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -114,7 +145,7 @@ final class PteIMUIDemoViewController: UIViewController {
       content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor), content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
       content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -30),
     ])
-    applyLoginAppearance()
+    applyLoginAppearance(); refreshCaptcha()
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -134,7 +165,7 @@ final class PteIMUIDemoViewController: UIViewController {
     let dark = resolvedThemeMode == .dark
     let primary = dark ? UIColor(red: 0.94, green: 0.93, blue: 1.00, alpha: 1) : UIColor(red: 0.11, green: 0.11, blue: 0.20, alpha: 1)
     let secondary = dark ? UIColor(red: 0.65, green: 0.62, blue: 0.78, alpha: 1) : UIColor(red: 0.42, green: 0.43, blue: 0.53, alpha: 1)
-    view.backgroundColor = dark ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1) : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+    view.backgroundColor = dark ? UIColor(red: 0.051, green: 0.051, blue: 0.129, alpha: 1) : UIColor(red: 0.957, green: 0.957, blue: 1.00, alpha: 1)
     loginScrollView?.backgroundColor = view.backgroundColor
     loginCard?.backgroundColor = dark ? UIColor(red: 0.067, green: 0.063, blue: 0.165, alpha: 1) : .white
     loginCard?.layer.borderWidth = dark ? 1 : 0
@@ -145,16 +176,22 @@ final class PteIMUIDemoViewController: UIViewController {
     loginTitleLabel?.textColor = primary
     loginSubtitleLabel?.textColor = secondary
     loginFormLabels.forEach { $0.textColor = primary }
-    [appId, userId, userSig].forEach { field in
-      field.backgroundColor = dark ? UIColor(red: 0.125, green: 0.118, blue: 0.30, alpha: 1) : UIColor(red: 0.92, green: 0.90, blue: 1, alpha: 1)
+    [appId, account, userId, userSig].forEach { field in
+      field.backgroundColor = dark ? UIColor(red: 0.125, green: 0.118, blue: 0.30, alpha: 1) : UIColor(red: 0.929, green: 0.914, blue: 1.00, alpha: 1)
       field.textColor = primary
       field.attributedPlaceholder = NSAttributedString(string: field.placeholder ?? "", attributes: [.foregroundColor: secondary])
     }
-    appId.placeholder = resolvedLanguage == .zhCN ? "请输入AppID" : "Enter AppID"
-    userId.placeholder = resolvedLanguage == .zhCN ? "请输入用户 ID" : "Enter user ID"
-    userSig.placeholder = resolvedLanguage == .zhCN ? "请粘贴 UserSig 令牌" : "Paste your UserSig token"
-    [appId, userId, userSig].forEach { field in field.attributedPlaceholder = NSAttributedString(string: field.placeholder ?? "", attributes: [.foregroundColor: secondary]) }
-    loginButton?.setTitle(resolvedLanguage == .zhCN ? "登录" : "Login", for: .normal)
+    captchaImage.backgroundColor = dark ? UIColor(red: 0.125, green: 0.118, blue: 0.30, alpha: 1) : UIColor(red: 0.929, green: 0.914, blue: 1.00, alpha: 1)
+    appId.placeholder = resolvedLanguage == .zhCN ? "手机号（中国或国际）" : "Mobile (+86 or international)"
+    account.placeholder = resolvedLanguage == .zhCN ? "昵称（注册必填）" : "Nickname (required to register)"
+    userId.placeholder = resolvedLanguage == .zhCN ? "图形验证码" : "Verification code"
+    userSig.placeholder = resolvedLanguage == .zhCN ? "密码" : "Password"
+    mobileFormLabel?.text = resolvedLanguage == .zhCN ? "手机号" : "Mobile"
+    nicknameFormLabel?.text = resolvedLanguage == .zhCN ? "昵称" : "Nickname"
+    passwordFormLabel?.text = resolvedLanguage == .zhCN ? "密码" : "Password"
+    captchaFormLabel?.text = resolvedLanguage == .zhCN ? "图形验证码" : "Verification code"
+    [appId, account, userId, userSig].forEach { field in field.attributedPlaceholder = NSAttributedString(string: field.placeholder ?? "", attributes: [.foregroundColor: secondary]) }
+    loginButton?.setTitle(isRegistrationPage ? (resolvedLanguage == .zhCN ? "注册" : "Register") : (resolvedLanguage == .zhCN ? "登录" : "Login"), for: .normal)
     loginButton?.applyTheme(dark: dark)
     loginNavigationBar?.apply(palette: loginNavigationPalette(), themeMode: resolvedThemeMode, language: loginLanguage)
     loginNavigationChrome?.backgroundColor = loginNavigationPalette().surfaceColor
@@ -166,7 +203,7 @@ final class PteIMUIDemoViewController: UIViewController {
     var palette = dark ? PteIMUIThemePalette.blueVioletDark : PteIMUIThemePalette.blueVioletLight
     let canvas = dark
       ? UIColor(red: 0.04, green: 0.04, blue: 0.13, alpha: 1)
-      : UIColor(red: 0.95, green: 0.95, blue: 1.00, alpha: 1)
+      : UIColor(red: 0.957, green: 0.957, blue: 1.00, alpha: 1)
     palette.backgroundColor = canvas
     palette.surfaceColor = canvas
     return palette
@@ -206,32 +243,6 @@ final class PteIMUIDemoViewController: UIViewController {
     UIView.animate(withDuration: 0.24) { self.view.layoutIfNeeded() }
   }
 
-  /** Obtains an ephemeral, server-issued UserSig for a non-persistent numeric test user. */
-  @objc private func demoLoginTapped() {
-    let endpoint = applicationSession.baseConfig.apiDomain.appendingPathComponent("api/v1/im/usersig")
-    let testUserId = String(9_000_000_000 + Int64(Date().timeIntervalSince1970) % 900_000_000)
-    status.isHidden = false; status.text = "正在申请测试账号…"
-    Task {
-      do {
-        var request = URLRequest(url: endpoint); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["app_id": 10001, "user_id": testUserId, "identifier": testUserId, "device_id": UIDevice.current.identifierForVendor?.uuidString ?? "ios-demo", "platform": "ios", "scene": "chat", "expire": 3600])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw PteIMUIDemoLoginError.requestFailed }
-        let result = try JSONDecoder().decode(PteIMUIDemoCredentialEnvelope.self, from: data)
-        guard result.code == 1, let credential = result.data, !credential.userSig.isEmpty else { throw PteIMUIDemoLoginError.server(result.msg) }
-        await MainActor.run {
-          self.appId.text = credential.sdkAppId
-          self.userId.text = credential.userId
-          self.userSig.text = credential.userSig
-          self.status.text = "测试账号 \(credential.userId) 已就绪，正在进入 IM…"
-          self.loginTapped()
-        }
-      } catch {
-        await MainActor.run { self.status.isHidden = false; self.status.text = "无法申请测试签名：\(error.localizedDescription)" }
-      }
-    }
-  }
-
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     #if DEBUG
@@ -243,13 +254,21 @@ final class PteIMUIDemoViewController: UIViewController {
     #endif
   }
 
-  @objc private func loginTapped() {
-    guard let session = PteIMUIDemoBusinessSession(account: account.text ?? "", userId: userId.text ?? "", userSig: userSig.text ?? "") else { status.isHidden = false; status.text = "业务后端应返回 userId 与短期 UserSig"; return }
-    do {
-      let login = try PteIMLoginConfig(sdkAppId: Int64(appId.text ?? "") ?? 0, userId: session.userId, userSig: session.userSig)
-      client = try applicationSession.bootstrap.login(login)
-      showBusinessHome(session: session)
-    } catch { status.isHidden = false; status.text = "IM 登录失败：\(error.localizedDescription)" }
+  @objc private func refreshCaptcha() { Task { @MainActor in do { let captcha = try await businessAPI.captcha(); captchaID = captcha.id; captchaImage.image = UIImage(data: captcha.imageData) } catch { showError("验证码加载失败", detail: error.localizedDescription) } } }
+
+  @objc private func loginTapped() { authenticate(register: isRegistrationPage) }
+  @objc private func registerTapped() {
+    let registration = PteIMUIDemoViewController(applicationSession: applicationSession, isRegistrationPage: true)
+    navigationController?.pushViewController(registration, animated: true)
+  }
+  private func authenticate(register: Bool) {
+    let mobile = appId.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "", nickname = account.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "", secret = userSig.text ?? "", code = userId.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !mobile.isEmpty, secret.count >= 8, !code.isEmpty, !captchaID.isEmpty, (!register || nickname.count >= 2) else { showError("请完善登录信息", detail: register ? "请输入手机号、昵称、密码和验证码" : "请输入手机号、密码和验证码"); return }
+    Task { @MainActor in do {
+      let credential = try await (register ? businessAPI.register(mobile: mobile, nickname: nickname, password: secret, captchaID: captchaID, captchaCode: code) : businessAPI.login(mobile: mobile, password: secret, captchaID: captchaID, captchaCode: code))
+      guard let session = PteIMUIDemoBusinessSession(account: credential.nickname, userId: credential.userId, userSig: credential.userSig) else { throw PteIMError.invalidResponse }; businessCredential = credential
+      client = try applicationSession.bootstrap.login(PteIMLoginConfig(sdkAppId: credential.sdkAppId, userId: credential.userId, userSig: credential.userSig)); showBusinessHome(session: session)
+    } catch { showError(register ? "注册失败" : "登录失败", detail: error.localizedDescription); userId.text = ""; refreshCaptcha() } }
   }
 
   /** Local-only UIKit inspection route. It never uses a business credential or calls `start()`. */
@@ -262,15 +281,38 @@ final class PteIMUIDemoViewController: UIViewController {
       }
       home.modalPresentationStyle = .fullScreen
       navigationController?.pushViewController(home, animated: true)
-    } catch { status.text = "无法创建本地 UI 预览：\(error.localizedDescription)" }
+    } catch { showError("无法创建本地 UI 预览", detail: error.localizedDescription, position: .center) }
+  }
+
+  private func showError(_ title: String, detail: String? = nil, position: PteIMUINoticePosition = .bottom) {
+    PteIMUINotice.showError(title, detail: detail, position: position, in: self)
   }
 
   private func showBusinessHome(session: PteIMUIDemoBusinessSession) {
     guard let client else { return }
-    let home = PteIMUIDemoHomeTabsController(client: client) { [weak self] in
+    let home = PteIMUIDemoHomeTabsController(client: client, onLogout: { [weak self] in
       self?.client?.stop(); self?.client = nil; self?.navigationController?.popToRootViewController(animated: true)
-    }
+    }, onAddDemoFriend: { [weak self] presenter in self?.showDemoUserList(from: presenter) })
     navigationController?.pushViewController(home, animated: true)
+  }
+
+  private func showDemoUserList(from presenter: UIViewController) {
+    guard let credential = businessCredential else { return }
+    let controller = UITableViewController(style: .insetGrouped); controller.title = "已注册演示用户"
+    Task { @MainActor [weak self, weak controller] in
+      guard let self, let controller else { return }
+      do {
+        let users = try await businessAPI.users(credential: credential)
+        let source = PteIMUIDemoMenuDataSource(items: users.map { "\($0.nickname) · \($0.mobile)" }) { index in
+          Task { @MainActor [weak controller] in
+            do { try await self.businessAPI.addFriend(users[index], credential: credential); controller?.navigationItem.prompt = "已添加 \(users[index].nickname)，现在可在联系人中单聊" }
+            catch { controller?.navigationItem.prompt = "添加失败：\(error.localizedDescription)" }
+          }
+        }
+        controller.tableView.dataSource = source; controller.tableView.delegate = source; objc_setAssociatedObject(controller, "PteIMUIDemoDemoUserDataSource", source, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+      } catch { controller.navigationItem.prompt = "加载失败：\(error.localizedDescription)" }
+    }
+    presenter.navigationController?.pushViewController(controller, animated: true)
   }
 
   private func friendListController(client: PteIMSDK) -> UITableViewController {
@@ -332,7 +374,7 @@ final class PteIMUIDemoViewController: UIViewController {
           self?.conversationId.text = String(conversation.id)
           presenter?.navigationController?.pushViewController(self?.chat(client: client, conversationId: String(conversation.id), title: title) ?? UIViewController(), animated: true)
         }
-      } catch { await MainActor.run { self?.status.text = "无法打开会话：\(error.localizedDescription)" } }
+      } catch { await MainActor.run { self?.showError("无法打开会话", detail: error.localizedDescription) } }
     }
   }
 
@@ -345,7 +387,7 @@ final class PteIMUIDemoViewController: UIViewController {
           self?.conversationId.text = String(conversation.id)
           presenter?.navigationController?.pushViewController(self?.chat(client: client, conversationId: String(conversation.id), title: conversation.title) ?? UIViewController(), animated: true)
         }
-      } catch { await MainActor.run { self?.status.text = "无法创建群组：\(error.localizedDescription)" } }
+      } catch { await MainActor.run { self?.showError("无法创建群组", detail: error.localizedDescription) } }
     }
   }
 
@@ -355,24 +397,6 @@ final class PteIMUIDemoViewController: UIViewController {
 private struct PteIMUIDemoBusinessSession { let account: String; let userId: String; let userSig: String; init?(account: String, userId: String, userSig: String) { guard !account.isEmpty, !userId.isEmpty, !userSig.isEmpty else { return nil }; self.account = account; self.userId = userId; self.userSig = userSig } }
 private struct PteIMUIDemoFriend { let name: String; let userId: String }
 private final class PteIMUIDemoMenuDataSource: NSObject, UITableViewDataSource, UITableViewDelegate { let items: [String]; let selected: (Int) -> Void; init(items: [String], selected: @escaping (Int) -> Void) { self.items = items; self.selected = selected }; func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }; func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { let cell = UITableViewCell(style: .default, reuseIdentifier: nil); cell.textLabel?.text = items[indexPath.row]; cell.accessoryType = .disclosureIndicator; return cell }; func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { selected(indexPath.row) } }
-
-private struct PteIMUIDemoCredentialEnvelope: Decodable {
-  let code: Int
-  let msg: String
-  let data: PteIMUIDemoCredential?
-}
-private struct PteIMUIDemoCredential: Decodable {
-  let userSig: String
-  let userId: String
-  let sdkAppId: String
-  let wsURL: String
-  enum CodingKeys: String, CodingKey { case userSig = "user_sig"; case userId = "user_id"; case sdkAppId = "sdk_app_id"; case wsURL = "ws_url" }
-}
-private enum PteIMUIDemoLoginError: LocalizedError {
-  case requestFailed
-  case server(String)
-  var errorDescription: String? { switch self { case .requestFailed: return "请求失败"; case let .server(message): return message.isEmpty ? "服务未返回凭据" : message } }
-}
 
 /** The pre-login screen has no IM account yet, so its manual choices are app-wide. */
 private enum PteIMUIDemoLoginAppearancePreferences {
@@ -411,13 +435,13 @@ private final class PteIMUIDemoGradientButton: UIButton {
     setTitle(title, for: .normal); setTitleColor(.white, for: .normal); titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
     setImage(UIImage(systemName: "lock"), for: .normal); tintColor = .white; imageView?.preferredSymbolConfiguration = .init(pointSize: 15, weight: .semibold); semanticContentAttribute = .forceLeftToRight; imageEdgeInsets = .init(top: 0, left: -6, bottom: 0, right: 6)
     layer.cornerRadius = 16; clipsToBounds = true
-    gradient.colors = [UIColor(red: 0.12, green: 0.40, blue: 0.98, alpha: 1).cgColor, UIColor(red: 0.47, green: 0.22, blue: 0.98, alpha: 1).cgColor]
-    gradient.startPoint = CGPoint(x: 0, y: 0); gradient.endPoint = CGPoint(x: 1, y: 1); layer.insertSublayer(gradient, at: 0)
+    gradient.colors = [UIColor(red: 0.545, green: 0.212, blue: 0.941, alpha: 1).cgColor, UIColor(red: 0.443, green: 0.188, blue: 0.878, alpha: 1).cgColor]
+    gradient.startPoint = CGPoint(x: 0, y: 0.5); gradient.endPoint = CGPoint(x: 1, y: 0.5); layer.insertSublayer(gradient, at: 0)
   }
   func applyTheme(dark: Bool) {
     gradient.colors = (dark
-      ? [UIColor(red: 0.56, green: 0.34, blue: 0.96, alpha: 1).cgColor, UIColor(red: 0.55, green: 0.31, blue: 0.93, alpha: 1).cgColor]
-      : [UIColor(red: 0.12, green: 0.40, blue: 0.98, alpha: 1).cgColor, UIColor(red: 0.47, green: 0.22, blue: 0.98, alpha: 1).cgColor])
+      ? [UIColor(red: 0.561, green: 0.341, blue: 0.961, alpha: 1).cgColor, UIColor(red: 0.545, green: 0.310, blue: 0.925, alpha: 1).cgColor]
+      : [UIColor(red: 0.545, green: 0.212, blue: 0.941, alpha: 1).cgColor, UIColor(red: 0.443, green: 0.188, blue: 0.878, alpha: 1).cgColor])
     layer.shadowColor = dark ? UIColor(red: 0.54, green: 0.30, blue: 0.95, alpha: 0.45).cgColor : UIColor.clear.cgColor
     layer.shadowOpacity = dark ? 0.75 : 0
     layer.shadowRadius = dark ? 12 : 0

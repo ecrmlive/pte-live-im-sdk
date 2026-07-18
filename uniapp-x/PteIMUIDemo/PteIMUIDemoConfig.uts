@@ -5,6 +5,8 @@ export const PteIMUIDemoBaseConfig: PteIMBaseConfig = {
   apiDomain: 'https://api-im.ptelive.com',
   imDomain: 'wss://wss.ptelive.com/ws',
   cosDomain: 'https://cos.ptelive.com',
+  // Fill platform-restricted AMap keys in the host app; never use a server Web Service key here.
+  map: { provider: 'amap', h5Key: '', wechatMiniProgramKey: '' },
   themeMode: 'system',
   language: 'en-US',
 }

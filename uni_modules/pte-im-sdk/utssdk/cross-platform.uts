@@ -1,5 +1,6 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
+import { CrossPlatformPteIMCommerce } from './commerce.uts'
 
 type PteIMOutboxMessage = {
   clientMsgId: string
@@ -33,11 +34,13 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   private e2ee: PteIME2EE
   private encryptingOutboxIds: string[] = []
   private listeners: PteIMListener[] = []
+  commerce: PteIMCommerce
 
   constructor(base: PteIMBaseConfig, loginConfig: PteIMLoginConfig) {
     this.base = base
     this.loginConfig = loginConfig
     this.e2ee = new PteIME2EE(base, loginConfig)
+    this.commerce = new CrossPlatformPteIMCommerce((path: string, data: any, callback: (data: any | null, error: string | null) => void) => this.commerceRequest(path, data, callback))
     this.loadOutbox()
     this.loadSyncCursor()
     this.loadStateSyncCursor()
@@ -80,6 +83,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     return result
   }
   currentAppearance(): PteIMAppearance { return { themeMode: this.base.themeMode ?? 'system', language: this.base.language ?? 'system' } }
+  mapConfig(): PteIMMapConfig | null { return this.base.map ?? null }
   currentUserId(): string { return this.loginConfig.userId }
   fetchMyProfile(callback: (result: PteIMUserProfile | null, error: string | null) => void): void {
     this.sdkRequest('/v1/im/profile/me', {}, (data, error) => {
@@ -193,6 +197,27 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     if (conversationId <= 0 || seq < 0) { callback('invalid read cursor'); return }
     this.sdkRequest('/v1/im/conversations/read', { conversationId, seq }, (_data, error) => callback(error))
   }
+  acknowledgeMessages(conversationId: number, messageIds: string[], ackType: 'delivered' | 'read', deviceId: string, callback: (error: string | null) => void): void {
+    if (conversationId <= 0 || messageIds.length == 0 || deviceId.trim().length == 0 || messageIds.some((value: string) => !/^[1-9][0-9]*$/.test(value)) || (ackType !== 'delivered' && ackType !== 'read')) { callback('invalid message receipt'); return }
+    this.sdkRequest('/v1/im/messages/ack', { conversationId, messageIds, ackType, deviceId }, (_data, error) => callback(error))
+  }
+  recallMessage(serverMsgId: string, callback: (error: string | null) => void): void {
+    if (!/^[1-9][0-9]*$/.test(serverMsgId)) { callback('invalid server message id'); return }
+    this.sdkRequest('/v1/im/messages/recall', { messageId: serverMsgId }, (_data, error) => callback(error))
+  }
+  deleteMessage(serverMsgId: string, callback: (error: string | null) => void): void {
+    if (!/^[1-9][0-9]*$/.test(serverMsgId)) { callback('invalid server message id'); return }
+    this.sdkRequest('/v1/im/messages/delete', { messageId: serverMsgId }, (_data, error) => callback(error))
+  }
+  retryMessage(clientMsgId: string): boolean {
+    const message = this.outbox.find((value: PteIMOutboxMessage): boolean => value.clientMsgId == clientMsgId)
+    if (message == null) return false
+    message.nextRetryAt = 0
+    this.persistOutbox()
+    this.notifyMessageState({ clientMsgId, state: 'pending' })
+    this.flushOutbox()
+    return true
+  }
   fetchMessageHistory(conversationId: number, beforeSeq: number, limit: number, callback: (result: PteIMMessagePage | null, error: string | null) => void): void {
     if (conversationId <= 0 || beforeSeq < 0 || limit <= 0 || limit > 200) { callback(null, 'invalid message history page'); return }
     this.sdkRequest('/v1/im/conversations/messages', { conversationId, beforeSeq, limit }, (data, error) => {
@@ -296,6 +321,15 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     })
   }
 
+  private commerceRequest(path: string, data: any, callback: (data: any | null, error: string | null) => void): void {
+    const domain = this.base.commerceDomain == null ? '' : this.base.commerceDomain.trimEnd('/')
+    if (domain.length == 0) { callback(null, 'commerceDomain is not configured'); return }
+    uni.request({ url: domain + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
+      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'Commerce request failed'); return }; callback(root['data'], null) },
+      fail: (error) => callback(null, error.message as string ?? String(error)),
+    })
+  }
+
   private readFileBytes(filePath: string, success: (data: ArrayBuffer) => void, fail: (error: string) => void): void {
     const platform = uni.getSystemInfoSync().uniPlatform
     if (platform == 'web') {
@@ -391,6 +425,8 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
         const clientMsgId = payload.clientMsgId as string
         this.removeOutbox(clientMsgId)
         this.notifyMessageState({ clientMsgId, state: 'sent' })
+      } else if (action == 'message_event') {
+        this.applyMessageEvent(payload)
       } else if (action == 'user_sig_will_expire') {
         this.listeners.forEach((listener: PteIMListener) => listener.onUserSigWillExpire?.())
       } else if (action == 'user_sig_expired') {
@@ -472,6 +508,29 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     }
     this.persistMessages()
     if (emit) this.listeners.forEach((listener: PteIMListener) => listener.onMessage?.(message))
+  }
+
+  /** Applies durable recall/deletion events pushed by the IM service. */
+  private applyMessageEvent(event: any): void {
+    const serverMsgId = String(event.serverMsgId ?? '')
+    const eventType = String(event.eventType ?? '')
+    if (!/^[1-9][0-9]*$/.test(serverMsgId) || eventType.length == 0) return
+    const index = this.messages.findIndex((message: PteIMIncomingMessage): boolean => message.serverMsgId == serverMsgId)
+    if (index < 0) return
+    if (eventType == 'chat.message.deleted') {
+      const removed = this.messages.splice(index, 1)[0]
+      this.persistMessages()
+      this.listeners.forEach((listener: PteIMListener) => listener.onMessage?.(removed))
+      return
+    }
+    const message = this.messages[index]
+    if (eventType == 'chat.message.recalled') {
+      message.status = Number(event.status ?? 2)
+      message.recalledAt = Number(event.recalledAt ?? Date.now())
+      message.content = { text: '' }
+      this.persistMessages()
+      this.listeners.forEach((listener: PteIMListener) => listener.onMessage?.(message))
+    }
   }
 
   private mergeRemoteConversation(value: PteIMRemoteConversation): void {

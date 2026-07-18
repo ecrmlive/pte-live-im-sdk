@@ -14,8 +14,8 @@ let chat = PteIMUIKit.makeChatViewController(
   title: "Alice"
 )
 chat.onActionRequested = { action, controller in
-  // Use your own photo/video/audio/location/business picker.
-  // Then call controller.sendImage/sendVideo/sendVoice/sendLocation/... .
+  // Gift/red-packet/order and host-defined action tiles are business-owned.
+  // Use controller.sendCustomMessage(...) or your own server workflow here.
 }
 navigationController?.pushViewController(chat, animated: true)
 ```
@@ -24,12 +24,41 @@ Included UIKit components:
 
 - `PteIMUIConversationListViewController`: cache-first conversations with pull-to-sync. Set `hostPresentations` when the host already owns display names, avatars, unread counts and row metadata; set it back to `nil` to use the Core cache again.
 - `PteIMUIContactListViewController`: cursor-paginated friends, follows or groups (`.friends`, `.follows`, `.groups`); `.custom` retains host-provided rows. `PteIMUIContactPresentation.sectionTitle` enables host-defined sections and `isOnline` renders a host-owned presence dot; Core never fabricates presence.
-- `PteIMUIChatViewController`: MessageKit-style renderer registry plus a MessageInputBar-style input delegate. Override `makeMessageRenderers()`, `messageRenderer(for:)`, `makeInputBar()`, or the three `inputBar` callbacks to replace message cells, composer behavior, keyboard send logic, and attachment routing. The native keyboard uses `.send` and calls the same text-send route as the gradient button.
+- `PteIMUIChatViewController`: MessageKit-style renderer registry plus a MessageInputBar-style input delegate. It includes a native multiline text/emoji composer, image/video camera picker, document picker, map picker, durable upload/retry path, failure state, read/unread artwork, reactions, quote/copy/delete/revoke interaction and independent media preview factories. Override `makeMessageRenderers()`, `messageRenderer(for:)`, `makeInputBar()`, or the three `inputBar` callbacks to replace message cells, composer behavior, keyboard send logic, and attachment routing. The native keyboard uses `.send` and calls the same text-send route as the gradient button.
 - `PteIMUIMessageCell`: reusable text, emoji and voice renderer.
 - `PteIMUIRichMessageCell`: UIKit-native cards for image, video, location map snapshots, red packets, gifts, orders and files. It owns no business/payment state; tapping a card remains a host callback.
+- `PteIMUINotice`: non-blocking success, error and information notices. It supports `.bottom` and `.center` presentation, automatic dismissal and replaces a prior notice on the same host view.
 - `PteIMUITheme`, `PteIMUISkin`, `PteIMUIIconProvider`: independently configurable light/dark palettes, typography and replaceable images. `PteIMUIThemePalette.composerInputColor` controls the expanded composer field separately from panel items. `PteIMUIIconKey.messageImagePlaceholder`, `.messageImagePreview`, `.messageVideoPlay`, `.messageRedPacketBackground` and `.messageGiftBackground` replace built-in rich-card artwork without copying resources into Core.
 
-`PteIMUIKit` never creates a UserSig, stores COS secrets, or persists application credentials. Attachment and business actions are delegated to the host through `onActionRequested` because permission, picker, payment, and order flows are application-specific.
+`PteIMUIKit` never creates a UserSig, stores COS secrets, or persists application credentials. Image, video, camera, file and location actions are available directly in UIKit. Gift, red-packet, order and custom business payloads remain host-owned through `onActionRequested` and `onCustomMessageRequested`, because payment and order contracts are application-specific.
+
+## Built-in chat interaction
+
+- Mixed text and emoji use the same Unicode draft and are sent through the native keyboard send action. Failed text/business messages can be requeued by tapping the failed outgoing cell; failed media uploads retry from the retained sandbox file.
+- Long-press any message for quote and reactions. Text additionally exposes copy; the sender's own messages additionally expose revoke and delete. UIKit applies the visual change immediately and emits `onQuoteRequested`, `onMessageRevoked`, `onMessageDeleted`, `onReactionToggled`, and `onMessageRetryRequested` for the host to persist or reconcile with its server.
+- Tapping an image opens `PteIMUIImagePreviewController` (tap to dismiss, long press to save to Photos); video opens `PteIMUIVideoPreviewController` (play/pause, close and progress); file opens `PteIMUIFilePreviewController` (Quick Look and long-press export); location presents only installed third-party map apps in Amap/Baidu/Tencent/Google order, then Apple Maps.
+- Override `makeImagePreviewController(for:)`, `makeVideoPreviewController(for:)`, `makeFilePreviewController(for:)`, and `makeLocationPicker()` to extend those pages without replacing the chat timeline.
+
+Read/unread visuals map to Core send state. Server-side per-member read receipts, recalls, deletes and quote payloads remain protocol-owned: connect the callbacks above to the application's corresponding server contract rather than letting UIKit invent a wire format.
+
+## Transient success and error notices
+
+Use the same native notice for application-level outcomes, instead of placing
+error text permanently inside a form or message cell:
+
+```swift
+PteIMUINotice.showError(
+  "验证码加载失败",
+  detail: error.localizedDescription,
+  position: .bottom,
+  in: viewController
+)
+
+PteIMUINotice.showSuccess("发送成功", position: .center, in: viewController)
+```
+
+`showInfo`, the general `show(_:detail:kind:position:duration:in:)`, and
+`hide(in:animated:)` are also available when a host needs custom timing.
 
 ## Custom chat architecture
 

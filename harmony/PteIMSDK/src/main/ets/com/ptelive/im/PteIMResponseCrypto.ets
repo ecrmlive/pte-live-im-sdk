@@ -46,7 +46,11 @@ export class PteIMResponseCrypto {
       const cipher = cryptoFramework.createCipher('AES256|GCM|PKCS7')
       const contentLength = ciphertextAndTag.length - 16
       const parameters: cryptoFramework.GcmParamsSpec = {
-        algName: 'AES256|GCM|PKCS7', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(PteIMResponseCrypto.apiAAD) }, authTag: { data: ciphertextAndTag.slice(contentLength) },
+        // GcmParamsSpec expects its parameter-spec identifier here, not the
+        // cipher transformation. Passing the latter fails to build the native
+        // crypto context on OpenHarmony and prevents encrypted API responses
+        // (including the login captcha) from being decrypted.
+        algName: 'GcmParamsSpec', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(PteIMResponseCrypto.apiAAD) }, authTag: { data: ciphertextAndTag.slice(contentLength) },
       }
       await cipher.init(cryptoFramework.CryptoMode.DECRYPT_MODE, aesKey, parameters)
       const clear = (await cipher.doFinal({ data: ciphertextAndTag.slice(0, contentLength) })).data
@@ -69,7 +73,7 @@ export class PteIMResponseCrypto {
     try {
       const cipher = cryptoFramework.createCipher('AES256|GCM|PKCS7')
       const parameters: cryptoFramework.GcmParamsSpec = {
-        algName: 'AES256|GCM|PKCS7', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(aad) }, authTag: { data: new Uint8Array(0) },
+        algName: 'GcmParamsSpec', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(aad) }, authTag: { data: new Uint8Array(0) },
       }
       await cipher.init(cryptoFramework.CryptoMode.ENCRYPT_MODE, key, parameters)
       return (await cipher.doFinal({ data: plaintext })).data
@@ -82,7 +86,7 @@ export class PteIMResponseCrypto {
       const cipher = cryptoFramework.createCipher('AES256|GCM|PKCS7')
       const contentLength = ciphertextAndTag.length - 16
       const parameters: cryptoFramework.GcmParamsSpec = {
-        algName: 'AES256|GCM|PKCS7', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(aad) }, authTag: { data: ciphertextAndTag.slice(contentLength) },
+        algName: 'GcmParamsSpec', iv: { data: nonce }, aad: { data: PteIMResponseCrypto.utf8(aad) }, authTag: { data: ciphertextAndTag.slice(contentLength) },
       }
       await cipher.init(cryptoFramework.CryptoMode.DECRYPT_MODE, key, parameters)
       return (await cipher.doFinal({ data: ciphertextAndTag.slice(0, contentLength) })).data

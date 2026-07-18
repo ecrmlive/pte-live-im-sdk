@@ -33,7 +33,14 @@ open class PteIMUINavigationBar(
 ) : LinearLayout(context) {
   var onLanguageSelected: ((PteIMLanguage) -> Unit)? = null
   var onThemeSelected: ((PteIMThemeMode) -> Unit)? = null
+  /** Optional secondary-page back action. Supplying it replaces the language control. */
+  var onBackRequested: (() -> Unit)? = null
+    set(value) { field = value; refreshLeadingControl() }
+  /** Hosts can hide language selection while keeping the shared 44 dp navigation geometry. */
+  var showLanguageControl: Boolean = true
+    set(value) { field = value; refreshLeadingControl() }
 
+  private val backButton = ImageButton(context)
   private val languageButton = TextView(context)
   private val titleView = TextView(context)
   private val appearanceButton = ImageButton(context)
@@ -55,6 +62,14 @@ open class PteIMUINavigationBar(
       setPadding(dp(12), 0, dp(12), 0)
       setOnClickListener { showLanguageMenu() }
     }
+    backButton.apply {
+      background = null
+      contentDescription = "Back"
+      scaleType = ImageView.ScaleType.FIT_XY
+      setPadding(0, 0, 0, 0)
+      setImageResource(R.drawable.pte_im_ui_chat_back)
+      setOnClickListener { onBackRequested?.invoke() }
+    }
     titleView.apply {
       text = title.orEmpty()
       textSize = 18f
@@ -68,6 +83,7 @@ open class PteIMUINavigationBar(
       setPadding(dp(8), dp(8), dp(8), dp(8))
       setOnClickListener { toggleTheme() }
     }
+    addView(backButton, LayoutParams(dp(44), dp(44)))
     addView(languageButton, LayoutParams(dp(122), dp(34)))
     addView(titleView, LayoutParams(0, -1, 1f))
     addView(appearanceButton, LayoutParams(dp(40), dp(40)))
@@ -87,10 +103,17 @@ open class PteIMUINavigationBar(
     languageButton.background = if (dark) rounded(Color.rgb(37, 34, 77), 18) else null
     appearanceButton.background = if (dark) rounded(Color.rgb(34, 32, 68), 20) else null
     appearanceButton.setImageResource(if (dark) R.drawable.pte_im_ui_navigation_theme_dark else R.drawable.pte_im_ui_navigation_theme_light)
+    backButton.setColorFilter(if (dark) Color.rgb(242, 244, 255) else value.primaryText)
+    refreshLeadingControl()
   }
 
   /** Lets a host centre a screen title without changing the current-language control. */
   open fun setTitle(value: String?) { titleView.text = value.orEmpty() }
+
+  private fun refreshLeadingControl() {
+    backButton.visibility = if (onBackRequested != null) VISIBLE else GONE
+    languageButton.visibility = if (showLanguageControl && onBackRequested == null) VISIBLE else GONE
+  }
 
   private fun showLanguageMenu() {
     val dark = isDark(appearance)

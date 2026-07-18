@@ -1,8 +1,9 @@
 import { PteIMBusinessContent, PteIMLanguage, PteIMListener, PteIMLocation, PteIMMedia, PteIMMessage, PteIMMessageType, PteIMSendState, PteIMThemeMode, PteIMSDK } from '@ptelive/pte-im-sdk'
-import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChatNavigationHandler } from './PteIMUIKit'
+import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChatNavigationHandler, PteIMUILocationPickerHandler, PteIMUIMediaPreviewHandler, PteIMUIMediaPreviewNavigationHandler, PteIMUIMessageOperationHandler, PteIMUIReadReceiptProvider } from './PteIMUIKit'
 import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
 import { PteIMUIInputBar, PteIMUIInputCallbacks } from './PteIMUIInputBar'
 import { PteIMUICustomAction, PteIMUIEmojiDataSource } from './PteIMUIKit'
+import { PteIMUIFilePreview, PteIMUIImagePreview, PteIMUIVideoPreview } from './PteIMUIMediaPreview'
 import photoAccessHelper from '@ohos.file.photoAccessHelper'
 import picker from '@ohos.file.picker'
 import cameraPicker from '@ohos.multimedia.cameraPicker'
@@ -36,6 +37,8 @@ export class PteIMUIReaction {
 
 export class PteIMUIReactionProvider {
   reactionsFor(_message: PteIMMessage): PteIMUIReaction[] { return [] }
+  /** Return the persisted current-user vote so UIKit can toggle it without guessing. */
+  reactedByMe(_message: PteIMMessage, _emoji: string): boolean { return false }
 }
 
 /** UI-local reaction delta. Hosts can still provide their persisted counts through reactionProvider. */
@@ -86,6 +89,10 @@ export struct PteIMUIChat {
   @Prop voiceRecordingHandler: PteIMUIVoiceRecordingHandler = new PteIMUIVoiceRecordingHandler((_recording: boolean) => {})
   @Prop navigationSubtitleText: string = ''
   @Prop reactionProvider: PteIMUIReactionProvider = new PteIMUIReactionProvider()
+  @Prop operationHandler: PteIMUIMessageOperationHandler = new PteIMUIMessageOperationHandler()
+  @Prop readReceiptProvider: PteIMUIReadReceiptProvider = new PteIMUIReadReceiptProvider()
+  @Prop locationPickerHandler: PteIMUILocationPickerHandler = new PteIMUILocationPickerHandler()
+  @Prop mediaPreviewHandler: PteIMUIMediaPreviewHandler = new PteIMUIMediaPreviewHandler()
   @Prop presentationTransformer: PteIMUIMessagePresentationTransformer = new PteIMUIMessagePresentationTransformer()
   @Prop theme: PteIMUITheme = new PteIMUITheme()
   /** A local, token-free preview lets a host inspect an IM screen before business login is wired. */
@@ -98,6 +105,7 @@ export struct PteIMUIChat {
   @State messages: PteIMMessage[] = []
   @State draft: string = ''
   @State selectedMessageId: string = ''
+  @State quotedMessageId: string = ''
   @State quotedText: string = ''
   @State composerDismissSignal: number = 0
   @State emojiOpenSignal: number = 0
@@ -105,6 +113,8 @@ export struct PteIMUIChat {
   @State previewVisible: boolean = false
   @State previewType: PteIMMessageType = PteIMMessageType.IMAGE
   @State previewMediaUri: string = ''
+  @State filePreviewVisible: boolean = false
+  @State previewFileName: string = ''
   @State mapPickerVisible: boolean = false
   @State mapLatitude: number = 0
   @State mapLongitude: number = 0
@@ -113,7 +123,6 @@ export struct PteIMUIChat {
   @State availableMapTargetIds: string[] = []
   @StorageProp('colorMode') systemColorMode: string = 'light'
   private listener: PteIMUIChatListener | null = null
-  private previewVideoController: VideoController = new VideoController()
 
   aboutToAppear(): void {
     // Keep the secondary navigation bar pinned while the IME changes the usable height.
@@ -158,7 +167,9 @@ export struct PteIMUIChat {
           emojiOpenSignal: $emojiOpenSignal,
         })
       }.width('100%').height('100%').backgroundColor(this.palette().background)
-      if (this.previewVisible) this.mediaPreviewOverlay()
+      if (this.previewVisible && this.previewType === PteIMMessageType.IMAGE) PteIMUIImagePreview({ uri: this.previewMediaUri, handler: this.mediaPreviewHandler, navigationHandler: new PteIMUIMediaPreviewNavigationHandler(() => this.closeMediaPreview()) })
+      if (this.previewVisible && this.previewType === PteIMMessageType.VIDEO) PteIMUIVideoPreview({ uri: this.previewMediaUri, handler: this.mediaPreviewHandler, navigationHandler: new PteIMUIMediaPreviewNavigationHandler(() => this.closeMediaPreview()) })
+      if (this.filePreviewVisible) PteIMUIFilePreview({ uri: this.previewMediaUri, fileName: this.previewFileName, handler: this.mediaPreviewHandler, navigationHandler: new PteIMUIMediaPreviewNavigationHandler(() => this.closeFilePreview()) })
       if (this.mapPickerVisible) this.mapPickerOverlay()
     }.width('100%').height('100%').backgroundColor(this.palette().background)
   }
@@ -169,31 +180,6 @@ export struct PteIMUIChat {
       this.selectedMessageId = ''
       this.composerDismissSignal += 1
     }
-  }
-
-  /** Full-screen media viewer: picker-created image/video messages stay inside UIKit. */
-  @Builder private mediaPreviewOverlay() {
-    Stack({ alignContent: Alignment.Center }) {
-      Text('').width('100%').height('100%').backgroundColor('#E6000000').onClick(() => this.closeMediaPreview())
-      Column({ space: 16 }) {
-        if (this.previewType === PteIMMessageType.VIDEO && this.previewMediaUri.length > 0) {
-          Video({ src: this.previewMediaUri, controller: this.previewVideoController })
-            .width('92%').height('68%').objectFit(ImageFit.Contain).autoPlay(true).controls(true)
-        } else {
-          Stack({ alignContent: Alignment.Center }) {
-            if (this.previewType === PteIMMessageType.IMAGE && this.previewMediaUri.length > 0) Image(this.previewMediaUri).width('92%').height('68%').objectFit(ImageFit.Contain)
-            else {
-              Text('').width(250).height(190).linearGradient({ direction: GradientDirection.Right, colors: [['#C79BFF', 0.0], ['#36CEE8', 1.0]] }).borderRadius(16)
-              Column({ space: 8 }) {
-                Image(this.previewType === PteIMMessageType.VIDEO ? $r('app.media.PteIMUIChatVideoPlay') : $r('app.media.PteIMUIChatPhotoIcon')).width(this.previewType === PteIMMessageType.VIDEO ? 36 : 42).height(this.previewType === PteIMMessageType.VIDEO ? 36 : 42).objectFit(ImageFit.Contain)
-                Text(this.previewType === PteIMMessageType.VIDEO ? (this.isEnglish() ? 'Video unavailable' : '视频暂不可播放') : (this.isEnglish() ? 'Photo preview' : '图片预览')).fontSize(14).fontColor(Color.White)
-              }.alignItems(HorizontalAlign.Center)
-            }
-          }.width('100%').height('68%')
-        }
-        Button(this.isEnglish() ? 'Close' : '关闭').fontSize(14).fontColor(Color.White).backgroundColor('#33FFFFFF').borderRadius(18).padding({ left: 24, right: 24 }).onClick(() => this.closeMediaPreview())
-      }.width('100%').alignItems(HorizontalAlign.Center)
-    }.width('100%').height('100%')
   }
 
   /** Only map apps that can resolve their navigation link are displayed. */
@@ -235,7 +221,7 @@ export struct PteIMUIChat {
         Text(this.navigationSubtitleText.length > 0 ? this.navigationSubtitleText : (this.isGroup() ? (this.isEnglish() ? '8 members' : '8位成员') : (this.isEnglish() ? 'Online' : '在线'))).fontSize(10).fontColor('#17B979')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Button() { Image(this.isDark() ? $r('app.media.PteIMUIChatNavMoreDark') : $r('app.media.PteIMUIChatNavMoreNativeLight')).width(44).height(44).objectFit(ImageFit.Fill) }
-        .width(44).height(44).padding(0).backgroundColor(Color.Transparent)
+        .width(44).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => this.navigationHandler.more())
     }.width('100%').height(44).flexShrink(0).padding({ left: 10, right: 9 }).backgroundColor(this.palette().surface).border({ width: { bottom: 1 }, color: this.palette().divider })
   }
 
@@ -269,8 +255,10 @@ export struct PteIMUIChat {
     if (message.type === PteIMMessageType.VOICE) this.voiceBubble(message, outgoing)
     else if (this.isRich(message)) this.richMessageCard(message, presentation, outgoing)
     else {
-      Text(presentation.text).fontSize(14).lineHeight(20).fontColor(outgoing ? this.palette().outgoingText : this.palette().incomingText)
-        .padding({ left: 13, right: 13, top: 9, bottom: 9 }).borderRadius(15).constraintSize({ maxWidth: '75%' })
+      Column({ space: message.quoteText.length > 0 ? 5 : 0 }) {
+        if (message.quoteText.length > 0) Text(`↪ ${message.quoteText}`).fontSize(10).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor(outgoing ? '#E9DEFF' : this.palette().muted).padding({ bottom: 4 }).border({ width: { bottom: 1 }, color: outgoing ? '#33FFFFFF' : this.palette().divider })
+        Text(presentation.text).fontSize(14).lineHeight(20).fontColor(outgoing ? this.palette().outgoingText : this.palette().incomingText)
+      }.padding({ left: 13, right: 13, top: 9, bottom: 9 }).borderRadius(15).constraintSize({ maxWidth: '75%' })
         .backgroundColor(outgoing ? this.palette().outgoingEnd : this.palette().incoming).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
     }
   }
@@ -349,7 +337,7 @@ export struct PteIMUIChat {
           Text(message.media?.fileName ?? presentation.text).fontSize(13).fontWeight(FontWeight.Medium).fontColor(this.fileTitleColor(outgoing)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text(this.fileSize(message.media?.sizeBytes ?? 0)).fontSize(10).fontColor(this.fileSizeColor(outgoing))
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-      }.width(210).padding(11).backgroundColor(outgoing ? this.palette().outgoingEnd : this.palette().surface).borderRadius(15).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
+      }.width(210).padding(11).backgroundColor(outgoing ? this.palette().outgoingEnd : this.palette().surface).borderRadius(15).onClick(() => this.openFilePreview(message)).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
     } else {
       Text(presentation.text).fontSize(14).fontColor(this.palette().text).width(188).padding(12).backgroundColor(this.palette().surface).borderRadius(15).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
     }
@@ -358,7 +346,8 @@ export struct PteIMUIChat {
   @Builder private messageMeta(message: PteIMMessage, presentation: PteIMUIMessagePresentation, outgoing: boolean) {
     Row({ space: 4 }) {
       Text(presentation.time).fontSize(9).fontColor(this.palette().muted)
-      if (outgoing) Image(this.deliveryIcon(message)).width(12).height(12)
+      if (outgoing && message.state === PteIMSendState.FAILED) Button('!').width(16).height(16).fontSize(11).fontColor(Color.White).backgroundColor('#F0444F').borderRadius(8).padding(0).onClick(() => this.retryMessage(message))
+      else if (outgoing) Image(this.deliveryIcon(message)).width(12).height(12)
     }.padding({ left: 3, right: 3 })
   }
 
@@ -376,7 +365,7 @@ export struct PteIMUIChat {
           .width(28).height(32).padding(0).backgroundColor(Color.Transparent).onClick(() => this.openReactionEmoji())
       }.height(44).padding({ left: 12, right: 12 }).backgroundColor(this.palette().surface).borderRadius(14).shadow({ radius: 10, color: this.isDark() ? '#33000000' : '#22000000', offsetY: 4 })
       Row({ space: 0 }) {
-        this.contextButton(this.isEnglish() ? 'Quote' : '引用', this.isDark() ? $r('app.media.PteIMUIChatQuoteDark') : $r('app.media.PteIMUIChatQuoteLight'), false, () => { this.quotedText = this.messageText(message); this.selectedMessageId = '' })
+        this.contextButton(this.isEnglish() ? 'Quote' : '引用', this.isDark() ? $r('app.media.PteIMUIChatQuoteDark') : $r('app.media.PteIMUIChatQuoteLight'), false, () => this.quoteMessage(message))
         if (message.type === PteIMMessageType.TEXT) this.contextButton(this.isEnglish() ? 'Copy' : '复制', this.isDark() ? $r('app.media.PteIMUIChatCopyDark') : $r('app.media.PteIMUIChatCopyLight'), false, () => this.copyMessage(message))
         if (this.isOutgoing(message)) {
           this.contextButton(this.isEnglish() ? 'Revoke' : '撤回', this.isDark() ? $r('app.media.PteIMUIChatRevokeDark') : $r('app.media.PteIMUIChatRevokeLight'), false, () => this.revokeMessage(message))
@@ -431,8 +420,16 @@ export struct PteIMUIChat {
     if (this.client === null) {
       const message = new PteIMMessage(this.conversationId, PteIMMessageType.TEXT, value, '', '', null, null, null, null, '', Date.now(), PteIMSendState.SENT)
       message.senderId = this.previewUserId
+      message.quoteClientMsgId = this.quotedMessageId
+      message.quoteText = this.quotedText
       this.messages = [...this.messages, message]
-    } else { await this.client.sendText(this.conversationId, value); await this.loadMessages() }
+    } else {
+      if (this.quotedMessageId.length > 0) await this.client.sendTextWithQuote(this.conversationId, value, this.quotedMessageId, this.quotedText)
+      else await this.client.sendText(this.conversationId, value)
+      await this.loadMessages()
+    }
+    this.quotedMessageId = ''
+    this.quotedText = ''
   }
   private async sendEmoji(packageId: string, emojiId: string): Promise<void> {
     if (this.client === null) {
@@ -451,7 +448,14 @@ export struct PteIMUIChat {
     this.actionHandler.request(action)
   }
   private async sendPickedMedia(type: PteIMMessageType, media: PteIMMedia): Promise<void> {
-    if (this.client !== null) { if (type === PteIMMessageType.IMAGE) await this.client.sendImage(this.conversationId, media); else if (type === PteIMMessageType.VIDEO) await this.client.sendVideo(this.conversationId, media); else await this.client.sendFile(this.conversationId, media); await this.loadMessages(); return }
+    if (this.client !== null) {
+      const localPath = this.localPath(media.url)
+      if (type === PteIMMessageType.IMAGE) await this.client.uploadAndSendImage(this.conversationId, localPath, media.mimeType)
+      else if (type === PteIMMessageType.VIDEO) await this.client.uploadAndSendVideo(this.conversationId, localPath, media.mimeType)
+      else await this.client.uploadAndSendFile(this.conversationId, localPath, media.mimeType)
+      await this.loadMessages()
+      return
+    }
     const message = new PteIMMessage(this.conversationId, type, '', '', '', media, null, null, null, '', Date.now(), PteIMSendState.SENT); message.senderId = this.previewUserId; this.messages = [...this.messages, message]
   }
   private async pickPhoto(video: boolean): Promise<string> {
@@ -464,7 +468,15 @@ export struct PteIMUIChat {
     try { const option = new picker.DocumentSelectOptions(); option.maxSelectNumber = 1; const values = await new picker.DocumentViewPicker().select(option); return values.length > 0 ? values[0] : '' } catch (_error) { return '' }
   }
   private async sendCurrentLocation(): Promise<void> {
-    try { const current = await geoLocationManager.getCurrentLocation(); const location = new PteIMLocation(current.latitude, current.longitude, this.isEnglish() ? 'Current location' : '当前位置', `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`); if (this.client !== null) { await this.client.sendLocation(this.conversationId, location); await this.loadMessages() } else { const message = new PteIMMessage(this.conversationId, PteIMMessageType.LOCATION, '', '', '', null, null, location, null, '', Date.now(), PteIMSendState.SENT); message.senderId = this.previewUserId; this.messages = [...this.messages, message] } } catch (_error) { this.actionHandler.request(PteIMUIAction.LOCATION) }
+    let location = await this.locationPickerHandler.pick()
+    if (location === null) {
+      try {
+        const current = await geoLocationManager.getCurrentLocation()
+        location = new PteIMLocation(current.latitude, current.longitude, this.isEnglish() ? 'Current location' : '当前位置', `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`)
+      } catch (_error) { this.actionHandler.request(PteIMUIAction.LOCATION); return }
+    }
+    if (this.client !== null) { await this.client.sendLocation(this.conversationId, location); await this.loadMessages() }
+    else { const message = new PteIMMessage(this.conversationId, PteIMMessageType.LOCATION, '', '', '', null, null, location, null, '', Date.now(), PteIMSendState.SENT); message.senderId = this.previewUserId; this.messages = [...this.messages, message] }
   }
 
   private openMediaPreview(message: PteIMMessage): void {
@@ -477,8 +489,20 @@ export struct PteIMUIChat {
   }
 
   private closeMediaPreview(): void {
-    if (this.previewType === PteIMMessageType.VIDEO) this.previewVideoController.pause()
     this.previewVisible = false
+    this.previewMediaUri = ''
+  }
+
+  private openFilePreview(message: PteIMMessage): void {
+    this.selectedMessageId = ''
+    this.previewMediaUri = message.media?.url ?? ''
+    this.previewFileName = message.media?.fileName ?? this.fileName(this.previewMediaUri)
+    this.filePreviewVisible = true
+  }
+
+  private closeFilePreview(): void {
+    this.filePreviewVisible = false
+    this.previewFileName = ''
     this.previewMediaUri = ''
   }
 
@@ -529,7 +553,12 @@ export struct PteIMUIChat {
       this.mapStatus = this.isEnglish() ? 'This map app is unavailable' : '该地图应用暂不可用'
     }
   }
-  private fileName(uri: string): string { const index = uri.lastIndexOf('/'); return index >= 0 ? uri.substring(index + 1) : uri }
+  private localPath(uri: string): string { return uri.startsWith('file://') ? uri.substring(7) : uri }
+  private fileName(uri: string): string {
+    const normalized = uri.split('?')[0]
+    const index = normalized.lastIndexOf('/')
+    return index >= 0 ? normalized.substring(index + 1) : normalized
+  }
   /* Preview-only fallback remains for unsupported local picker environments. */
   private appendPreviewBusiness(action: PteIMUIAction): void {
     let type: PteIMMessageType = PteIMMessageType.TEXT
@@ -577,11 +606,16 @@ export struct PteIMUIChat {
   /** A second tap on the same reaction cancels the local vote; the count cell vanishes at zero. */
   private toggleReaction(message: PteIMMessage, emoji: string): void {
     const index = this.localReactions.findIndex((item: PteIMUILocalReaction) => item.messageId === message.clientMsgId && item.emoji === emoji)
-    if (index >= 0 && this.localReactions[index].addedByMe) {
-      this.localReactions = this.localReactions.filter((item: PteIMUILocalReaction) => !(item.messageId === message.clientMsgId && item.emoji === emoji))
-    } else {
-      this.localReactions = [...this.localReactions, new PteIMUILocalReaction(message.clientMsgId, emoji, true)]
-    }
+    const before = index >= 0 ? this.localReactions[index].addedByMe : this.reactionProvider.reactedByMe(message, emoji)
+    const selected = !before
+    const persisted = this.reactionProvider.reactedByMe(message, emoji)
+    if (selected === persisted) this.localReactions = this.localReactions.filter((item: PteIMUILocalReaction) => !(item.messageId === message.clientMsgId && item.emoji === emoji))
+    else if (index >= 0) {
+      const updated = [...this.localReactions]
+      updated[index] = new PteIMUILocalReaction(message.clientMsgId, emoji, selected)
+      this.localReactions = updated
+    } else this.localReactions = [...this.localReactions, new PteIMUILocalReaction(message.clientMsgId, emoji, selected)]
+    this.operationHandler.react(message, emoji, selected)
     this.selectedMessageId = ''
   }
   /** Merges host-supplied reaction counts with this UI's current-user reaction. */
@@ -589,10 +623,12 @@ export struct PteIMUIChat {
     const values: PteIMUIReaction[] = []
     for (const reaction of this.reactionProvider.reactionsFor(message)) values.push(new PteIMUIReaction(reaction.emoji, reaction.count))
     for (const local of this.localReactions) {
-      if (local.messageId !== message.clientMsgId || !local.addedByMe) continue
+      if (local.messageId !== message.clientMsgId) continue
       const index = values.findIndex((item: PteIMUIReaction) => item.emoji === local.emoji)
-      if (index >= 0) values[index] = new PteIMUIReaction(local.emoji, values[index].count + 1)
-      else values.push(new PteIMUIReaction(local.emoji, 1))
+      const persisted = this.reactionProvider.reactedByMe(message, local.emoji)
+      const delta = local.addedByMe === persisted ? 0 : (local.addedByMe ? 1 : -1)
+      if (index >= 0) values[index] = new PteIMUIReaction(local.emoji, values[index].count + delta)
+      else if (delta > 0) values.push(new PteIMUIReaction(local.emoji, 1))
     }
     return values.filter((item: PteIMUIReaction) => item.count > 0)
   }
@@ -601,13 +637,35 @@ export struct PteIMUIChat {
     this.selectedMessageId = ''
     this.emojiOpenSignal += 1
   }
-  private deliveryIcon(message: PteIMMessage): Resource { return message.state === PteIMSendState.SENT ? (this.isDark() ? $r('app.media.PteIMUIChatReadDark') : $r('app.media.PteIMUIChatReadLight')) : (this.isDark() ? $r('app.media.PteIMUIChatUnreadDark') : $r('app.media.PteIMUIChatUnreadLight')) }
-  private revokeMessage(message: PteIMMessage): void {
-    if (this.client === null) this.messages = this.messages.filter((item: PteIMMessage) => item.clientMsgId !== message.clientMsgId)
+  private deliveryIcon(message: PteIMMessage): Resource {
+    const read = message.state === PteIMSendState.SENT && this.readReceiptProvider.isRead(message)
+    return read ? (this.isDark() ? $r('app.media.PteIMUIChatReadDark') : $r('app.media.PteIMUIChatReadLight')) : (this.isDark() ? $r('app.media.PteIMUIChatUnreadDark') : $r('app.media.PteIMUIChatUnreadLight'))
+  }
+  private quoteMessage(message: PteIMMessage): void {
+    this.quotedMessageId = message.clientMsgId
+    this.quotedText = this.messageText(message)
+    this.operationHandler.quote(message)
     this.selectedMessageId = ''
   }
-  private deleteMessage(message: PteIMMessage): void {
+  private async retryMessage(message: PteIMMessage): Promise<void> {
+    if (this.client === null) {
+      message.state = PteIMSendState.SENT
+      this.messages = [...this.messages]
+    } else {
+      await this.client.retryMessage(message.clientMsgId)
+      await this.loadMessages()
+    }
+  }
+  private async revokeMessage(message: PteIMMessage): Promise<void> {
+    this.operationHandler.revoke(message)
     if (this.client === null) this.messages = this.messages.filter((item: PteIMMessage) => item.clientMsgId !== message.clientMsgId)
+    else { await this.client.deleteLocalMessage(message.clientMsgId); await this.loadMessages() }
+    this.selectedMessageId = ''
+  }
+  private async deleteMessage(message: PteIMMessage): Promise<void> {
+    this.operationHandler.delete(message)
+    if (this.client === null) this.messages = this.messages.filter((item: PteIMMessage) => item.clientMsgId !== message.clientMsgId)
+    else { await this.client.deleteLocalMessage(message.clientMsgId); await this.loadMessages() }
     this.selectedMessageId = ''
   }
   private presentation(message: PteIMMessage, outgoing: boolean): PteIMUIMessagePresentation {
@@ -615,7 +673,7 @@ export struct PteIMUIChat {
     const value = new PteIMUIMessagePresentation(this.messageText(message), time, outgoing ? 'M' : this.avatarForTitle(), outgoing ? (this.isEnglish() ? 'Me' : '我') : (this.title.length > 0 ? this.title : this.conversationId))
     return this.presentationTransformer.transform(message, outgoing, value)
   }
-  private isRich(message: PteIMMessage): boolean { return message.type === PteIMMessageType.IMAGE || message.type === PteIMMessageType.VIDEO || message.type === PteIMMessageType.LOCATION || message.type === PteIMMessageType.GIFT || message.type === PteIMMessageType.RED_PACKET || message.type === PteIMMessageType.ORDER || message.type === PteIMMessageType.FILE }
+  private isRich(message: PteIMMessage): boolean { return message.type === PteIMMessageType.IMAGE || message.type === PteIMMessageType.VIDEO || message.type === PteIMMessageType.LOCATION || message.type === PteIMMessageType.GIFT || message.type === PteIMMessageType.RED_PACKET || message.type === PteIMMessageType.ORDER || message.type === PteIMMessageType.FILE || message.type === PteIMMessageType.CUSTOM }
   private messageText(message: PteIMMessage): string {
     if (message.type === PteIMMessageType.TEXT) return message.text
     if (message.type === PteIMMessageType.EMOJI) return message.emojiId
@@ -626,6 +684,7 @@ export struct PteIMUIChat {
     if (message.type === PteIMMessageType.GIFT) return message.business?.title ?? (this.isEnglish() ? 'Gift' : '礼物')
     if (message.type === PteIMMessageType.RED_PACKET) return message.business?.title ?? (this.isEnglish() ? 'Red packet' : '红包')
     if (message.type === PteIMMessageType.ORDER) return message.business?.title ?? (this.isEnglish() ? 'Order' : '订单')
+    if (message.type === PteIMMessageType.CUSTOM) return message.business?.title ?? (this.isEnglish() ? 'Custom message' : '自定义消息')
     return message.media?.fileName ?? (this.isEnglish() ? 'File' : '文件')
   }
 }

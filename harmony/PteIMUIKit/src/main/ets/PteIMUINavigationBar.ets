@@ -9,23 +9,38 @@ export class PteIMUINavigationHandler {
   selectTheme(theme: PteIMThemeMode): void { this.themeSelected(theme) }
 }
 
+/** Optional back action for pages that should not expose the language picker. */
+export class PteIMUINavigationBackHandler {
+  private readonly callback: () => void
+  constructor(callback: () => void = () => {}) { this.callback = callback }
+  back(): void { this.callback() }
+}
+
 /** Shared ArkUI navigation bar: current language, language picker and supplied light/dark artwork. */
 @Component
 export struct PteIMUINavigationBar {
   @Prop title: string = ''
   @Prop language: PteIMLanguage = PteIMLanguage.EN_US
   @Prop dark: boolean = false
+  @Prop showBack: boolean = false
   @Prop handler: PteIMUINavigationHandler = new PteIMUINavigationHandler()
+  @Prop backHandler: PteIMUINavigationBackHandler = new PteIMUINavigationBackHandler()
   @State menuOpen: boolean = false
 
   build() {
     Column() {
       Row() {
-        Text(this.languageTitle()).fontSize(14).fontColor(this.dark ? '#CCD3F2' : '#656982').width(122).height(34).textAlign(TextAlign.Center).padding({ left: 12, right: 12 }).backgroundColor(this.dark ? '#25224D' : Color.Transparent).borderRadius(18).onClick(() => this.menuOpen = !this.menuOpen)
+        if (this.showBack) {
+          Button() {
+            Image(this.dark ? $r('app.media.PteIMUIChatNavBackDark') : $r('app.media.PteIMUIChatNavBackLight')).width(44).height(44).objectFit(ImageFit.Fill)
+          }.type(ButtonType.Normal).width(44).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => this.backHandler.back())
+        } else {
+          Text(this.languageTitle()).fontSize(14).fontColor(this.dark ? '#CCD3F2' : '#656982').width(122).height(34).textAlign(TextAlign.Center).padding({ left: 12, right: 12 }).backgroundColor(this.dark ? '#25224D' : Color.Transparent).borderRadius(18).onClick(() => this.menuOpen = !this.menuOpen)
+        }
         Text(this.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(this.dark ? '#EFF2FF' : '#171C2E').textAlign(TextAlign.Center).layoutWeight(1)
         Image(this.dark ? $r('app.media.PteIMUINavigationThemeDark') : $r('app.media.PteIMUINavigationThemeLight')).width(40).height(40).padding(8).backgroundColor(this.dark ? '#222044' : Color.Transparent).borderRadius(20).onClick(() => this.handler.selectTheme(this.dark ? PteIMThemeMode.LIGHT : PteIMThemeMode.DARK))
       }.width('100%').height(44).padding({ left: 15, right: 15 }).backgroundColor(this.dark ? '#0E111C' : '#F4F4FF')
-      if (this.menuOpen) Column() {
+      if (!this.showBack && this.menuOpen) Column() {
         this.languageItem(PteIMLanguage.SYSTEM, '跟随系统')
         this.languageItem(PteIMLanguage.ZH_CN, '简体中文')
         this.languageItem(PteIMLanguage.EN_US, 'English')

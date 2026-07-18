@@ -3,7 +3,9 @@ export enum PteIMThemeMode { SYSTEM = 'system', LIGHT = 'light', DARK = 'dark' }
 export enum PteIMLanguage { SYSTEM = 'system', ZH_CN = 'zh-CN', EN_US = 'en-US' }
 export enum PteIMMessageType {
   TEXT = 'text', EMOJI = 'emoji', IMAGE = 'image', VIDEO = 'video', VOICE = 'voice',
-  LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order', FILE = 'file'
+  LOCATION = 'location', GIFT = 'gift', RED_PACKET = 'red_packet', ORDER = 'order', FILE = 'file',
+  /** A host-defined payload. Hosts are responsible for enabling this type on their IM service. */
+  CUSTOM = 'custom'
 }
 export enum PteIMSendState { PENDING = 'pending', UPLOADING = 'uploading', SENT = 'sent', FAILED = 'failed' }
 export enum PteIMGender { UNKNOWN = 'unknown', MALE = 'male', FEMALE = 'female' }
@@ -62,6 +64,8 @@ export class PteIMWireContent {
   title: string = ''
   subtitle: string = ''
   actionUrl: string = ''
+  quoteClientMsgId: string = ''
+  quoteText: string = ''
 }
 
 export class PteIMWireMessage {
@@ -79,14 +83,17 @@ export class PteIMBaseConfig {
   apiDomain: string
   imDomain: string
   cosDomain: string
+  /** Optional HTTPS Commerce extension origin. It shares the current UserSig. */
+  commerceDomain: string
   themeMode: PteIMThemeMode
   language: PteIMLanguage
 
   constructor(apiDomain: string, imDomain: string, cosDomain: string,
-    themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM, language: PteIMLanguage = PteIMLanguage.SYSTEM) {
+    themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM, language: PteIMLanguage = PteIMLanguage.SYSTEM, commerceDomain: string = '') {
     this.apiDomain = apiDomain
     this.imDomain = imDomain
     this.cosDomain = cosDomain
+    this.commerceDomain = commerceDomain
     this.themeMode = themeMode
     this.language = language
   }
@@ -95,6 +102,7 @@ export class PteIMBaseConfig {
     if (!this.apiDomain.startsWith('https://')) throw new Error('apiDomain must be an HTTPS origin')
     if (!this.imDomain.startsWith('wss://') || !this.imDomain.endsWith('/ws')) throw new Error('imDomain must be a WSS URL ending in /ws')
     if (!this.cosDomain.startsWith('https://')) throw new Error('cosDomain must be an HTTPS origin')
+    if (this.commerceDomain.length > 0 && !this.commerceDomain.startsWith('https://')) throw new Error('commerceDomain must be an HTTPS origin')
   }
 }
 
@@ -205,6 +213,9 @@ export class PteIMMessage {
   serverSeq: number = 0
   createdAt: number
   state: PteIMSendState
+  /** Display-only quote metadata; the original message remains immutable. */
+  quoteClientMsgId: string = ''
+  quoteText: string = ''
 
   constructor(conversationId: string, type: PteIMMessageType, text: string = '',
     packageId: string = '', emojiId: string = '', media: PteIMMedia | null = null,
@@ -248,6 +259,8 @@ export class PteIMMessage {
     if (this.business !== null) {
       content.businessId = this.business.businessId; content.title = this.business.title; content.subtitle = this.business.subtitle; content.actionUrl = this.business.actionUrl
     }
+    content.quoteClientMsgId = this.quoteClientMsgId
+    content.quoteText = this.quoteText
     const message = new PteIMWireMessage()
     message.clientMsgId = this.clientMsgId
     message.serverMsgId = this.serverMsgId

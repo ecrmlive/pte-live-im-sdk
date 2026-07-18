@@ -4,14 +4,12 @@ import android.app.Activity
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
-import android.os.CancellationSignal
 import android.provider.MediaStore
 import com.ptelive.im.PteIMLocation
+import com.ptelive.im.PteIMMessage
 import com.ptelive.im.PteIMSDK
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -27,14 +25,22 @@ internal object PteIMUIAttachmentBridge {
     val conversationId: String,
     val action: PteIMUIAction,
     val onError: (Throwable) -> Unit,
+    val onQueued: (PteIMMessage, Uri) -> Unit,
   )
 
   private val pending = linkedMapOf<String, Pending>()
   private val executor = Executors.newCachedThreadPool()
 
-  fun launch(context: Context, client: PteIMSDK, conversationId: String, action: PteIMUIAction, onError: (Throwable) -> Unit) {
+  fun launch(
+    context: Context,
+    client: PteIMSDK,
+    conversationId: String,
+    action: PteIMUIAction,
+    onError: (Throwable) -> Unit,
+    onQueued: (PteIMMessage, Uri) -> Unit = { _, _ -> },
+  ) {
     val token = UUID.randomUUID().toString()
-    pending[token] = Pending(client, conversationId, action, onError)
+    pending[token] = Pending(client, conversationId, action, onError, onQueued)
     val intent = Intent(context, PteIMUIAttachmentPickerActivity::class.java).putExtra(PteIMUIAttachmentPickerActivity.EXTRA_TOKEN, token)
     if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(intent)
@@ -46,20 +52,26 @@ internal object PteIMUIAttachmentBridge {
     val value = pending.remove(token) ?: return
     executor.execute {
       runCatching {
-        when (value.action) {
+        val message = when (value.action) {
           PteIMUIAction.IMAGE, PteIMUIAction.CAMERA -> value.client.uploadAndSendImage(value.conversationId, uri)
           PteIMUIAction.VIDEO -> value.client.uploadAndSendVideo(value.conversationId, uri)
           PteIMUIAction.FILE -> value.client.uploadAndSendFile(value.conversationId, uri)
           else -> error("Unsupported UIKit media action: ${value.action}")
         }
+        value.onQueued(message, uri)
       }.onFailure(value.onError)
     }
   }
 
   fun completeLocation(token: String, location: Location) {
+    completeLocation(token, PteIMLocation(location.latitude, location.longitude, "Current location", null))
+  }
+
+  /** Finishes UIKit's location-picker flow with a selected or searched place. */
+  fun completeLocation(token: String, location: PteIMLocation) {
     val value = pending.remove(token) ?: return
     runCatching {
-      value.client.sendLocation(value.conversationId, PteIMLocation(location.latitude, location.longitude, "Current location", null))
+      value.client.sendLocation(value.conversationId, location)
     }.onFailure(value.onError)
   }
 
@@ -73,7 +85,6 @@ class PteIMUIAttachmentPickerActivity : Activity() {
     const val EXTRA_TOKEN = "pte.im.ui.attachment.token"
     private const val REQUEST_DOCUMENT = 8101
     private const val REQUEST_CAMERA = 8102
-    private const val REQUEST_LOCATION = 8103
   }
 
   private val token: String by lazy { intent.getStringExtra(EXTRA_TOKEN).orEmpty() }
@@ -88,7 +99,7 @@ class PteIMUIAttachmentPickerActivity : Activity() {
       PteIMUIAction.VIDEO -> openDocument("video/*")
       PteIMUIAction.FILE -> openDocument("*/*")
       PteIMUIAction.CAMERA -> openCamera()
-      PteIMUIAction.LOCATION -> requestLocation()
+      PteIMUIAction.LOCATION -> openLocationPicker()
       else -> fail(IllegalArgumentException("Unsupported UIKit attachment"))
     }
   }
@@ -118,29 +129,10 @@ class PteIMUIAttachmentPickerActivity : Activity() {
     }, REQUEST_CAMERA)
   }
 
-  private fun requestLocation() {
-    if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-      checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-      requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
-      return
-    }
-    val manager = getSystemService(LocationManager::class.java)
-    val provider = when {
-      manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-      manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-      else -> null
-    } ?: run { fail(IllegalStateException("No location provider is enabled")); return }
-    manager.getCurrentLocation(provider, CancellationSignal(), mainExecutor) { location ->
-      if (location == null) fail(IllegalStateException("Current location is unavailable")) else {
-        PteIMUIAttachmentBridge.completeLocation(token, location); finish()
-      }
-    }
-  }
-
-  override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-    if (requestCode != REQUEST_LOCATION) return
-    if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) requestLocation() else fail(SecurityException("Location permission was denied"))
+  private fun openLocationPicker() {
+    startActivity(Intent(this, PteIMUILocationPickerActivity::class.java)
+      .putExtra(PteIMUILocationPickerActivity.EXTRA_TOKEN, token))
+    finish()
   }
 
   @Deprecated("Deprecated in Java")

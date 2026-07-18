@@ -1,7 +1,22 @@
-import { PteIMContact, PteIMContactPage, PteIMConversation, PteIMGroupPage, PteIMIncomingMessage, PteIMListener, PteIMSDKClient } from '../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMContact, PteIMContactPage, PteIMConversation, PteIMGroupPage, PteIMIncomingMessage, PteIMListener, PteIMLocation, PteIMMapConfig, PteIMSDKClient } from '../../pte-im-sdk/utssdk/interface.uts'
 
 /** Actions that require host application permissions, pickers, or business data. */
+/** Built-in actions whose permissions and media selection are completed by UIKit. */
 export type PteIMUIAction = 'image' | 'camera' | 'video' | 'voice' | 'location' | 'gift' | 'red_packet' | 'order' | 'file'
+/**
+ * An optional host action rendered in the last four slots of the composer.
+ * UIKit never invents a business payload for these actions; it reports `id`
+ * to the host and keeps the normal composer presentation intact.
+ */
+export type PteIMUICustomAction = { id: string, title: string, iconUrl: string }
+export type PteIMUIInputAction = PteIMUIAction | PteIMUICustomAction
+/** Host bridge for AMap navigation. Return true after opening an H5 page or Mini Program AMap SDK. */
+export class PteIMUIMapNavigationHandler {
+  open(_location: PteIMLocation, _config: PteIMMapConfig | null, _amapURI: string): boolean { return false }
+}
+/** External emoji packs can use a Unicode value or a 24×32 icon URL. */
+export type PteIMUIEmoji = { id: string, value: string, imageUrl?: string, group?: 'common' | 'all' }
+export type PteIMUIMessageAction = 'quote' | 'copy' | 'delete' | 'revoke' | 'reaction' | 'retry'
 export type PteIMUIContactListMode = 'friends' | 'follows' | 'groups' | 'custom'
 export type PteIMUIContactPresentation = { identifier: string, title: string, subtitle: string, avatarText: string, isGroup: boolean }
 
@@ -10,6 +25,8 @@ export type PteIMUIReaction = { emoji: string, count: number }
 /** Override this provider from the host repository to render persisted reactions. */
 export class PteIMUIReactionProvider {
   reactionsFor(_message: PteIMIncomingMessage): PteIMUIReaction[] { return [] }
+  /** Return the persisted current-user vote so UIKit can render the selected reaction. */
+  reactedByMe(_message: PteIMIncomingMessage, _emoji: string): boolean { return false }
 }
 
 /** Explicit colours for one appearance. Light and dark palettes are never auto-inverted. */
@@ -37,15 +54,18 @@ export class PteIMUITheme {
 /** Dependency-free controller consumed by the PteIMUI uvue components or a custom UTS view. */
 export class PteIMUIChatController {
   messages: PteIMIncomingMessage[] = []
+  /** Per-message delivery state including optimistic uploads before the server echo arrives. */
+  messageStates: any = {}
   onChanged: (() => void) | null = null
   onActionRequested: ((action: PteIMUIAction) => void) | null = null
   private active: boolean = true
   private listener: PteIMListener
+  private optimistic: PteIMIncomingMessage[] = []
 
   constructor(private client: PteIMSDKClient, readonly conversationId: string) {
     this.listener = {
       onMessage: (message: PteIMIncomingMessage): void => { if (this.active && message.conversationId == conversationId) this.refresh() },
-      onMessageStateChanged: (_event): void => { if (this.active) this.refresh() },
+      onMessageStateChanged: (event): void => { if (this.active) { this.messageStates[event.clientMsgId] = event.state; this.refresh() } },
       onThemeModeChanged: (_mode): void => { if (this.active) this.changed() },
       onLanguageChanged: (_language): void => { if (this.active) this.changed() }
     }
@@ -53,9 +73,35 @@ export class PteIMUIChatController {
     client.addListener(this.listener)
   }
 
-  refresh(): void { this.messages = this.client.localMessages(this.conversationId, 100); this.changed() }
-  sendText(text: string): void { if (text.trim().length > 0) { this.client.sendText(this.conversationId, text.trim()); this.refresh() } }
-  sendEmoji(packageId: string = 'default', emojiId: string = 'smile_001'): void { this.client.sendEmoji(this.conversationId, packageId, emojiId); this.refresh() }
+  refresh(): void {
+    const local = this.client.localMessages(this.conversationId, 100)
+    const localIds = local.map((message: PteIMIncomingMessage) => message.clientMsgId)
+    this.optimistic = this.optimistic.filter((message: PteIMIncomingMessage) => localIds.indexOf(message.clientMsgId) < 0)
+    this.messages = local.concat(this.optimistic).sort((left: PteIMIncomingMessage, right: PteIMIncomingMessage) => left.createdAt - right.createdAt)
+    this.changed()
+  }
+  sendText(text: string): string {
+    const value = text.trim()
+    if (value.length == 0) return ''
+    const clientMsgId = this.client.sendText(this.conversationId, value)
+    this.trackOutgoing(clientMsgId, 'text', { text: value })
+    return clientMsgId
+  }
+  sendEmoji(packageId: string = 'default', emojiId: string = 'smile_001'): string {
+    const clientMsgId = this.client.sendEmoji(this.conversationId, packageId, emojiId)
+    this.trackOutgoing(clientMsgId, 'emoji', { packageId, emojiId })
+    return clientMsgId
+  }
+  trackOutgoing(clientMsgId: string, type: string, content: any): void {
+    if (clientMsgId.length == 0) return
+    this.messageStates[clientMsgId] = this.messageStates[clientMsgId] ?? 'pending'
+    const existing = this.optimistic.findIndex((message: PteIMIncomingMessage) => message.clientMsgId == clientMsgId)
+    const message = { clientMsgId, conversationId: this.conversationId, senderId: this.client.currentUserId(), type, createdAt: Date.now(), content } as PteIMIncomingMessage
+    if (existing >= 0) this.optimistic[existing] = message
+    else this.optimistic.push(message)
+    this.refresh()
+  }
+  stateFor(clientMsgId: string): string { return String(this.messageStates[clientMsgId] ?? 'sent') }
   requestAction(action: PteIMUIAction): void { this.onActionRequested?.(action) }
   dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null; this.onActionRequested = null }
   private changed(): void { this.onChanged?.() }

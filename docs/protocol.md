@@ -2,9 +2,22 @@
 
 ## Login configuration
 
-`PteIMBaseConfig` is configured once at App startup with `apiDomain`, `imDomain`, and `cosDomain`. `PteIMLoginConfig` is supplied only when logging in with `sdkAppId`, `userId`, and `userSig`. `userId` is a positive numeric string such as `"10001"`; the SDK preserves it as a string for cross-platform compatibility but the IM service indexes it as an integer. `apiDomain` must be an HTTPS origin without an API path. It is the host application's API root for `/v1/im/*` requests. `imDomain` must be a complete WSS URL and include `/ws`; `cosDomain` must be the HTTPS root for COS/CDN media objects. Android Debug can set `allowInsecureLocalhost: true` only for `localhost`、`127.0.0.1` or emulator host `10.0.2.2`, enabling a local Docker `http`/`ws` stack. The default remains `false`, and non-local endpoints never bypass HTTPS/WSS validation.
+`PteIMBaseConfig` is configured once at App startup with `apiDomain`, `imDomain`, and `cosDomain`. `PteIMLoginConfig` is supplied only when logging in with `sdkAppId`, `userId`, and `userSig`. `userId` is a positive numeric string such as `"10001"`; the SDK preserves it as a string for cross-platform compatibility but the IM service indexes it as an integer. `apiDomain` must be an HTTPS origin without an API path. It is the host application's API root for `/v1/im/*` requests. `imDomain` must be a complete WSS URL and include `/ws`; `cosDomain` must be the HTTPS root for COS/CDN media objects. Debug can set `allowInsecureLocalhost: true` only for `localhost` or loopback IPs (`127.0.0.1` / `::1`), enabling a local Docker `http`/`ws` stack. The default remains `false`, and non-local endpoints never bypass HTTPS/WSS validation. Android uses `10.0.2.2` through its own configuration; iOS Simulator uses `127.0.0.1`.
 
 The `userSig` is short-lived. When the SDK emits `userSigWillExpire` or `userSigExpired`, the host obtains a replacement from its own backend and calls `renewUserSig`. The configured real-time service authenticates the initial WSS upgrade, therefore all SDKs append URL-encoded `sdkAppID`, `identifier` (the numeric `userId`), and `userSig` to `imDomain`; WSS protects these short-lived query values in transit. Do not log complete WebSocket URLs or reuse UserSig values.
+
+### AMap configuration for H5 and WeChat Mini Program
+
+Pass the optional `map` field during bootstrap to make location-message navigation use the host's AMap integration. `h5Key` must be restricted to the H5 origin; `wechatMiniProgramKey` must be restricted to the Mini Program AppID. These are client identifiers, not server Web Service keys or other secrets.
+
+```ts
+const im = createPteIMSDK({
+  apiDomain, imDomain, cosDomain,
+  map: { provider: 'amap', h5Key: 'restricted-h5-key', wechatMiniProgramKey: 'restricted-mp-key' },
+})
+```
+
+`PteIMUIChat` emits `location-navigation` with `location`, the configured map object, and a generated AMap URI. H5 hosts can configure `web.sdkConfigs.maps.amap` in `manifest.json`; H5 AMap additionally requires its `securityJsCode` or `serviceHost` when enabled in the AMap console. WeChat Mini Program does not expose an AMap field in `manifest.json`: its built-in `map` and `uni.openLocation` use Tencent Maps. A WeChat host that requires AMap must add AMap's WeChat Mini Program plugin/SDK and pass a `PteIMUIMapNavigationHandler`, returning `true` after that SDK opens. If no handler consumes the action, UIKit falls back to `uni.openLocation`.
 
 ## Wire envelope
 

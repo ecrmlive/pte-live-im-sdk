@@ -15,6 +15,8 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   private var stopRequested = false
   private var socketConnected = false
   private var listeners: [ObjectIdentifier: PteIMListener] = [:]
+  /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
+  public lazy var commerce = PteIMCommerce(sdk: self)
 
   internal init(config: PteIMSessionConfig, persistentCache: Bool = true) throws {
     self.config = config
@@ -186,6 +188,30 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   }
   @discardableResult public func sendFile(conversationId: String, media: PteIMMedia) -> PteIMMessage {
     send(PteIMMessage(conversationId: conversationId, type: .file, media: media))
+  }
+  /**
+   Requeues a failed or pending message with its original client ID. This is
+   intentionally transport-only: callers that need server-side recall/delete
+   must use their business API, because those permissions are server owned.
+   Media uploads that failed before an object URL was obtained should be
+   retried from the original local file via `uploadAndSend…` instead.
+   */
+  @discardableResult public func retry(message: PteIMMessage) -> PteIMMessage {
+    guard let conversationId = UInt64(message.conversationId), conversationId > 0 else {
+      notify { $0.onError?(PteIMError.invalidConversationId) }
+      return message
+    }
+    var queued = message
+    queued.senderId = config.userId
+    queued.state = .pending
+    do {
+      try store.enqueue(queued)
+      notify { $0.onMessageStateChanged?(queued.clientMsgId, .pending) }
+      flushOutbox()
+    } catch {
+      notify { $0.onError?(error) }
+    }
+    return queued
   }
   @discardableResult public func uploadAndSendImage(conversationId: String, fileURL: URL, progress: @escaping @Sendable (Int64, Int64) -> Void = { _, _ in }) -> PteIMMessage {
     uploadAndSendMedia(conversationId: conversationId, fileURL: fileURL, type: .image, progress: progress)
@@ -453,6 +479,20 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     guard let http = httpResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
     let clear = try PteIMResponseCipher.decrypt(data, with: responseKey)
     guard let envelope = try JSONSerialization.jsonObject(with: clear) as? [String: Any],
+          (envelope["code"] as? NSNumber)?.intValue == 1, let value = envelope["data"] else { throw PteIMError.invalidResponse }
+    return value
+  }
+
+  internal func commercePayload(path: String, body: [String: Any]) async throws -> Any {
+    guard let commerceDomain = config.commerceDomain else { throw PteIMError.commerceNotConfigured }
+    var request = URLRequest(url: commerceDomain.appendingPathComponent(path))
+    request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("Bearer \(config.userSig)", forHTTPHeaderField: "Authorization")
+    request.setValue(String(config.sdkAppId), forHTTPHeaderField: "X-Pte-Sdk-AppId"); request.setValue(config.userId, forHTTPHeaderField: "X-Pte-User-Id")
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, httpResponse) = try await session.data(for: request)
+    guard let http = httpResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode,
+          let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
           (envelope["code"] as? NSNumber)?.intValue == 1, let value = envelope["data"] else { throw PteIMError.invalidResponse }
     return value
   }

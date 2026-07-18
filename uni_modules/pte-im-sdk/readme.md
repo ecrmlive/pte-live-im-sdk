@@ -2,6 +2,12 @@
 
 This is a uni-app x UTS API plugin for H5/Web and WeChat mini-program targets.
 
+Install from private npm:
+`npm i @ptedom/pte-im-uniappx-core@^1.0.0`
+
+For local demo or source mode, keep folders:
+`uni_modules/pte-im-sdk`
+
 Android, iOS, and HarmonyOS use their own independent native SDK packages in this repository. This plugin uses its UTS cross-platform WSS implementation and has no native AAR, XCFramework, or Harmony HAR dependency.
 
 Configure connectivity once using `PteIMBaseConfig`, then authenticate with `PteIMLoginConfig`.

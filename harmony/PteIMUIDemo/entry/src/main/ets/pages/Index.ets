@@ -1,10 +1,44 @@
-import { PteIMBusinessContent, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessageType, PteIMSDK, PteIMSDKBootstrap, PteIMSendState, PteIMThemeMode, PteIMLanguage, PteIMVoice } from '@ptelive/pte-im-sdk'
-import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChat, PteIMUIChatNavigationHandler, PteIMUIConversationHandler, PteIMUIConversationList, PteIMUINavigationBar, PteIMUINavigationHandler } from '@ptelive/pte-im-uikit'
+import { PteIMBusinessContent, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessageType, PteIMSDK, PteIMSDKBootstrap, PteIMSendState, PteIMThemeMode, PteIMLanguage, PteIMVoice, PteIMResponseCrypto } from '@ptelive/pte-im-sdk'
+import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChat, PteIMUIChatNavigationHandler, PteIMUIConversationHandler, PteIMUIConversationList, PteIMUINavigationBackHandler, PteIMUINavigationBar, PteIMUINavigationHandler, PteIMUINotice, PteIMUINoticeDismissHandler, PteIMUINoticeHandler, PteIMUINoticeKind, PteIMUINoticePosition } from '@ptelive/pte-im-uikit'
 import { preferences } from '@kit.ArkData'
 import { common } from '@kit.AbilityKit'
 import { i18n } from '@kit.LocalizationKit'
 import { drawing } from '@kit.ArkGraphics2D'
 import { window } from '@kit.ArkUI'
+import http from '@ohos.net.http'
+
+class DemoAuthRequest {
+  mobile: string = ''
+  nickname: string = ''
+  password: string = ''
+  captcha_id: string = ''
+  captcha_code: string = ''
+  device_id: string = ''
+  platform: string = ''
+}
+
+class DemoFriendRequest {
+  target_user_id: string = ''
+}
+
+class DemoCaptchaResponse {
+  captcha_id: string = ''
+  image_data: string = ''
+}
+
+class DemoAuthResponse {
+  sdk_app_id: string = ''
+  user_id: string = ''
+  user_sig: string = ''
+}
+
+class DemoUserResponse {
+  user_id: string = ''
+  nickname: string = ''
+  mobile: string = ''
+}
+
+interface DemoHttpRequestOptions extends http.HttpRequestOptions {}
 
 /** App-level domains are configured in EntryAbility. Login receives only business-issued IM credentials. */
 @Entry
@@ -13,15 +47,28 @@ struct Index {
   @State sdkAppId: string = '432532532'
   @State userId: string = '123654'
   @State userSig: string = ''
+  @State mobile: string = ''
+  @State nickname: string = ''
+  @State password: string = ''
+  @State captchaID: string = ''
+  @State captchaCode: string = ''
+  @State captchaImage: string = ''
+  @State demoUserNames: string[] = []
+  @State demoUserIDs: string[] = []
   @State conversationId: string = ''
   @State chatTitle: string = ''
   @State chatIsGroup: boolean = false
   @State previewConversationId: string = 'preview-work'
   @State previewChatTitle: string = 'Work Team 工作群'
   @State previewChatIsGroup: boolean = true
-  @State status: string = ''
-  // Token-free visual preview is the initial Demo route. Business login still enters real IM conversations.
-  @State screen: string = 'chatPreview'
+  @State noticeVisible: boolean = false
+  @State noticeMessage: string = ''
+  @State noticeKind: PteIMUINoticeKind = PteIMUINoticeKind.SUCCESS
+  @State noticePosition: PteIMUINoticePosition = PteIMUINoticePosition.BOTTOM
+  @State noticeDuration: number = 2600
+  @State noticeRevision: number = 0
+  // 真实演示默认从业务注册/登录进入，再使用服务端签发的 UserSig 连接 IM。
+  @State screen: string = 'login'
   @State showingStartup: boolean = true
   @State darkMode: boolean = this.isAutomaticDarkMode()
   @State english: boolean = this.isSystemEnglish()
@@ -35,6 +82,15 @@ struct Index {
   private appearanceStore: preferences.Preferences | null = null
   private appearanceTimer: number = -1
   private startupTimer: number = -1
+  private noticeHandler: PteIMUINoticeHandler = new PteIMUINoticeHandler((notice) => {
+    this.noticeMessage = notice.message
+    this.noticeKind = notice.kind
+    this.noticePosition = notice.position
+    this.noticeDuration = notice.duration
+    this.noticeVisible = true
+    this.noticeRevision++
+  })
+  private noticeDismissHandler: PteIMUINoticeDismissHandler = new PteIMUINoticeDismissHandler(() => this.noticeVisible = false)
   private actionHandler: PteIMUIActionHandler = new PteIMUIActionHandler((action: PteIMUIAction) => this.handleAction(action))
   private conversationHandler: PteIMUIConversationHandler = new PteIMUIConversationHandler((conversationId: string, title: string) => {
     if (this.client === null) {
@@ -49,18 +105,34 @@ struct Index {
   })
   private chatNavigationHandler: PteIMUIChatNavigationHandler = new PteIMUIChatNavigationHandler(() => this.setScreen(this.chatReturnScreen))
   private navigationHandler: PteIMUINavigationHandler = new PteIMUINavigationHandler((language: PteIMLanguage) => this.applyLanguage(language), (theme: PteIMThemeMode) => this.applyTheme(theme))
+  private registrationBackHandler: PteIMUINavigationBackHandler = new PteIMUINavigationBackHandler(() => {
+    this.noticeVisible = false
+    this.setScreen('login')
+  })
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
       Column() {
         if (this.screen === 'chatPreview') this.chatPreview()
-        else if (this.screen === 'login') this.businessLogin()
+        else if (this.screen === 'login') this.businessLogin(false)
+        else if (this.screen === 'register') this.businessLogin(true)
+        else if (this.screen === 'demoUsers') this.demoUsersPage()
         else if (this.screen === 'chat' && this.client !== null) PteIMUIChat({ client: this.client as PteIMSDK, conversationId: this.conversationId, title: this.chatTitle, groupConversation: this.chatIsGroup, actionHandler: this.actionHandler, navigationHandler: this.chatNavigationHandler })
         else if (this.screen === 'settings') this.settingsPage()
         else if (this.screen === 'languageSettings') this.languageSettingsPage()
         else this.businessShell()
       }.width('100%').height('100%').backgroundColor(this.darkMode ? '#0E0F1F' : '#F4F4FF')
       if (this.showingStartup) this.startupPage()
+      if (this.noticeVisible) PteIMUINotice({
+        visible: this.noticeVisible,
+        message: this.noticeMessage,
+        kind: this.noticeKind,
+        noticePosition: this.noticePosition,
+        dark: this.darkMode,
+        duration: this.noticeDuration,
+        revision: this.noticeRevision,
+        dismissHandler: this.noticeDismissHandler,
+      })
     }.width('100%').height('100%').backgroundColor(this.darkMode ? '#0E111C' : '#F4F4FF').expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
   }
 
@@ -69,6 +141,7 @@ struct Index {
     this.applySystemBarStyle()
     this.startupTimer = setTimeout(() => { this.showingStartup = false; this.applySystemBarStyle() }, 900)
     this.appearanceTimer = setInterval(() => this.refreshAutomaticAppearance(), 60 * 1000)
+    void this.loadCaptcha()
   }
 
   aboutToDisappear(): void {
@@ -101,7 +174,8 @@ struct Index {
     })
   }
 
-  @Builder businessLogin() {
+  /** Registration is rendered as an independent page, never a login-field toggle. */
+  @Builder businessLogin(register: boolean) {
     Stack({ alignContent: Alignment.Top }) {
       Scroll() {
         Column() {
@@ -113,24 +187,33 @@ struct Index {
             Text('Secure · Private · Efficient').fontSize(14).fontColor(this.darkMode ? '#A69FC7' : '#656982').margin({ top: 12 })
           }.width('100%').alignItems(HorizontalAlign.Center).margin({ top: 7, bottom: this.darkMode ? 19 : 31 })
           Column() {
-            this.formLabel('SDKAppID')
-            this.formInput('Enter AppID', this.darkMode ? '' : this.sdkAppId, (value: string) => this.sdkAppId = value, InputType.Number)
-            this.formLabel('User ID')
-            this.formInput('Enter user ID', this.darkMode ? '' : this.userId, (value: string) => this.userId = value, InputType.Number)
-            this.formLabel('User Signature (UserSig)')
-            TextInput({ placeholder: 'Paste your UserSig token', text: this.userSig }).type(InputType.Password).height(82).fontSize(15).fontColor(this.darkMode ? '#F0EDFF' : '#17182B').placeholderColor(this.darkMode ? '#A69FC7' : '#656982').backgroundColor(this.darkMode ? '#201E4C' : '#EDE9FF').borderRadius(18).padding(10).onChange((value: string) => this.userSig = value).width('100%')
-            Blank().height(63)
+            this.formLabel(this.english ? 'Mobile' : '手机号')
+            this.formInput(this.english ? 'Mobile (+86 or international)' : '手机号（中国或国际）', this.mobile, (value: string) => this.mobile = value, InputType.PhoneNumber)
+            if (register) {
+              this.formLabel(this.english ? 'Nickname' : '昵称')
+              this.formInput(this.english ? 'Nickname (required to register)' : '昵称（注册必填）', this.nickname, (value: string) => this.nickname = value, InputType.Normal)
+            }
+            this.formLabel(this.english ? 'Password' : '密码')
+            TextInput({ placeholder: this.english ? 'Password' : '密码', text: this.password }).type(InputType.Password).height(46).fontSize(15).fontColor(this.darkMode ? '#F0EDFF' : '#17182B').placeholderColor(this.darkMode ? '#A69FC7' : '#656982').backgroundColor(this.darkMode ? '#201E4C' : '#EDE9FF').borderRadius(18).padding({ left: 16, right: 16 }).onChange((value: string) => this.password = value).width('100%')
+            this.formLabel(this.english ? 'Verification code' : '图形验证码')
+            Row({ space: 10 }) {
+              Column() { this.formInput(this.english ? 'Code' : '验证码', this.captchaCode, (value: string) => this.captchaCode = value, InputType.Number) }.layoutWeight(1)
+              if (this.captchaImage.length > 0) Image(this.captchaImage).width(132).height(46).objectFit(ImageFit.Contain).onClick(() => { void this.loadCaptcha() })
+              else Button(this.english ? 'Load' : '加载').width(132).height(46).onClick(() => { void this.loadCaptcha() })
+            }.width('100%')
+            Blank().height(24)
             Button() {
               Row({ space: 10 }) {
                 Image($r('app.media.PteIMUILoginIcon')).width(18).height(18)
-                Text(this.english ? 'Login' : '登录').fontSize(16).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                Text(register ? (this.english ? 'Register' : '注册') : (this.english ? 'Login' : '登录')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(Color.White)
               }.justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center).width('100%')
-            }.height(50).width('100%').borderRadius(18).linearGradient({ direction: GradientDirection.Right, colors: this.darkMode ? [['#8F57F5', 0.0], ['#8B4FEC', 1.0]] : [['#8B36F0', 0.0], ['#7130E0', 1.0]] }).onClick(() => this.connect())
-            if (this.status.length > 0) Text(this.status).fontSize(12).fontColor('#BE3746').textAlign(TextAlign.Center).width('100%').margin({ top: 12 })
+            }.height(50).width('100%').borderRadius(18).linearGradient({ direction: GradientDirection.Right, colors: this.darkMode ? [['#8F57F5', 0.0], ['#8B4FEC', 1.0]] : [['#8B36F0', 0.0], ['#7130E0', 1.0]] }).onClick(() => { void this.authenticate(register) })
+            if (!register) Button(this.english ? 'Create demo account' : '注册演示账号').type(ButtonType.Normal).height(46).width('100%').fontColor(this.darkMode ? '#F0EDFF' : '#7130E0').backgroundColor(Color.Transparent).onClick(() => this.setScreen('register'))
           }.width('100%').padding({ left: 24, top: 26, right: 24, bottom: 24 }).backgroundColor(this.darkMode ? '#11102A' : Color.White).border({ width: 1, color: this.darkMode ? '#39345A' : Color.Transparent, radius: 24 }).shadow({ radius: this.darkMode ? 0 : 18, color: '#22000000', offsetX: 0, offsetY: 8 })
         }.width('100%').alignItems(HorizontalAlign.Center).padding({ left: 30, right: 30, top: 12, bottom: 28 })
       }.width('100%').height('100%').scrollBar(BarState.Off).backgroundColor(this.darkMode ? '#0D0D21' : '#F4F4FF')
-      PteIMUINavigationBar({ language: this.selectedLanguage(), dark: this.darkMode, handler: this.navigationHandler })
+      if (register) PteIMUINavigationBar({ title: '', language: this.selectedLanguage(), dark: this.darkMode, showBack: true, handler: this.navigationHandler, backHandler: this.registrationBackHandler })
+      else PteIMUINavigationBar({ language: this.selectedLanguage(), dark: this.darkMode, handler: this.navigationHandler })
     }.width('100%').height('100%')
   }
 
@@ -148,7 +231,7 @@ struct Index {
       this.contactsHeader()
       // Primary contact actions stay available while the address book scrolls underneath.
       Row({ space: 12 }) {
-        this.contactQuickAction($r('app.media.PteIMUIContactAddFriend'), this.english ? 'Add Friend' : '添加好友', () => this.showAddFriendNotice())
+        this.contactQuickAction($r('app.media.PteIMUIContactAddFriend'), this.english ? 'Add Friend' : '添加好友', () => { void this.openDemoUsers() })
         this.contactQuickAction($r('app.media.PteIMUIContactNewGroup'), this.english ? 'New Group' : '发起群聊', () => this.openDemoGroupChat())
       }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 }).backgroundColor(this.pageColor())
       Scroll() {
@@ -168,6 +251,19 @@ struct Index {
         }.width('100%').padding({ bottom: 16 })
       }.layoutWeight(1).scrollBar(BarState.Off).backgroundColor(this.pageColor())
     }.width('100%').layoutWeight(1).backgroundColor(this.pageColor())
+  }
+
+  @Builder demoUsersPage() {
+    Column() {
+      Row() { Text('‹').fontSize(28).fontColor(this.textColor()).onClick(() => this.setScreen('contacts')); Text(this.english ? 'Registered demo users' : '已注册演示用户').fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.textColor()).margin({ left: 12 }); Blank().layoutWeight(1) }.height(52).width('100%').padding({ left: 20, right: 20 }).backgroundColor(this.headerColor())
+      Scroll() {
+        Column({ space: 10 }) {
+          ForEach(this.demoUserNames, (name: string, index: number) => {
+            Button(`${name}`).type(ButtonType.Normal).width('100%').height(50).fontColor(this.textColor()).backgroundColor(this.panelColor()).borderRadius(14).onClick(() => { void this.addDemoFriend(index) })
+          }, (name: string, index: number) => `${name}-${index}`)
+        }.padding(20).width('100%')
+      }.layoutWeight(1).width('100%')
+    }.width('100%').height('100%').backgroundColor(this.pageColor())
   }
 
   @Builder profile() {
@@ -449,7 +545,89 @@ struct Index {
       this.client?.stop()
       this.client = await bootstrap.login(new PteIMLoginConfig(Number(this.sdkAppId), this.userId, this.userSig))
       this.setScreen('conversations')
-    } catch (error) { this.status = `登录错误：${error instanceof Error ? error.message : String(error)}` }
+    } catch (error) { this.showError(`登录错误：${error instanceof Error ? error.message : String(error)}`) }
+  }
+
+  private async loadCaptcha(): Promise<void> {
+    try {
+      const data = await this.demoRequest('/api/v1/demo/auth/captcha', new DemoAuthRequest()) as DemoCaptchaResponse
+      if (data.captcha_id.length === 0 || data.image_data.length === 0) throw new Error('验证码响应不完整')
+      this.captchaID = data.captcha_id
+      this.captchaImage = data.image_data
+    } catch (error) { this.showError(`验证码加载失败：${this.errorMessage(error)}`) }
+  }
+
+  private async authenticate(register: boolean): Promise<void> {
+    try {
+      if (this.mobile.length === 0 || this.password.length < 8 || this.captchaID.length === 0 || this.captchaCode.length === 0 || (register && this.nickname.length < 2)) throw new Error('请输入手机号、密码、图形验证码；注册还需昵称')
+      const data = new DemoAuthRequest(); data.mobile = this.mobile; data.password = this.password; data.captcha_id = this.captchaID; data.captcha_code = this.captchaCode; data.device_id = 'harmony-demo'; data.platform = 'harmony'
+      if (register) data.nickname = this.nickname
+      const result = await this.demoRequest(register ? '/api/v1/demo/auth/register' : '/api/v1/demo/auth/login', data) as DemoAuthResponse
+      this.sdkAppId = result.sdk_app_id; this.userId = result.user_id; this.userSig = result.user_sig
+      await this.connect()
+    } catch (error) { this.showError(`登录错误：${this.errorMessage(error)}`); this.captchaCode = ''; void this.loadCaptcha() }
+  }
+
+  private async openDemoUsers(): Promise<void> {
+    try {
+      const rows = await this.demoRequest('/api/v1/demo/users', new DemoAuthRequest(), true) as DemoUserResponse[]
+      this.demoUserNames = rows.map((row: DemoUserResponse) => `${row.nickname} · ${row.mobile}`)
+      this.demoUserIDs = rows.map((row: DemoUserResponse) => row.user_id)
+      this.setScreen('demoUsers')
+    } catch (error) { this.showError(`加载演示用户失败：${this.errorMessage(error)}`) }
+  }
+
+  private async addDemoFriend(index: number): Promise<void> {
+    try { const data = new DemoFriendRequest(); data.target_user_id = this.demoUserIDs[index]; await this.demoRequest('/api/v1/demo/friends/add', data, true); this.showSuccess(this.english ? 'Friend added. You can now start a chat.' : '已添加好友，现在可以单聊。') }
+    catch (error) { this.showError(`添加好友失败：${this.errorMessage(error)}`) }
+  }
+
+  private async demoRequest(path: string, body: Object, authenticated: boolean = false): Promise<Object> {
+    const key = await PteIMResponseCrypto.createRequestKey()
+    const primaryDomain = AppStorage.get<string>('pteDemoApiDomain') ?? 'https://api-im.ptelive.com'
+    const domains = primaryDomain === 'http://10.0.2.2:11504'
+      ? [primaryDomain]
+      : [primaryDomain, 'http://10.0.2.2:11504']
+    let lastError: Error = new Error('网络请求失败')
+    for (let index = 0; index < domains.length; index++) {
+      const request = http.createHttp()
+      try {
+        const header: Record<string, string> = { 'Content-Type': 'application/json', 'X-Pte-Response-Public-Key': key.publicKey }
+        if (authenticated) { header['Authorization'] = `Bearer ${this.userSig}`; header['X-Pte-Sdk-AppId'] = this.sdkAppId; header['X-Pte-User-Id'] = this.userId }
+        const options: DemoHttpRequestOptions = { method: http.RequestMethod.POST, header: header, extraData: JSON.stringify(body), connectTimeout: 10000, readTimeout: 10000 }
+        const response = await request.request(`${domains[index].replace(/\/$/, '')}${path}`, options)
+        if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`服务响应 HTTP ${response.responseCode}`)
+        const responseText = response.result.toString()
+        if (responseText.length === 0) throw new Error('服务返回空响应')
+        const root = await PteIMResponseCrypto.decryptResponse(JSON.parse(responseText) as Record<string, Object>, key)
+        if (Number(root['code'] ?? 0) !== 1) throw new Error(String(root['msg'] ?? '请求失败'))
+        const data = root['data']
+        if (data === undefined) throw new Error('响应数据为空')
+        return data
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(this.errorMessage(error))
+      } finally { request.destroy() }
+    }
+    throw lastError
+  }
+
+  private errorMessage(error: Object): string {
+    if (error instanceof Error) return error.message
+    const value = error as Record<string, Object>
+    const message = value['message'] ?? value['msg'] ?? value['code']
+    if (message !== undefined) return String(message)
+    try {
+      const serialized = JSON.stringify(error)
+      return serialized === '{}' ? '网络请求失败，请检查调试服务是否已启动' : serialized
+    } catch (_ignored) {
+      return '网络请求失败，请检查调试服务是否已启动'
+    }
+  }
+  private showSuccess(message: string, position: PteIMUINoticePosition = PteIMUINoticePosition.BOTTOM): void {
+    this.noticeHandler.success(message, position)
+  }
+  private showError(message: string, position: PteIMUINoticePosition = PteIMUINoticePosition.BOTTOM): void {
+    this.noticeHandler.error(message, position)
   }
   private applyLanguage(language: PteIMLanguage): void {
     if (language === PteIMLanguage.SYSTEM) {
@@ -525,7 +703,7 @@ struct Index {
   /** Keep the system status bar flush with the visible 44vp top navigation bar. */
   private topNavigationColor(): string {
     if (this.showingStartup) return '#0B061B'
-    if (this.screen === 'login') return this.darkMode ? '#0E111C' : '#F4F4FF'
+    if (this.screen === 'login' || this.screen === 'register') return this.darkMode ? '#0E111C' : '#F4F4FF'
     if (this.screen === 'chat' || this.screen === 'chatPreview') return this.darkMode ? '#141827' : '#FFFFFF'
     return this.headerColor()
   }
@@ -578,12 +756,12 @@ struct Index {
   private async openSingleChat(peerUserId: number, title: string): Promise<void> {
     const client = this.client
     if (client === null) { this.openPreviewChat(`preview-user-${peerUserId}`, title, 'contacts'); return }
-    try { const conversation = await client.openSingleConversation(peerUserId); this.chatReturnScreen = 'contacts'; this.conversationId = conversation.id.toString(); this.chatTitle = title; this.chatIsGroup = false; this.setScreen('chat') } catch { this.status = '无法打开会话：请检查好友关系和 IM 服务状态' }
+    try { const conversation = await client.openSingleConversation(peerUserId); this.chatReturnScreen = 'contacts'; this.conversationId = conversation.id.toString(); this.chatTitle = title; this.chatIsGroup = false; this.setScreen('chat') } catch { this.showError('无法打开会话：请检查好友关系和 IM 服务状态') }
   }
   private async openDemoGroupChat(title: string = 'Work Team 工作群'): Promise<void> {
     const client = this.client
     if (client === null) { this.openPreviewChat(`preview-group-${title}`, title, 'contacts'); return }
-    try { const conversation = await client.createGroupConversation(title, [10002, 10003]); this.chatReturnScreen = 'contacts'; this.conversationId = conversation.id.toString(); this.chatTitle = title; this.chatIsGroup = true; this.setScreen('chat') } catch { this.status = '无法创建群组：请检查业务成员关系和 IM 服务状态' }
+    try { const conversation = await client.createGroupConversation(title, [10002, 10003]); this.chatReturnScreen = 'contacts'; this.conversationId = conversation.id.toString(); this.chatTitle = title; this.chatIsGroup = true; this.setScreen('chat') } catch { this.showError('无法创建群组：请检查业务成员关系和 IM 服务状态') }
   }
   private openPreviewChat(conversationId: string, title: string, returnScreen: string): void {
     this.previewConversationId = conversationId
