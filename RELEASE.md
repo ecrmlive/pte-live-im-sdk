@@ -25,7 +25,7 @@
    - `PUBLISH_GH_PACKAGES`：`true` 或 `false`  
    - `true` 时会在主发布完成后同步到 `npm.pkg.github.com`
 
-> 当前版本固定为 `@ptedom/pte-im-uniappx-core` 与 `@ptedom/pte-im-uniappx-uikit`，scope 为 `ptedom`。
+> 当前版本固定为 `@pte-live/pte-im-uniappx-core` 与 `@pte-live/pte-im-uniappx-uikit`，scope 为 `pte-live`。
 
 ## 发布步骤
 
@@ -48,8 +48,8 @@ git push origin v1.0.0
 4. 发布完成后验证（示例）：
 
 ```bash
-npm view @ptedom/pte-im-uniappx-core version --registry <私有源>
-npm view @ptedom/pte-im-uniappx-uikit version --registry <私有源>
+npm view @pte-live/pte-im-uniappx-core version --registry <私有源>
+npm view @pte-live/pte-im-uniappx-uikit version --registry <私有源>
 ```
 
 ## 注意事项

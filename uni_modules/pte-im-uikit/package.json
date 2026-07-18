@@ -1,5 +1,5 @@
 {
-  "name": "@ptedom/pte-im-uniappx-uikit",
+  "name": "@pte-live/pte-im-uniappx-uikit",
   "id": "pte-im-uikit",
   "displayName": "PteIMUIKit UTS",
   "version": "1.0.0",
@@ -7,10 +7,10 @@
   "main": "utssdk/PteIMUIKitFacade.uts",
   "license": "Apache-2.0",
   "author": "pte-live",
-  "homepage": "https://github.com/ptedom/pte-live-im-sdk",
+  "homepage": "https://github.com/pte-live/pte-live-im-sdk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ptedom/pte-live-im-sdk.git",
+    "url": "https://github.com/pte-live/pte-live-im-sdk.git",
     "directory": "uni_modules/pte-im-uikit"
   },
   "keywords": [
@@ -22,10 +22,10 @@
     "pte-live"
   ],
   "dependencies": {
-    "@ptedom/pte-im-uniappx-core": "^1.0.0"
+    "@pte-live/pte-im-uniappx-core": "^1.0.0"
   },
   "peerDependencies": {
-    "@ptedom/pte-im-uniappx-core": "^1.0.0"
+    "@pte-live/pte-im-uniappx-core": "^1.0.0"
   },
   "files": [
     "components",

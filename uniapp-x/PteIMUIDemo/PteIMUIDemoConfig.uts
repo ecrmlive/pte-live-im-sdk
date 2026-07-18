@@ -2,9 +2,9 @@ import { PteIMBaseConfig } from '../../uni_modules/pte-im-sdk/utssdk/interface.u
 
 /** Application-scoped connection configuration. It is intentionally separate from business login. */
 export const PteIMUIDemoBaseConfig: PteIMBaseConfig = {
-  apiDomain: 'https://api-im.ptelive.com',
-  imDomain: 'wss://wss.ptelive.com/ws',
-  cosDomain: 'https://cos.ptelive.com',
+  apiDomain: 'https://api-im.pte-live.invalid',
+  imDomain: 'wss://wss.pte-live.invalid/ws',
+  cosDomain: 'https://cos.pte-live.invalid',
   // Fill platform-restricted AMap keys in the host app; never use a server Web Service key here.
   map: { provider: 'amap', h5Key: '', wechatMiniProgramKey: '' },
   themeMode: 'system',

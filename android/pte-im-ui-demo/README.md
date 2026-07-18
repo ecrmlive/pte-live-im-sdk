@@ -9,7 +9,7 @@ cd android
 
 `PteIMUIDemoApplication` configures `apiDomain`、`imDomain`、`cosDomain` once at application startup. The deployable Demo flow registers with a mobile number, unique nickname, password and one-time graphical captcha; it logs in with mobile number, password and captcha. `api-im` validates China and E.164 international mobile numbers, binds the user to the default IM app, and returns the numeric SDK App ID, user ID and short-lived UserSig. The app never persists the password, captcha or UserSig.
 
-应用从 `PteIMUIDemoSplashActivity` 进入：Android 12+ 使用深紫色系统启动窗口与 Android 专用应用图标，随后显示设计稿提供的「私域直播 / PRIVATELIVE」全屏启动图，再进入业务登录。启动图与 Android 图标仅打包在 `PteIMUIDemo`，不会进入 `PteIMSDK` 或 `PteIMUIKit`。
+应用从 `PteIMUIDemoSplashActivity` 进入：Android 12+ 使用深紫色系统启动窗口与 Android 专用应用图标，随后显示设计稿提供的「PTE Live IM / PTE LIVE」全屏启动图，再进入业务登录。启动图与 Android 图标仅打包在 `PteIMUIDemo`，不会进入 `PteIMSDK` 或 `PteIMUIKit`。
 
 Debug builds connect to the local `pte-live-im` Docker stack through `10.0.2.2` after the user registers or logs in through the complete Demo business-login form. In Contacts, “Add Friend” opens the registered Demo-user list and creates a real bidirectional IM friendship. Release builds retain HTTPS/WSS validation and use the same mobile/password/captcha flow.
 

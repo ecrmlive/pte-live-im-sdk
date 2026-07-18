@@ -410,7 +410,7 @@ struct Index {
           }.width('100%').backgroundColor(this.panelColor()).borderRadius(16).border({ width: 1, color: this.lineColor() })
           Column({ space: 4 }) {
             Text('PrivateChat v1.0.0').fontSize(11).fontColor(this.mutedColor())
-            Text('© 2026 PrivateChat Inc.').fontSize(10).fontColor(this.mutedColor())
+            Text('© 2026 PTE Live').fontSize(10).fontColor(this.mutedColor())
           }.width('100%').alignItems(HorizontalAlign.Center).margin({ top: 8, bottom: 22 })
         }.width('100%').padding({ left: 20, right: 20, top: 18 })
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off)
@@ -584,7 +584,7 @@ struct Index {
 
   private async demoRequest(path: string, body: Object, authenticated: boolean = false): Promise<Object> {
     const key = await PteIMResponseCrypto.createRequestKey()
-    const primaryDomain = AppStorage.get<string>('pteDemoApiDomain') ?? 'https://api-im.ptelive.com'
+    const primaryDomain = AppStorage.get<string>('pteDemoApiDomain') ?? 'https://api-im.pte-live.invalid'
     const domains = primaryDomain === 'http://10.0.2.2:11504'
       ? [primaryDomain]
       : [primaryDomain, 'http://10.0.2.2:11504']

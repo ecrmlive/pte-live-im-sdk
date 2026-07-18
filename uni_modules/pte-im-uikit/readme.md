@@ -3,10 +3,10 @@
 `pte-im-uikit` is the independent uni-app x UI module. It supplies reusable UTS/uvue conversation, contact and chat views for H5/Web and WeChat mini-program applications. It depends on the sibling `pte-im-sdk` Core module, but does not contain Core transport, E2EE, local persistence, or credentials.
 
 Install from private npm:
-`npm i @ptedom/pte-im-uniappx-uikit@^1.0.0`
+`npm i @pte-live/pte-im-uniappx-uikit@^1.0.0`
 
 Core package required:
-`npm i @ptedom/pte-im-uniappx-core@^1.0.0`
+`npm i @pte-live/pte-im-uniappx-core@^1.0.0`
 
 Copy both modules to the target application's `uni_modules` directory:
 

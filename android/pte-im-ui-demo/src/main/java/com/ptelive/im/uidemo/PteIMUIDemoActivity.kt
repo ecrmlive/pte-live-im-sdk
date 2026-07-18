@@ -561,7 +561,7 @@ class PteIMUIDemoActivity : Activity() {
           settingsRow(R.drawable.pte_im_ui_demo_me_help, if (english) "Help & Feedback" else "帮助与反馈", if (english) "Help center" else "帮助中心", arrowView()),
           settingsRow(R.drawable.pte_im_ui_demo_settings_about, if (english) "About" else "关于", "v2.4.1", arrowView()),
         )), lp(-1, -2, left = 20, right = 20, top = 16))
-        addView(label(if (english) "PrivateChat v1.0.0\n© 2026 PrivateChat Inc." else "私域 v1.0.0\n© 2026 私域直播").apply { gravity = Gravity.CENTER; textSize = 11f; setTextColor(if (darkMode) darkMuted else muted); setLineSpacing(dp(4).toFloat(), 1f) }, lp(-1, -2, top = 28, bottom = 24))
+        addView(label(if (english) "PrivateChat v1.0.0\n© 2026 PTE Live" else "PTE Live IM v1.0.0\n© 2026 PTE Live IM").apply { gravity = Gravity.CENTER; textSize = 11f; setTextColor(if (darkMode) darkMuted else muted); setLineSpacing(dp(4).toFloat(), 1f) }, lp(-1, -2, top = 28, bottom = 24))
       }, ViewGroup.LayoutParams(-1, -2))
     }
   }

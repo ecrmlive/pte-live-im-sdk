@@ -1,6 +1,6 @@
 **Comparison Target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-会话列表.png`, `亮色-联系人.png`, `亮色-聊天.png`, `亮色-聊天-功能.png`, and `亮色-聊天-表情.png`.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-会话列表.png`, `亮色-联系人.png`, `亮色-聊天.png`, `亮色-聊天-功能.png`, and `亮色-聊天-表情.png`.
 - Rendered implementation: `/private/tmp/pte-im-ios-conversations-v3.png`, `/private/tmp/pte-im-ios-contacts-v4.png`, `/private/tmp/pte-im-ios-chat-rich-v3.png`, `/private/tmp/pte-im-ios-chat-rich-dark-v1.png`, `/private/tmp/pte-im-ios-chat-media-v3.png`, `/private/tmp/pte-im-ios-chat-more-v7.png`, `/private/tmp/pte-im-ios-chat-more-dark-v2.png`, and `/private/tmp/pte-im-ios-chat-emoji-v3.png`.
 - Full-view comparison evidence: `/private/tmp/pte-im-ios-chat-rich-comparison-v3.png`, `/private/tmp/pte-im-ios-chat-rich-dark-comparison-v1.png`, `/private/tmp/pte-im-ios-chat-media-comparison-v2.png`, and `/private/tmp/pte-im-ios-chat-more-comparison-v3.png` combine supplied source states with iPhone 15 Pro simulator captures.
 - Viewport/state: iPhone 15 Pro, iOS 17.0, light skin, Chinese UI; deterministic offline conversation/contact/chat fixtures.
@@ -52,7 +52,7 @@
 
 **Comparison Target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-会话列表.png` and `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗黑-会话列表.png`.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-会话列表.png` and `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗黑-会话列表.png`.
 - Implementation evidence: `/private/tmp/pte-im-android-conversations-light.png` and `/private/tmp/pte-im-android-conversations-dark-zh.png` from the Android API 36 emulator.
 - Full-view comparison evidence: `/private/tmp/pte-im-android-conversations-light-comparison.png` and `/private/tmp/pte-im-android-conversations-dark-zh-comparison.png`; supplied source is left, width-normalized Android capture is right.
 - Viewport/state: Android API 36 emulator, six real server-backed Demo conversations; light/English and dark/Simplified Chinese states.
@@ -188,7 +188,7 @@ final result: passed
 
 **Comparison target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天.png`; voice artwork: `/Users/daniel/Downloads/私域直播SDK设计图/切图/暗色-语言-对方-图标.png`, `暗色-语言-对方-波纹图片.png`, `暗色-语言-发送方-图标.png`, `暗色-语言-发送方-波纹图片.png`, plus their supplied light counterparts.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天.png`; voice artwork: `/Users/daniel/Downloads/PTE Live IMSDK设计图/切图/暗色-语言-对方-图标.png`, `暗色-语言-对方-波纹图片.png`, `暗色-语言-发送方-图标.png`, `暗色-语言-发送方-波纹图片.png`, plus their supplied light counterparts.
 - Runtime evidence: `/private/tmp/pte_voice_cells_fixed_2.png` and `/private/tmp/pte_cells_fixed.png` from `emulator-5554`.
 - Full-view comparison evidence: `/private/tmp/pte_voice_cells_comparison.png` and `/private/tmp/pte_business_cells_comparison.png`; the supplied source is left and Android runtime is right.
 - Viewport/state: Android 1080×2400 emulator, dark skin, automatic Debug fixture.
@@ -216,7 +216,7 @@ final result: passed
 
 **Comparison target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天-语音.png`, `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天-说话中.png`, `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天-表情.png`, and `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天-功能.png`.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天-语音.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天-说话中.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天-表情.png`, and `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天-功能.png`.
 - Runtime evidence: `/private/tmp/pte_input_auto_chat.png`, `/private/tmp/pte_input_emoji_panel_verified.png`, `/private/tmp/pte_input_emoji_selected.png`, `/private/tmp/pte_input_emoji_sent.png`, `/private/tmp/pte_input_more_panel_verified.png`, and `/private/tmp/pte_input_image_picker.png`, captured from `emulator-5554`.
 - Full-view comparison evidence: `/private/tmp/pte_input_more_comparison.png`; source design is on the left and Android runtime is on the right. Both captures use the dark chat state; Android system chrome and the different message fixture are excluded from the component judgement.
 - Focused-region comparison: the composer, 4×2 attachment grid and 44 dp emoji cells are fully visible in the same comparison image; no additional crop is required.
@@ -254,7 +254,7 @@ final result: passed
 
 **Comparison target**
 
-- Source visual truth: the supplied light/dark chat function and emoji states under `/Users/daniel/Downloads/私域直播SDK设计图/亮色`, `/Users/daniel/Downloads/私域直播SDK设计图/暗黑`, and `/Users/daniel/Downloads/私域直播SDK设计图/切图`.
+- Source visual truth: the supplied light/dark chat function and emoji states under `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑`, and `/Users/daniel/Downloads/PTE Live IMSDK设计图/切图`.
 - Runtime evidence: `/private/tmp/pte-im-android-chat-auto-final.png`, `/private/tmp/pte-im-android-chat-more-panel.png`, `/private/tmp/pte-im-android-chat-emoji-panel-final.png`, `/private/tmp/pte-im-android-input-voice-final.png`, and `/private/tmp/pte-im-android-input-keyboard-inset-final.png` from `emulator-5554`.
 
 **Verified refinement**
@@ -273,7 +273,7 @@ final result: passed
 
 **Comparison target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天.png`, `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-功能.png`, `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-表情.png`, and their `暗黑/暗色-聊天*.png` equivalents.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-功能.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-表情.png`, and their `暗黑/暗色-聊天*.png` equivalents.
 - Runtime evidence: `/private/tmp/pte-im-android-chat-auto-clean-final.png`, `/private/tmp/pte-im-android-chat-keyboard-send.png`, `/private/tmp/pte-im-android-chat-keyboard-send-dispatched-final.png`, `/private/tmp/pte-im-android-chat-auto-dark-final.png`, `/private/tmp/pte-im-android-chat-longpress-light-final.png`, and `/private/tmp/pte-im-android-chat-longpress-dark-final.png` from `emulator-5554`.
 
 **Verified interaction and visual surfaces**
@@ -317,7 +317,7 @@ final result: passed
 
 **Comparison Target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-我的.png`, `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗黑-我的.png`, `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-设置.png`, and `/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗黑-设置.png`.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-我的.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗黑-我的.png`, `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-设置.png`, and `/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗黑-设置.png`.
 - Implementation evidence: `/private/tmp/pte-im-android-me-light-final-v2.png`, `/private/tmp/pte-im-android-me-dark-final-v2.png`, `/private/tmp/pte-im-android-settings-light.png`, `/private/tmp/pte-im-android-settings-dark.png`, and `/private/tmp/pte-im-android-language-light-v2.png`, captured from the Android API 36 emulator.
 - Full-view comparison evidence: `/private/tmp/pte-im-android-me-light-comparison-v2.png`, `/private/tmp/pte-im-android-me-dark-comparison-v2.png`, `/private/tmp/pte-im-android-settings-light-comparison-v2.png`, and `/private/tmp/pte-im-android-settings-dark-comparison-v2.png`; the supplied source is on the left and the Android runtime capture is on the right.
 - Viewport/state: Android API 36 emulator, valid retained Demo login, Simplified Chinese, both light and dark skins.
@@ -353,8 +353,8 @@ final result: passed
 
 **Comparison Target**
 
-- Source visual truth: `/Users/daniel/Downloads/私域直播SDK设计图/启动图/启动图.png`.
-- Source Android icon: `/Users/daniel/Downloads/私域直播Logo/android/playstore-icon.png`.
+- Source visual truth: `/Users/daniel/Downloads/PTE Live IMSDK设计图/启动图/启动图.png`.
+- Source Android icon: `/Users/daniel/Downloads/PTE Live IMLogo/android/playstore-icon.png`.
 - Runtime evidence: `/private/tmp/pte-im-android-splash-art.png`, captured from the Android API 36 emulator after the system start surface hands off to the Demo startup activity.
 - Side-by-side evidence: `/private/tmp/pte-im-android-splash-comparison.png`; supplied source is left and the real emulator capture is right.
 
@@ -375,7 +375,7 @@ final result: passed
 
 **Comparison Target**
 
-- Source: `/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-会话列表.png`.
+- Source: `/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-会话列表.png`.
 - Runtime: `/private/tmp/pte-im-android-conversation-badge-v3.png` from `emulator-5554`.
 - Side-by-side comparison: `/private/tmp/pte-im-android-conversation-badge-comparison-v3.png` (source left, Android runtime right).
 

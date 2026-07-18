@@ -16,8 +16,8 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 
 | 项目 | 说明 |
 | --- | --- |
-| [Pte IM 服务端](https://github.com/ptedom/pte-live-im) | IM 服务、部署、服务端接口实现 |
-| [本仓库](https://github.com/ptedom/pte-live-im-sdk) | 四端 PteIMSDK / PteIMUIKit / PteIMUIDemo |
+| [Pte IM 服务端](https://github.com/pte-live/pte-live-im) | IM 服务、部署、服务端接口实现 |
+| [本仓库](https://github.com/pte-live/pte-live-im-sdk) | 四端 PteIMSDK / PteIMUIKit / PteIMUIDemo |
 | 项目官网 | 由业务项目配置；客户端不硬编码官网或密钥 |
 
 ## 发布
@@ -91,7 +91,7 @@ im.commerce.sendGift(
 }
 ```
 
-红包、礼物和订单的业务状态由 `pte-live-im-commerce` 保存，直播、语聊、社交房间事件经可靠 Outbox 投递到 IM。UIKit 仍只负责展示和点击回调，不承担扣币、支付或订单状态。完整端到端契约见 [Commerce SDK 契约](https://github.com/ptedom/pte-live-im-commerce/blob/main/docs/SDK_CONTRACT.md)。
+红包、礼物和订单的业务状态由 `pte-live-im-commerce` 保存，直播、语聊、社交房间事件经可靠 Outbox 投递到 IM。UIKit 仍只负责展示和点击回调，不承担扣币、支付或订单状态。完整端到端契约见 [Commerce SDK 契约](https://github.com/pte-live/pte-live-im-commerce/blob/main/docs/SDK_CONTRACT.md)。
 
 ### iOS
 

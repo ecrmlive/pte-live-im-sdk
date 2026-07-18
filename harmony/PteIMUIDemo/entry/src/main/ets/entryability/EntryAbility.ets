@@ -8,9 +8,9 @@ export default class EntryAbility extends UIAbility {
     // The SDK itself requires a secure public API origin. Demo authentication
     // can fall back to the local development service when the public endpoint
     // is unavailable (handled by Index.ets).
-    const apiDomain = 'https://api-im.ptelive.com'
+    const apiDomain = 'https://api-im.pte-live.invalid'
     const base = new PteIMBaseConfig(
-      apiDomain, 'wss://wss.ptelive.com/ws', 'https://cos.ptelive.com',
+      apiDomain, 'wss://wss.pte-live.invalid/ws', 'https://cos.pte-live.invalid',
       PteIMThemeMode.SYSTEM, PteIMLanguage.EN_US,
     )
     base.validate()

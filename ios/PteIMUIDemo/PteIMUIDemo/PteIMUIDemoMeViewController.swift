@@ -341,7 +341,7 @@ private final class PteIMUIDemoSettingsViewController: PteIMUIDemoProfileBaseCon
       makeDisclosureRow(icon: icon("PteIMUIMeFeedback", fallback: "questionmark.circle"), title: copy("帮助与反馈", "Help & Feedback"), subtitle: copy("帮助中心", "Help center"), action: #selector(showNotice)),
       makeDisclosureRow(icon: icon("PteIMUISettingsAbout", fallback: "star"), title: copy("关于", "About"), subtitle: "v2.4.1", action: #selector(showNotice))
     ]))
-    let footer = UILabel(); footer.text = copy("PrivateChat v1.0.0\n© 2026 PrivateChat Inc.", "PrivateChat v1.0.0\n© 2026 PrivateChat Inc."); footer.numberOfLines = 2; footer.textAlignment = .center; footer.font = .systemFont(ofSize: 11); footer.textColor = palette.secondary; content.addArrangedSubview(footer)
+    let footer = UILabel(); footer.text = copy("PrivateChat v1.0.0\n© 2026 PTE Live", "PrivateChat v1.0.0\n© 2026 PTE Live"); footer.numberOfLines = 2; footer.textAlignment = .center; footer.font = .systemFont(ofSize: 11); footer.textColor = palette.secondary; content.addArrangedSubview(footer)
   }
   private func section(title: String, rows: [UIView]) -> UIView {
     let panel = makeGroup(rows); let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 10, weight: .bold); label.textColor = palette.secondary

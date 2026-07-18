@@ -55,9 +55,9 @@ final class PteIMUIDemoApplicationSession {
     let cosDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugCOSDomain") as? String ?? "http://127.0.0.1:9000"
     let allowInsecureLocalhost = true
     #else
-    let apiDomain = "https://api-im.ptelive.com"
-    let imDomain = "wss://wss.ptelive.com/ws"
-    let cosDomain = "https://cos.ptelive.com"
+    let apiDomain = "https://api-im.pte-live.invalid"
+    let imDomain = "wss://wss.pte-live.invalid/ws"
+    let cosDomain = "https://cos.pte-live.invalid"
     let allowInsecureLocalhost = false
     #endif
     baseConfig = try PteIMBaseConfig(

@@ -2,8 +2,8 @@
 
 ## 对比基准
 
-- 设计稿：`/Users/daniel/Downloads/私域直播SDK设计图/启动图/启动图.png`
-- 背景稿：`/Users/daniel/Downloads/私域直播SDK设计图/启动图/启动图背景.png`
+- 设计稿：`/Users/daniel/Downloads/PTE Live IMSDK设计图/启动图/启动图.png`
+- 背景稿：`/Users/daniel/Downloads/PTE Live IMSDK设计图/启动图/启动图背景.png`
 - 运行截图：`/private/tmp/pte-startup-final-v2.jpeg`（OpenHarmony 折叠屏展开态）
 - 对比图：`/private/tmp/pte-harmony-startup-comparison.png`（左侧设计稿，右侧启动页中心画板）
 
@@ -52,7 +52,7 @@ final result: passed
 
 ## 最新输入面板复验（2026-07-17）
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-输入.png`、`亮色-聊天-功能.png`、`亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-输入.png`、`亮色-聊天-功能.png`、`亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`。
 - 实现证据：`/private/tmp/pte-chat-controls-ready.jpeg`、`/private/tmp/pte-chat-controls-more.jpeg`、`/private/tmp/pte-chat-emoji-final-v2.jpeg`、`/private/tmp/pte-chat-voice-normal.jpeg`、`/private/tmp/pte-chat-voice-talking.jpeg`；展开态视口 `2210 × 2416`，冷启动自动进入英文会话预览。
 - 完整及聚焦比较：在同一次视觉比较中，已同时打开上述目标稿和实机输入栏、表情网格/底栏、语音普通/按住态、功能网格截图。
 - 迭代：表情半图裁切已由固定 `44 × 44` 无默认内边距单元修复；缺失的底部回撤/发送已补齐；错误垃圾桶图标已替换为设计稿回撤输入切图。
@@ -79,7 +79,7 @@ final result: passed
 
 ## 聊天输入与功能区最终尺寸复验（2026-07-17）
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-功能.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-功能.png`。
 - 实现证据：`/private/tmp/pte-chat-controls-ready.jpeg`、`/private/tmp/pte-chat-controls-more.jpeg`；OpenHarmony 折叠屏展开态 `2210 × 2416`，冷启动自动进入聊天预览。
 - 完整与聚焦比较：本轮在同一次视觉复核中并排查看输入稿/聊天实机图与功能稿/功能面板实机图；底部操作区贴合视口。
 - [P2，已修复] 操作图标视觉面积偏小。文字、语音切换、表情和功能入口统一为 `40 × 40` 点击位，去除默认内边距，图标撑满按钮。
@@ -92,7 +92,7 @@ final result: passed
 
 ## 聊天输入与功能区最终尺寸复验（2026-07-17）
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-功能.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-功能.png`。
 - 实现证据：`/private/tmp/pte-chat-controls-ready.jpeg`、`/private/tmp/pte-chat-controls-more.jpeg`；OpenHarmony 折叠屏展开态 `2210 × 2416`，冷启动自动进入聊天预览。
 - 完整与聚焦比较：本轮在同一次视觉复核中并排查看输入稿/聊天实机图与功能稿/功能面板实机图；底部操作区贴合视口。
 - [P2，已修复] 操作图标视觉面积偏小。文字、语音切换、表情和功能入口统一为 `40 × 40` 点击位，去除默认内边距，图标撑满按钮。
@@ -105,7 +105,7 @@ final result: passed
 
 ## 聊天输入与功能区尺寸复验（2026-07-17）
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-功能.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-输入.png`、`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-功能.png`。
 - 实现证据：`/private/tmp/pte-chat-controls-ready.jpeg`、`/private/tmp/pte-chat-controls-more.jpeg`；OpenHarmony 折叠屏展开态 `2210 × 2416`，冷启动后自动进入聊天预览。
 - 完整与聚焦比较：在同一次视觉复核中，分别并排查看输入稿/聊天实机图和功能稿/功能面板实机图；展开态的消息区保留响应式留白，底部操作区贴合视口。
 - [P2，已修复] 操作图标视觉面积偏小。文字、语音切换、表情和功能入口的点击位统一为 `40 × 40`，图标无默认内边距并铺满其按钮范围。
@@ -121,7 +121,7 @@ final result: passed
 
 **对比基准与证据**
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`、`亮色-聊天-功能.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`、`亮色-聊天-功能.png`。
 - 实现截图：`/private/tmp/pte-chat-emoji-final-v2.jpeg`、`/private/tmp/pte-chat-voice-normal.jpeg`、`/private/tmp/pte-chat-voice-talking.jpeg`、`/private/tmp/pte-chat-more-40.jpeg`。
 - 视口：OpenHarmony 折叠屏展开态 `2210 × 2416`；目标稿为窄屏，已按相同亮色、英文和同一会话状态进行内容区比较，展开态只增加横向自适应留白。
 - 完整视图与输入栏、表情网格、表情底栏、语音普通/按住状态、功能网格已在同一次比较输入中打开并复核。
@@ -150,7 +150,7 @@ final result: passed
 
 **对比对象与状态**
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天.png`，亮色群聊的富消息、语音与输入栏状态。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天.png`，亮色群聊的富消息、语音与输入栏状态。
 - 实现截图：`/private/tmp/pte-chat-rich-bottom.jpeg`、`/private/tmp/pte-chat-rich-final.jpeg`、`/private/tmp/pte-chat-voice-final.jpeg`。
 - 视口：OpenHarmony 折叠屏展开态 `2210 × 2416`；因设计稿为手机窄屏，比较以同一会话顺序与富消息区域为准，展开态使用自适应留白。
 - 完整视图与订单/文件、语音/视频、红包/礼物三个聚焦区域已在同一次视觉比较中打开。
@@ -181,7 +181,7 @@ final result: passed
 **对比基准**
 
 - 标注图：`/var/folders/yn/8j0yr4gs2pzg508td1q42cv00000gn/T/codex-clipboard-684b6746-398c-4eb6-9498-fd143aa8f8da.png`。
-- 切图：`/Users/daniel/Downloads/私域直播SDK设计图/切图/暗色-聊天-定位图标@2x.png`、`暗色-聊天-视频播放图标@2x.png`、`暗色-语言-对方-波纹图片@2x.png`、`暗色-语言-自己-波纹图片@2x.png`、聊天输入模式切换图标。
+- 切图：`/Users/daniel/Downloads/PTE Live IMSDK设计图/切图/暗色-聊天-定位图标@2x.png`、`暗色-聊天-视频播放图标@2x.png`、`暗色-语言-对方-波纹图片@2x.png`、`暗色-语言-自己-波纹图片@2x.png`、聊天输入模式切换图标。
 - 模拟器证据：`/private/tmp/pte-chat-assets.jpeg`、`/private/tmp/pte-chat-longpress-assets.jpeg`、`/private/tmp/pte-chat-voice-mode.jpeg`。
 
 **验收结果**
@@ -196,8 +196,8 @@ final result: passed
 
 **对比基准**
 
-- 亮色目标：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天.png`、`亮色-聊天-输入.png`、`亮色-聊天-功能.png`、`亮色-聊天-表情.png`。
-- 暗色目标：`/Users/daniel/Downloads/私域直播SDK设计图/暗黑/暗色-聊天.png`、`暗色-聊天-输入.png`、`暗色-聊天-功能.png`、`暗色-聊天-表情.png`。
+- 亮色目标：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天.png`、`亮色-聊天-输入.png`、`亮色-聊天-功能.png`、`亮色-聊天-表情.png`。
+- 暗色目标：`/Users/daniel/Downloads/PTE Live IMSDK设计图/暗黑/暗色-聊天.png`、`暗色-聊天-输入.png`、`暗色-聊天-功能.png`、`暗色-聊天-表情.png`。
 - 模拟器证据：`/private/tmp/pte-chat-preview.jpeg`、`/private/tmp/pte-chat-longpress.jpeg`、`/private/tmp/pte-chat-send-ready.jpeg`、`/private/tmp/pte-chat-sent.jpeg`。
 
 **验收结果**
@@ -212,7 +212,7 @@ final result: passed
 
 ## 最新输入面板复验（2026-07-17）
 
-- 视觉真值：`/Users/daniel/Downloads/私域直播SDK设计图/亮色/亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`、`亮色-聊天-功能.png`。
+- 视觉真值：`/Users/daniel/Downloads/PTE Live IMSDK设计图/亮色/亮色-聊天-表情.png`、`亮色-聊天-语音.png`、`亮色-聊天-说话中.png`、`亮色-聊天-功能.png`。
 - 实现证据：`/private/tmp/pte-chat-emoji-final-v2.jpeg`、`/private/tmp/pte-chat-voice-normal.jpeg`、`/private/tmp/pte-chat-voice-talking.jpeg`、`/private/tmp/pte-chat-more-40.jpeg`；展开态视口 `2210 × 2416`，英文会话预览。
 - 完整及聚焦比较：在同一次视觉比较中，已同时打开上述目标稿和实机输入栏、表情网格/底栏、语音普通/按住态、功能网格截图。
 - 迭代：表情半图裁切已由固定 `44 × 44` 无默认内边距单元修复；缺失的底部回撤/发送已补齐；错误垃圾桶图标已替换为设计稿回撤输入切图。

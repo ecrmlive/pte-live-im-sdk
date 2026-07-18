@@ -1,5 +1,5 @@
 {
-  "name": "@ptedom/pte-im-uniappx-core",
+  "name": "@pte-live/pte-im-uniappx-core",
   "id": "pte-im-sdk",
   "displayName": "PteIMSDK UTS",
   "version": "1.0.0",
@@ -7,10 +7,10 @@
   "main": "utssdk/cross-platform.uts",
   "license": "Apache-2.0",
   "author": "pte-live",
-  "homepage": "https://github.com/ptedom/pte-live-im-sdk",
+  "homepage": "https://github.com/pte-live/pte-live-im-sdk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ptedom/pte-live-im-sdk.git",
+    "url": "https://github.com/pte-live/pte-live-im-sdk.git",
     "directory": "uni_modules/pte-im-sdk"
   },
   "keywords": [

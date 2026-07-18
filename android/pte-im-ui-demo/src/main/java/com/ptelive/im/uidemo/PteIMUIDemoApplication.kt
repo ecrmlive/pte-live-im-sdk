@@ -21,9 +21,9 @@ class PteIMUIDemoApplication : Application() {
      * the automatic test-account path.
      */
     val baseConfig = PteIMBaseConfig(
-      apiDomain = if (BuildConfig.DEBUG) "http://10.0.2.2:11504" else "https://api-im.ptelive.com",
-      imDomain = if (BuildConfig.DEBUG) "ws://10.0.2.2:11510/ws" else "wss://wss.ptelive.com/ws",
-      cosDomain = if (BuildConfig.DEBUG) "http://10.0.2.2:9000" else "https://cos.ptelive.com",
+      apiDomain = if (BuildConfig.DEBUG) "http://10.0.2.2:11504" else "https://api-im.pte-live.invalid",
+      imDomain = if (BuildConfig.DEBUG) "ws://10.0.2.2:11510/ws" else "wss://wss.pte-live.invalid/ws",
+      cosDomain = if (BuildConfig.DEBUG) "http://10.0.2.2:9000" else "https://cos.pte-live.invalid",
       themeMode = PteIMThemeMode.SYSTEM,
       language = PteIMLanguage.SYSTEM,
       allowInsecureLocalhost = BuildConfig.DEBUG,

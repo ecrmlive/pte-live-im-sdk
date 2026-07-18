@@ -3,7 +3,7 @@
 This is a uni-app x UTS API plugin for H5/Web and WeChat mini-program targets.
 
 Install from private npm:
-`npm i @ptedom/pte-im-uniappx-core@^1.0.0`
+`npm i @pte-live/pte-im-uniappx-core@^1.0.0`
 
 For local demo or source mode, keep folders:
 `uni_modules/pte-im-sdk`
