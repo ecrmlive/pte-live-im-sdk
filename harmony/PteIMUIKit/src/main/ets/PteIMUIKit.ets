@@ -1,4 +1,4 @@
-import { PteIMLanguage, PteIMLocation, PteIMMessage, PteIMSDK, PteIMThemeMode } from '@ptelive/pte-im-sdk'
+import { PteIMLanguage, PteIMLocation, PteIMMessage, PteIMSDK } from '@ptelive/pte-im-sdk'
 import { PteIMUITheme } from './PteIMUITheme'
 
 /** Host-owned operations requested by the built-in chat controls. */
@@ -131,20 +131,6 @@ export class PteIMUIChatNavigationHandler {
 
   back(): void { this.callback() }
   more(): void { this.moreCallback() }
-}
-
-/** Lets host apps persist appearance selections made from the conversation header. */
-export class PteIMUIAppearanceHandler {
-  private readonly themeCallback: (theme: PteIMThemeMode) => void
-  private readonly languageCallback: (language: PteIMLanguage) => void
-
-  constructor(themeCallback: (theme: PteIMThemeMode) => void = (_theme: PteIMThemeMode) => {}, languageCallback: (language: PteIMLanguage) => void = (_language: PteIMLanguage) => {}) {
-    this.themeCallback = themeCallback
-    this.languageCallback = languageCallback
-  }
-
-  selectTheme(theme: PteIMThemeMode): void { this.themeCallback(theme) }
-  selectLanguage(language: PteIMLanguage): void { this.languageCallback(language) }
 }
 
 /** Receives a ready-to-open C2C or group conversation from the contact surface. */

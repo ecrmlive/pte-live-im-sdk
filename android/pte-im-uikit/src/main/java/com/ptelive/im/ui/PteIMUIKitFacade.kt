@@ -370,7 +370,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     quotePreviewClose.setColorFilter(navigationIconColor())
     refreshQuotePreview()
     val english = client.currentAppearance().language.isEnglish(context)
-    inputBar.setCopy(if (english) "Say something..." else "说点什么...", if (english) "Send" else "发送", if (english) "Hold to Record" else "按住录音")
+    inputBar.setCopy(if (english) "Say something..." else "说点什么...", if (english) "Send" else "发送", if (english) "Hold to talk" else "按住说话")
     render()
   }
   protected fun resolvePalette(): PteIMUIThemePalette = when (client.currentAppearance().themeMode) { PteIMThemeMode.DARK -> uiTheme.dark; PteIMThemeMode.LIGHT -> uiTheme.light; PteIMThemeMode.SYSTEM -> if (systemTheme(context).name == "DARK") uiTheme.dark else uiTheme.light }
@@ -576,9 +576,9 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       addView(ImageView(context).apply { setImageResource(R.drawable.pte_im_ui_chat_message_video_duration); scaleType = ImageView.ScaleType.FIT_CENTER }, LayoutParams(dp(12), dp(12)))
       addView(TextView(context).apply {
         text = videoDurationLabel(message.media?.durationMs ?: 32_000)
-        textSize = 10f; includeFontPadding = false; gravity = Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE)
-      }, LayoutParams(-2, dp(12)).apply { marginStart = dp(4) })
-    }, FrameLayout.LayoutParams(-2, dp(24), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(8); bottomMargin = dp(8) })
+        textSize = 10f; includeFontPadding = false; gravity = Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); maxLines = 1
+      }, LayoutParams(dp(38), dp(24)).apply { marginStart = dp(4) })
+    }, FrameLayout.LayoutParams(dp(72), dp(24), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(8); bottomMargin = dp(8) })
     setOnClickListener { PteIMUIMediaPreviewActivity.open(context, message, PteIMUIMediaPreviewActivity.Kind.VIDEO, mediaPreviewActivityClass) }
   }
   /** Formats all video durations as 00:00 so short clips do not use a `32s` suffix. */
@@ -655,22 +655,19 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
       outgoing -> R.drawable.pte_im_ui_voice_outgoing_light_icon
       else -> R.drawable.pte_im_ui_voice_incoming_light_icon
     }
-    val waveform = when {
-      dark && outgoing -> R.drawable.pte_im_ui_voice_outgoing_dark_wave
-      dark -> R.drawable.pte_im_ui_voice_incoming_dark_wave
-      outgoing -> R.drawable.pte_im_ui_voice_outgoing_light_wave
-      else -> R.drawable.pte_im_ui_voice_incoming_light_wave
-    }
-    // Fixed voice-cell geometry: 173×44, 16dp leading icon, then a 78×20
-    // waveform with 12dp space on both sides.
+    // The supplied voice cuts are 22dp visual glyphs.  Both directions share
+    // the fixed 88×42 / 16dp-radius geometry from the cross-platform spec.
     gravity = Gravity.CENTER_VERTICAL
-    minimumWidth = dp(173)
-    minimumHeight = dp(44)
-    setPadding(dp(16), 0, dp(16), 0)
-    background = messageBackground(message, outgoing)
-    addView(ImageView(context).apply { setImageResource(icon); scaleType = ImageView.ScaleType.FIT_CENTER }, LayoutParams(dp(16), dp(16)))
-    addView(ImageView(context).apply { setImageResource(waveform); scaleType = ImageView.ScaleType.FIT_CENTER }, LayoutParams(dp(78), dp(20)).apply { marginStart = dp(12); marginEnd = dp(12) })
-    addView(TextView(context).apply { text = "${(message.voice?.durationMs ?: 0) / 1000}s"; textSize = 12f; gravity = Gravity.CENTER_VERTICAL; includeFontPadding = false; setTextColor(if (outgoing) Color.WHITE else palette.secondaryText) }, LayoutParams(-2, dp(20)))
+    minimumWidth = dp(88)
+    minimumHeight = dp(42)
+    setPadding(dp(10), 0, dp(10), 0)
+    background = rounded(if (outgoing) palette.outgoingEnd else palette.incomingBubble, Color.TRANSPARENT, 16)
+    val duration = TextView(context).apply { text = "${(message.voice?.durationMs ?: 0) / 1000}s"; textSize = 12f; gravity = Gravity.CENTER; includeFontPadding = false; setTextColor(if (outgoing) Color.WHITE else palette.secondaryText); maxLines = 1 }
+    val glyph = ImageView(context).apply { setImageResource(icon); scaleType = ImageView.ScaleType.FIT_CENTER }
+    if (outgoing) { addView(duration, LayoutParams(dp(34), dp(42))); addView(glyph, LayoutParams(dp(22), dp(22))) }
+    else { addView(glyph, LayoutParams(dp(22), dp(22))); addView(duration, LayoutParams(dp(34), dp(42))) }
+    isClickable = true
+    setOnClickListener { PteIMUIMediaPlayback.playVoice(context, "voice:${message.clientMsgId}", message.voice?.url.orEmpty()) }
   }
   protected open fun businessCard(message: PteIMMessage, resource: Int, accent: Int, action: String, heightDp: Int): View = FrameLayout(context).apply {
     minimumHeight = dp(heightDp)
@@ -680,10 +677,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     // column: this preserves both source card heights and prevents the lower
     // CTA from drifting or being clipped on either direction.
     addView(TextView(context).apply {
-      text = message.business?.title ?: "Alice"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false; setTextColor(accent); gravity = Gravity.CENTER
+      text = message.business?.title ?: if (client.currentAppearance().language.isEnglish(context)) "Message" else "消息"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false; setTextColor(accent); gravity = Gravity.CENTER
     }, FrameLayout.LayoutParams(-1, dp(20), Gravity.TOP).apply { topMargin = dp(88) })
     addView(TextView(context).apply {
-      text = message.business?.subtitle ?: "恭喜发财，大吉大利"; textSize = 11f; includeFontPadding = false; setTextColor(Color.WHITE); gravity = Gravity.CENTER; maxLines = 1
+      text = message.business?.subtitle ?: if (client.currentAppearance().language.isEnglish(context)) "Open to view details" else "点击查看详情"; textSize = 11f; includeFontPadding = false; setTextColor(Color.WHITE); gravity = Gravity.CENTER; maxLines = 1
     }, FrameLayout.LayoutParams(-1, dp(18), Gravity.TOP).apply { topMargin = dp(111) })
     addView(TextView(context).apply {
       text = action; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false; setTextColor(accent); gravity = Gravity.CENTER

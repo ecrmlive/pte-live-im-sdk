@@ -39,7 +39,18 @@ export type PteIMLoginConfig = {
   sdkAppId: number
   userId: string
   userSig: string
+  /** Unix seconds; enables Core to schedule an automatic refresh before expiry. */
+  userSigExpireAt?: number
+  /** Host-owned business-auth bridge. It must never expose a signing secret to the SDK. */
+  userSigProvider?: PteIMUserSigProvider
 }
+
+export type PteIMUserSigRefreshResult = { userSig: string, expireAt: number }
+/**
+ * Business authentication stays with the host application. Core invokes this
+ * provider before UserSig expiry, after a 401, and after a WSS expiry event.
+ */
+export type PteIMUserSigProvider = { refreshUserSig: () => Promise<PteIMUserSigRefreshResult> }
 
 export type PteIMAppearance = {
   themeMode: 'system' | 'light' | 'dark'
@@ -103,15 +114,19 @@ export type PteIMListener = {
   onConnectionChanged?: (connected: boolean) => void
   onMessage?: (message: PteIMIncomingMessage) => void
   onMessageStateChanged?: (event: PteIMMessageStateChange) => void
-  onUserSigWillExpire?: () => void
-  onUserSigExpired?: () => void
+  onUserSigRefreshFailed?: (message: string) => void
   onThemeModeChanged?: (themeMode: 'system' | 'light' | 'dark') => void
   onLanguageChanged?: (language: 'system' | 'zh-CN' | 'en-US') => void
   onError?: (message: string) => void
   onStateChanges?: (changes: PteIMStateChange[]) => void
 }
-export type PteIMConversation = { conversationId: string, lastMessage: PteIMIncomingMessage, updatedAt: number }
-export type PteIMRemoteConversation = { id: number, type: string, title: string, avatar?: string, lastMessageSeq: number, lastMessageSnapshot?: string, lastMessageAt: number, unreadCount: number }
+/**
+ * Locally rendered conversation row. The optional summary fields are populated
+ * when the server conversation cache is available, while message-only clients
+ * continue to work without it.
+ */
+export type PteIMConversation = { conversationId: string, lastMessage: PteIMIncomingMessage, updatedAt: number, title?: string, avatar?: string, unreadCount?: number }
+export type PteIMRemoteConversation = { id: number, type: string, title: string, singleKey?: string, avatar?: string, lastMessageSeq: number, lastMessageSnapshot?: string, lastMessageAt: number, unreadCount: number }
 export type PteIMConversationPage = { total: number, items: PteIMRemoteConversation[] }
 export type PteIMRemoteMessage = { messageId: number, conversationId: number, senderId: number, clientMsgId: string, type: string, content: string, payload?: string, seq: number, sentAt: number, recalledAt?: number }
 export type PteIMMessagePage = { items: PteIMRemoteMessage[] }
@@ -134,7 +149,8 @@ export interface PteIMSDKClient {
   commerce: PteIMCommerce
   start(): void
   stop(): void
-  renewUserSig(userSig: string): void
+  /** Refreshes through the host provider when the UserSig is near expiry or force=true. */
+  refreshUserSig(force?: boolean): Promise<boolean>
   updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance
   currentAppearance(): PteIMAppearance
   /** Read-only map configuration supplied during SDK bootstrap. */
@@ -184,8 +200,10 @@ export interface PteIMSDKClient {
   sendFile(conversationId: string, media: PteIMMedia): string
   uploadAndSendImage(conversationId: string, filePath: string): string
   uploadAndSendVideo(conversationId: string, filePath: string): string
-  uploadAndSendFile(conversationId: string, filePath: string): string
-  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform?: string): string
+  /** `fileName` and `mimeType` preserve H5 File metadata when its temporary URL has no extension. */
+  uploadAndSendFile(conversationId: string, filePath: string, fileName?: string, mimeType?: string): string
+  /** H5 may provide a blob filename and MIME type because its temporary URL has no extension. */
+  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform?: string, fileName?: string, mimeType?: string): string
   sendVoice(conversationId: string, voice: PteIMVoice): string
   sendLocation(conversationId: string, location: PteIMLocation): string
   sendGift(conversationId: string, content: PteIMBusinessContent): string
@@ -198,5 +216,3 @@ export interface PteIMSDKClient {
 export interface PteIMSDKBootstrap {
   login(config: PteIMLoginConfig): PteIMSDKClient
 }
-
-export function createPteIMSDK(config: PteIMBaseConfig): PteIMSDKBootstrap

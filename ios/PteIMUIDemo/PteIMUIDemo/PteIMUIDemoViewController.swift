@@ -22,13 +22,14 @@ final class PteIMUIDemoViewController: UIViewController {
   private let businessAPI: PteIMUIDemoBusinessAPI
   private var captchaID = ""
   private var businessCredential: PteIMUIDemoBusinessCredential?
+  private var credentialListener: PteIMListener?
   private var friends = [PteIMUIDemoFriend(name: "Alice", userId: "10002"), PteIMUIDemoFriend(name: "Bob", userId: "10003")]
   private var configurationStack: UIStackView?
   /** Login happens before an SDK user exists, so its preference is app-scoped. */
   private var loginThemeMode: PteIMThemeMode = .system
   private var loginLanguage: PteIMLanguage = .system
   private var loginThemeTransitionTimer: Timer?
-  private weak var loginNavigationBar: PteIMUINavigationBar?
+  private weak var loginNavigationBar: PteIMUIDemoAuthNavigationBar?
   private weak var loginNavigationChrome: UIView?
   private weak var loginCard: UIView?
   private weak var loginScrollView: UIScrollView?
@@ -60,8 +61,9 @@ final class PteIMUIDemoViewController: UIViewController {
     navigationController?.setNavigationBarHidden(true, animated: false)
     view.backgroundColor = UIColor(red: 0.957, green: 0.957, blue: 1.00, alpha: 1)
     conversationId.isEnabled = false
-    account.text = ""; password.text = ""
-    appId.text = ""
+    // iOS uses Demo account 01. The registration page reuses the same values.
+    account.text = "星河入梦"; password.text = "12345678"
+    appId.text = "13500000001"
     userId.text = ""
     userSig.text = ""
 
@@ -71,7 +73,7 @@ final class PteIMUIDemoViewController: UIViewController {
     view.addSubview(scrollView); scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
 
-    let header = PteIMUINavigationBar()
+    let header = PteIMUIDemoAuthNavigationBar()
     loginNavigationBar = header
     header.onLanguageSelected = { [weak self] language in
       guard let self else { return }
@@ -161,7 +163,7 @@ final class PteIMUIDemoViewController: UIViewController {
   private func applyLoginAppearance() {
     let resolvedThemeMode = resolvedLoginThemeMode()
     let resolvedLanguage = loginLanguage.resolved()
-    PteIMUINavigationBar.applySystemBars(to: self, themeMode: resolvedThemeMode)
+    PteIMUIDemoAuthNavigationBar.applySystemBars(to: self, themeMode: resolvedThemeMode)
     let dark = resolvedThemeMode == .dark
     let primary = dark ? UIColor(red: 0.94, green: 0.93, blue: 1.00, alpha: 1) : UIColor(red: 0.11, green: 0.11, blue: 0.20, alpha: 1)
     let secondary = dark ? UIColor(red: 0.65, green: 0.62, blue: 0.78, alpha: 1) : UIColor(red: 0.42, green: 0.43, blue: 0.53, alpha: 1)
@@ -266,8 +268,16 @@ final class PteIMUIDemoViewController: UIViewController {
     guard !mobile.isEmpty, secret.count >= 8, !code.isEmpty, !captchaID.isEmpty, (!register || nickname.count >= 2) else { showError("请完善登录信息", detail: register ? "请输入手机号、昵称、密码和验证码" : "请输入手机号、密码和验证码"); return }
     Task { @MainActor in do {
       let credential = try await (register ? businessAPI.register(mobile: mobile, nickname: nickname, password: secret, captchaID: captchaID, captchaCode: code) : businessAPI.login(mobile: mobile, password: secret, captchaID: captchaID, captchaCode: code))
-      guard let session = PteIMUIDemoBusinessSession(account: credential.nickname, userId: credential.userId, userSig: credential.userSig) else { throw PteIMError.invalidResponse }; businessCredential = credential
-      client = try applicationSession.bootstrap.login(PteIMLoginConfig(sdkAppId: credential.sdkAppId, userId: credential.userId, userSig: credential.userSig)); showBusinessHome(session: session)
+      guard let session = PteIMUIDemoBusinessSession(account: credential.nickname, userId: credential.userId, userSig: credential.userSig) else { throw PteIMError.invalidResponse }
+      businessCredential = credential
+      let sdk = try applicationSession.bootstrap.login(PteIMLoginConfig(
+        sdkAppId: credential.sdkAppId,
+        userId: credential.userId,
+        userSig: credential.userSig,
+        userSigExpireAt: credential.expiresAt,
+        userSigProvider: makeUserSigProvider()
+      ))
+      client = sdk; attachCredentialLifecycle(to: sdk); showBusinessHome(session: session)
     } catch { showError(register ? "注册失败" : "登录失败", detail: error.localizedDescription); userId.text = ""; refreshCaptcha() } }
   }
 
@@ -288,10 +298,42 @@ final class PteIMUIDemoViewController: UIViewController {
     PteIMUINotice.showError(title, detail: detail, position: position, in: self)
   }
 
+  private func attachCredentialLifecycle(to sdk: PteIMSDK) {
+    let listener = PteIMListener()
+    listener.onUserSigRefreshFailed = { [weak self, weak sdk] _ in
+      guard let self, let sdk else { return }
+      Task { @MainActor in self.endExpiredSession(sdk) }
+    }
+    credentialListener = listener
+    sdk.addListener(listener)
+  }
+
+  /** The SDK calls this Provider itself; the Demo only rotates its refresh session. */
+  private func makeUserSigProvider() -> PteIMUserSigProvider {
+    { [weak self] in
+      try await Task { @MainActor [weak self] () throws -> PteIMUserSigRefreshResult in
+        guard let self, let credential = self.businessCredential else { throw PteIMError.invalidCredentials }
+        let refreshed = try await self.businessAPI.refresh(credential: credential)
+        self.businessCredential = refreshed
+        return PteIMUserSigRefreshResult(userSig: refreshed.userSig, expireAt: refreshed.expiresAt)
+      }.value
+    }
+  }
+
+  private func endExpiredSession(_ sdk: PteIMSDK) {
+    guard client === sdk else { return }
+    if let credentialListener { sdk.removeListener(credentialListener) }
+    credentialListener = nil; sdk.stop(); client = nil; businessCredential = nil
+    navigationController?.popToRootViewController(animated: true)
+    showError("登录状态已失效", detail: "请重新登录")
+  }
+
   private func showBusinessHome(session: PteIMUIDemoBusinessSession) {
     guard let client else { return }
     let home = PteIMUIDemoHomeTabsController(client: client, onLogout: { [weak self] in
-      self?.client?.stop(); self?.client = nil; self?.navigationController?.popToRootViewController(animated: true)
+      guard let self else { return }
+      if let listener = self.credentialListener, let client = self.client { client.removeListener(listener) }
+      self.credentialListener = nil; self.client?.stop(); self.client = nil; self.businessCredential = nil; self.navigationController?.popToRootViewController(animated: true)
     }, onAddDemoFriend: { [weak self] presenter in self?.showDemoUserList(from: presenter) })
     navigationController?.pushViewController(home, animated: true)
   }

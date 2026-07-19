@@ -12,6 +12,7 @@ public enum PteIMUINoticePosition: Sendable {
 public enum PteIMUINoticeKind: Sendable {
   case success
   case error
+  case warning
   case info
 }
 
@@ -51,6 +52,16 @@ public enum PteIMUINoticeKind: Sendable {
     in viewController: UIViewController
   ) {
     show(title, detail: detail, kind: .info, position: position, duration: duration, in: viewController.view)
+  }
+
+  public static func showWarning(
+    _ title: String,
+    detail: String? = nil,
+    position: PteIMUINoticePosition = .bottom,
+    duration: TimeInterval = 3.0,
+    in viewController: UIViewController
+  ) {
+    show(title, detail: detail, kind: .warning, position: position, duration: duration, in: viewController.view)
   }
 
   public static func show(
@@ -113,6 +124,9 @@ public enum PteIMUINoticeKind: Sendable {
       symbolName = "checkmark"
     case .error:
       accent = UIColor(red: 0.96, green: 0.27, blue: 0.31, alpha: 1)
+      symbolName = "exclamationmark"
+    case .warning:
+      accent = UIColor(red: 0.90, green: 0.57, blue: 0.09, alpha: 1)
       symbolName = "exclamationmark"
     case .info:
       accent = UIColor(red: 0.47, green: 0.28, blue: 0.95, alpha: 1)

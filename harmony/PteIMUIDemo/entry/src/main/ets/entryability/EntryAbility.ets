@@ -5,12 +5,11 @@ import { PteIMBaseConfig, PteIMLanguage, PteIMSDK, PteIMThemeMode } from '@pteli
 export default class EntryAbility extends UIAbility {
   onCreate(_want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     AppStorage.setOrCreate('pteDemoContext', this.context)
-    // The SDK itself requires a secure public API origin. Demo authentication
-    // can fall back to the local development service when the public endpoint
-    // is unavailable (handled by Index.ets).
-    const apiDomain = 'https://api-im.pte-live.invalid'
+    // Debug uses the same localhost origin as the other demo clients.
+    // Production hosts replace these local development origins during their build.
+    const apiDomain = 'http://127.0.0.1:11504'
     const base = new PteIMBaseConfig(
-      apiDomain, 'wss://wss.pte-live.invalid/ws', 'https://cos.pte-live.invalid',
+      apiDomain, 'ws://127.0.0.1:11510/ws', apiDomain,
       PteIMThemeMode.SYSTEM, PteIMLanguage.EN_US,
     )
     base.validate()

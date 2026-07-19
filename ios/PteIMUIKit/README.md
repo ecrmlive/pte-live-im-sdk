@@ -11,7 +11,7 @@ let client = try PteIMSDK.configure(baseConfig).login(loginConfig)
 let chat = PteIMUIKit.makeChatViewController(
   client: client,
   conversationId: String(conversation.id), // Returned by openSingleConversation/createGroupConversation.
-  title: "Alice"
+  title: conversation.displayName
 )
 chat.onActionRequested = { action, controller in
   // Gift/red-packet/order and host-defined action tiles are business-owned.

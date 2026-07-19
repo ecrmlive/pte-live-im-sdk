@@ -1,18 +1,36 @@
 <template>
   <view v-if="visible" class="pte-im-ui-video-preview">
-    <button class="pte-im-ui-video-close" @click="$emit('close')"><image :src="dark ? '/uni_modules/pte-im-uikit/static/chat/close-dark.png' : '/uni_modules/pte-im-uikit/static/chat/close-light.png'" mode="aspectFit" /></button>
-    <video class="pte-im-ui-preview-video" :src="src" :poster="poster" controls="true" autoplay="true" />
+    <button class="pte-im-ui-video-close" @click="closePreview"><image v-if="dark" src="../../static/chat/close-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/close-light.png" mode="aspectFit" /></button>
+    <video id="pte-im-ui-video-preview-media" class="pte-im-ui-preview-video" :src="src" :poster="poster" :controls="false" :show-center-play-btn="false" :show-play-btn="false" :enable-progress-gesture="true" @loadedmetadata="loadedMetadata" @timeupdate="timeUpdated" @play="playing = true" @pause="playing = false" @ended="finished" @click="togglePlayback" />
+    <view class="pte-im-ui-video-preview-progress">
+      <text>{{ clock(currentTime) }}</text>
+      <slider class="pte-im-ui-video-preview-slider" :min="0" :max="sliderMaximum()" :value="currentTime" activeColor="#FFFFFF" backgroundColor="rgba(255,255,255,.28)" block-color="#FFFFFF" block-size="12" @change="seek" />
+      <text>{{ clock(totalDuration) }}</text>
+    </view>
   </view>
 </template>
 
 <script lang="uts">
+import { PteIMUIMediaPlayback } from '../../utssdk/PteIMUIMediaPlayback.uts'
 /** A standalone video preview surface. Hosts may wrap this component to extend player controls or analytics. */
 export default {
   props: { visible: { type: Boolean, default: false }, src: { type: String, default: '' }, poster: { type: String, default: '' }, dark: { type: Boolean, default: false } },
   emits: ['close'],
+  data() { return { currentTime: 0, totalDuration: 0, playing: false } },
+  methods: {
+    player(): any { return uni.createVideoContext('pte-im-ui-video-preview-media', this as any) },
+    closePreview() { this.playing = false; this.player().pause(); PteIMUIMediaPlayback.release('video-preview'); this.$emit('close') },
+    togglePlayback() { const player = this.player(); if (this.playing) player.pause(); else { PteIMUIMediaPlayback.activateVideo('video-preview', () => player.pause()); player.play() } },
+    loadedMetadata(event: any) { this.currentTime = 0; this.totalDuration = Math.max(0, Number(event.detail?.duration ?? 0)) },
+    timeUpdated(event: any) { this.currentTime = Math.max(0, Number(event.detail?.currentTime ?? 0)); const duration = Number(event.detail?.duration ?? 0); if (duration > 0) this.totalDuration = duration },
+    finished() { this.playing = false; this.currentTime = this.totalDuration; PteIMUIMediaPlayback.release('video-preview') },
+    seek(event: any) { const value = Math.max(0, Number(event.detail?.value ?? 0)); this.currentTime = value; this.player().seek(value) },
+    sliderMaximum(): number { return Math.max(0.1, this.totalDuration) },
+    clock(value: number): string { const seconds = Math.max(0, Math.floor(value)); return String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0') },
+  },
 }
 </script>
 
 <style>
-.pte-im-ui-video-preview { position: fixed; z-index: 1000; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; background-color: #000000; }.pte-im-ui-preview-video { width: 100%; }.pte-im-ui-video-close { position: absolute; z-index: 1; top: 14px; right: 14px; display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; margin: 0; padding: 8px; border: 0; border-radius: 22px; background-color: rgba(0, 0, 0, .36); }.pte-im-ui-video-close image { width: 28px; height: 28px; }
+.pte-im-ui-video-preview { position: fixed; z-index: 1000; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; background-color: #000000; }.pte-im-ui-video-preview button { border:0; outline:0; box-shadow:none; -webkit-appearance:none; appearance:none; }.pte-im-ui-video-preview button::after { border:0; }.pte-im-ui-preview-video { width: 100%; height: 100%; object-fit: contain; }.pte-im-ui-video-close { position: absolute; z-index: 2; top: 14px; left: 14px; display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; margin: 0; padding: 0; border: 0; border-radius: 22px; background-color: rgba(0, 0, 0, .36); }.pte-im-ui-video-close image { width: 44px; height: 44px; }.pte-im-ui-video-preview-progress { position: absolute; z-index: 2; right: 14px; bottom: 14px; left: 14px; display: flex; height: 44px; flex-direction: row; align-items: center; color: #FFFFFF; font-size: 13px; }.pte-im-ui-video-preview-progress text { width: 44px; text-align: center; }.pte-im-ui-video-preview-slider { flex: 1; margin: 0 4px; }
 </style>

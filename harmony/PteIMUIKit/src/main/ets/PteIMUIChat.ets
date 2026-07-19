@@ -4,6 +4,7 @@ import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
 import { PteIMUIInputBar, PteIMUIInputCallbacks } from './PteIMUIInputBar'
 import { PteIMUICustomAction, PteIMUIEmojiDataSource } from './PteIMUIKit'
 import { PteIMUIFilePreview, PteIMUIImagePreview, PteIMUIVideoPreview } from './PteIMUIMediaPreview'
+import { PteIMUIMediaPlayback } from './PteIMUIMediaPlayback'
 import photoAccessHelper from '@ohos.file.photoAccessHelper'
 import picker from '@ohos.file.picker'
 import cameraPicker from '@ohos.multimedia.cameraPicker'
@@ -24,8 +25,10 @@ class PteIMUIChatListener extends PteIMListener {
 
 export class PteIMUIVoiceRecordingHandler {
   private changed: (recording: boolean) => void
-  constructor(changed: (recording: boolean) => void) { this.changed = changed }
+  private cancelled: () => void
+  constructor(changed: (recording: boolean) => void, cancelled: () => void = () => {}) { this.changed = changed; this.cancelled = cancelled }
   onChanged(recording: boolean): void { this.changed(recording) }
+  onCancelled(): void { this.cancelled() }
 }
 
 /** Host-owned reaction data. UIKit only renders it and never persists it in Core. */
@@ -95,9 +98,9 @@ export struct PteIMUIChat {
   @Prop mediaPreviewHandler: PteIMUIMediaPreviewHandler = new PteIMUIMediaPreviewHandler()
   @Prop presentationTransformer: PteIMUIMessagePresentationTransformer = new PteIMUIMessagePresentationTransformer()
   @Prop theme: PteIMUITheme = new PteIMUITheme()
-  /** A local, token-free preview lets a host inspect an IM screen before business login is wired. */
+  /** A host may inject local preview messages before a live IM session is available. */
   @Prop previewMessages: PteIMMessage[] = []
-  @Prop previewUserId: string = 'demo-me'
+  @Prop previewUserId: string = 'preview-user'
   @Prop previewDark: boolean = false
   @Prop previewLanguage: PteIMLanguage = PteIMLanguage.ZH_CN
   @Prop emojiDataSource: PteIMUIEmojiDataSource = new PteIMUIEmojiDataSource()
@@ -160,6 +163,7 @@ export struct PteIMUIChat {
             (action: PteIMUIAction) => this.handleInputAction(action),
             (recording: boolean) => this.voiceRecordingHandler.onChanged(recording),
             (action: PteIMUICustomAction) => this.actionHandler.requestCustom(action),
+            () => this.voiceRecordingHandler.onCancelled(),
           ),
           emojiDataSource: this.emojiDataSource,
           customActions: this.customActions,
@@ -264,20 +268,17 @@ export struct PteIMUIChat {
   }
 
   @Builder private voiceBubble(message: PteIMMessage, outgoing: boolean) {
-    Stack({ alignContent: Alignment.Center }) {
-      if (!outgoing) Text('').width(173).height(44).linearGradient({
-        direction: GradientDirection.Right,
-        colors: this.isDark()
-          ? [['#0FA684FF', 0.0], ['#0AAD46FF', 0.5], ['#0D00D3F3', 1.0]]
-          : [['#FFFFFFFF', 0.0], ['#FFFFFFFF', 0.5], ['#FFFFFFFF', 1.0]]
-      }).borderRadius(15)
-      Row({ space: 0 }) {
-        if (outgoing) Image($r('app.media.PteIMUIChatVoiceOutgoing')).width(16).height(16).objectFit(ImageFit.Fill).margin({ left: 16 })
-        else SymbolGlyph($r('sys.symbol.mic')).fontSize(16).fontColor(['#955BFF']).width(16).height(16).margin({ left: 16 })
-        Image(outgoing ? $r('app.media.PteIMUIChatVoiceWaveOutgoing') : $r('app.media.PteIMUIChatVoiceWaveIncoming')).width(78).height(20).objectFit(ImageFit.Contain).margin({ left: 12, right: 12 })
-        Text(`${this.voiceSeconds(message)}s`).fontSize(12).fontColor(outgoing ? '#EAE1FF' : this.palette().muted).margin({ right: 16 })
-      }.width(173).height(44).padding(0).alignItems(VerticalAlign.Center).backgroundColor(outgoing ? this.palette().outgoingEnd : Color.Transparent).borderRadius(15).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
-    }.width(173).height(44)
+    Row({ space: 5 }) {
+      if (outgoing) Text(`${this.voiceSeconds(message)}s`).width(34).fontSize(12).fontColor(Color.White).textAlign(TextAlign.Center)
+      Image(outgoing
+        ? (this.isDark() ? $r('app.media.PteIMUIChatVoiceOutgoingDark') : $r('app.media.PteIMUIChatVoiceOutgoingLight'))
+        : (this.isDark() ? $r('app.media.PteIMUIChatVoiceIncomingDark') : $r('app.media.PteIMUIChatVoiceIncomingLight')))
+        .width(22).height(22).objectFit(ImageFit.Contain)
+      if (!outgoing) Text(`${this.voiceSeconds(message)}s`).width(34).fontSize(12).fontColor(this.palette().muted).textAlign(TextAlign.Center)
+    }.width(88).height(42).padding({ left: 10, right: 10 }).alignItems(VerticalAlign.Center)
+      .backgroundColor(outgoing ? this.palette().outgoingEnd : this.palette().incoming).borderRadius(16)
+      .onClick(() => PteIMUIMediaPlayback.playVoice(`voice:${message.clientMsgId}`, message.voice?.url ?? ''))
+      .gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
   }
 
   @Builder private richMessageCard(message: PteIMMessage, presentation: PteIMUIMessagePresentation, outgoing: boolean) {
@@ -305,8 +306,8 @@ export struct PteIMUIChat {
           Text('').width(188).height(122)
           Row({ space: 4 }) {
             Image($r('app.media.PteIMUIChatVideoDuration')).width(12).height(12).objectFit(ImageFit.Contain)
-            Text(this.videoDuration(message)).fontSize(10).lineHeight(12).fontColor('#CCFFFFFF')
-          }.height(16).padding({ left: 5, right: 5, top: 2, bottom: 2 }).alignItems(VerticalAlign.Center).backgroundColor('#1AFFFFFF').borderRadius(8).margin({ right: 8, bottom: 7 })
+            Text(this.videoDuration(message)).width(38).fontSize(10).lineHeight(24).fontColor('#CCFFFFFF').maxLines(1)
+          }.width(72).height(24).padding({ left: 6, right: 6 }).alignItems(VerticalAlign.Center).backgroundColor('#1AFFFFFF').borderRadius(12).margin({ right: 8, bottom: 8 })
         }.width(188).height(122)
       }.width(188).height(122).borderRadius(16).clip(true).onClick(() => this.openMediaPreview(message)).gesture(LongPressGesture().onAction(() => this.selectMessage(message.clientMsgId)))
     } else if (message.type === PteIMMessageType.RED_PACKET || message.type === PteIMMessageType.GIFT) {

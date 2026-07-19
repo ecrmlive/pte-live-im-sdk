@@ -74,7 +74,7 @@ private final class PteIMUIDemoImageToggle: UIControl {
 
   private func setOn(_ value: Bool, notify: Bool) {
     isOn = value
-    imageView.image = PteIMUIResources.image(named: value ? "PteIMUIToggleOn" : "PteIMUIToggleOff")
+    imageView.image = PteIMUIDemoAssets.image(named: value ? "PteIMUIToggleOn" : "PteIMUIToggleOff")
     accessibilityValue = value ? "On" : "Off"
     if notify { changed(value) }
   }
@@ -137,7 +137,7 @@ class PteIMUIDemoProfileBaseController: UIViewController {
   }
 
   func icon(_ name: String, fallback: String) -> UIImage? {
-    PteIMUIResources.image(named: name, traitCollection: traitCollection) ?? UIImage(systemName: fallback)
+    PteIMUIDemoAssets.image(named: name, traitCollection: traitCollection) ?? UIImage(systemName: fallback)
   }
 
   func makeTopBar(title: String, backAction: Selector? = nil) -> UIView {
@@ -170,7 +170,7 @@ class PteIMUIDemoProfileBaseController: UIViewController {
     if let subtitle {
       let label = UILabel(); label.text = subtitle; label.font = .systemFont(ofSize: 12, weight: .regular); label.textColor = palette.secondary; labels.addArrangedSubview(label)
     }
-    let trailing = accessory ?? UIImageView(image: PteIMUIResources.image(named: palette.dark ? "PteIMUIMeArrowDark" : "PteIMUIMeArrowLight"))
+    let trailing = accessory ?? UIImageView(image: PteIMUIDemoAssets.image(named: palette.dark ? "PteIMUIMeArrowDark" : "PteIMUIMeArrowLight"))
     if let arrow = trailing as? UIImageView { arrow.contentMode = .scaleAspectFit }
     trailing.translatesAutoresizingMaskIntoConstraints = false
     row.addSubview(image); row.addSubview(labels); row.addSubview(trailing)
@@ -261,7 +261,7 @@ final class PteIMUIDemoMeViewController: PteIMUIDemoProfileBaseController {
 
   private func navigationButton(imageName: String, action: Selector) -> UIButton {
     let button = UIButton(type: .custom)
-    button.setImage(PteIMUIResources.image(named: imageName), for: .normal)
+    button.setImage(PteIMUIDemoAssets.image(named: imageName), for: .normal)
     button.imageView?.contentMode = .scaleAspectFit
     button.addTarget(self, action: action, for: .touchUpInside)
     button.translatesAutoresizingMaskIntoConstraints = false
@@ -275,7 +275,7 @@ final class PteIMUIDemoMeViewController: PteIMUIDemoProfileBaseController {
     let name = UILabel(); name.text = "User_\(client.currentUserId)"; name.font = .systemFont(ofSize: 17, weight: .bold); name.textColor = palette.text
     let identifier = UILabel(); identifier.text = "ID: usr_\(client.currentUserId)"; identifier.font = .systemFont(ofSize: 11); identifier.textColor = palette.secondary
     let copyStack = UIStackView(arrangedSubviews: [name, identifier]); copyStack.axis = .vertical; copyStack.spacing = 4
-    let arrow = UIImageView(image: PteIMUIResources.image(named: palette.dark ? "PteIMUIMeArrowDark" : "PteIMUIMeArrowLight")); arrow.contentMode = .scaleAspectFit
+    let arrow = UIImageView(image: PteIMUIDemoAssets.image(named: palette.dark ? "PteIMUIMeArrowDark" : "PteIMUIMeArrowLight")); arrow.contentMode = .scaleAspectFit
     [avatar, online, copyStack, arrow].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; panel.addSubview($0) }
     NSLayoutConstraint.activate([panel.heightAnchor.constraint(equalToConstant: 112), avatar.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 20), avatar.centerYAnchor.constraint(equalTo: panel.centerYAnchor), avatar.widthAnchor.constraint(equalToConstant: 64), avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor), online.trailingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 4), online.bottomAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 4), online.widthAnchor.constraint(equalToConstant: 18), online.heightAnchor.constraint(equalTo: online.widthAnchor), copyStack.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 16), copyStack.centerYAnchor.constraint(equalTo: panel.centerYAnchor), arrow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -28), arrow.centerYAnchor.constraint(equalTo: panel.centerYAnchor)])
     return panel

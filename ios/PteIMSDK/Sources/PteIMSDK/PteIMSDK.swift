@@ -11,6 +11,8 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   private var socket: URLSessionWebSocketTask?
   private var reconnectWorkItem: DispatchWorkItem?
   private var outboxRetryWorkItem: DispatchWorkItem?
+  private var userSigRefreshWorkItem: DispatchWorkItem?
+  private var userSigRefreshInFlight = false
   private var reconnectAttempt = 0
   private var stopRequested = false
   private var socketConnected = false
@@ -47,6 +49,7 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   public func start() {
     stopRequested = false
     reconnectWorkItem?.cancel(); reconnectWorkItem = nil
+    scheduleUserSigRefresh()
     Task { [weak self] in
       guard let self else { return }
       do {
@@ -64,12 +67,32 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     task.resume()
   }
 
-  public func stop() { stopRequested = true; socketConnected = false; reconnectWorkItem?.cancel(); reconnectWorkItem = nil; outboxRetryWorkItem?.cancel(); outboxRetryWorkItem = nil; socket?.cancel(with: .goingAway, reason: nil); socket = nil }
+  public func stop() { stopRequested = true; socketConnected = false; reconnectWorkItem?.cancel(); reconnectWorkItem = nil; outboxRetryWorkItem?.cancel(); outboxRetryWorkItem = nil; userSigRefreshWorkItem?.cancel(); userSigRefreshWorkItem = nil; socket?.cancel(with: .goingAway, reason: nil); socket = nil }
 
-  public func renewUserSig(_ userSig: String) {
+  /** Applies a provider result. Credentials are never supplied by UI callers. */
+  private func applyRefreshedUserSig(_ userSig: String, expireAt: Int64) {
     guard !userSig.isEmpty else { return }
     config.userSig = userSig
+    if expireAt > 0 { config.userSigExpireAt = expireAt }
+    scheduleUserSigRefresh()
     sendEnvelope(action: "renew_user_sig", payload: ["userSig": userSig])
+  }
+
+  /** Renews through the host provider before expiry or after a transport/API auth failure. */
+  public func refreshUserSig(force: Bool = false) {
+    guard !stopRequested, let provider = config.userSigProvider, !userSigRefreshInFlight else { return }
+    let now = Int64(Date().timeIntervalSince1970)
+    if !force, config.userSigExpireAt > now + 300 { scheduleUserSigRefresh(); return }
+    userSigRefreshInFlight = true
+    Task { [weak self] in
+      defer { self?.userSigRefreshInFlight = false }
+      do {
+        let renewed = try await provider()
+        guard renewed.userSig.isEmpty == false, renewed.expireAt > Int64(Date().timeIntervalSince1970) else { throw PteIMError.invalidCredentials }
+        self?.applyRefreshedUserSig(renewed.userSig, expireAt: renewed.expireAt)
+        self?.syncNow(); self?.syncConversationsNow()
+      } catch { self?.notify { $0.onUserSigRefreshFailed?(error) } }
+    }
   }
 
   /** Updates host-UI preferences without reconnecting or changing the logged-in session. */
@@ -416,8 +439,7 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
         let sequence = (payload["serverSeq"] as? NSNumber)?.int64Value
         try store.markSent(clientMsgId: id, serverMsgId: payload["serverMsgId"] as? String, serverSeq: sequence)
         notify { $0.onMessageStateChanged?(id, .sent) }
-      case "user_sig_will_expire": notify { $0.onUserSigWillExpire?() }
-      case "user_sig_expired": notify { $0.onUserSigExpired?() }
+      case "user_sig_will_expire", "user_sig_expired": refreshUserSig(force: true)
       case "sync_required": syncNow()
       default: break
       }
@@ -431,6 +453,17 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
       let text = String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self)
       socket.send(.string(text)) { [weak self] error in if let error { self?.notify { $0.onError?(error) } } }
     } catch { notify { $0.onError?(error) } }
+  }
+
+  private func scheduleUserSigRefresh() {
+    userSigRefreshWorkItem?.cancel()
+    userSigRefreshWorkItem = nil
+    let expiry = config.userSigExpireAt
+    guard !stopRequested, config.userSigProvider != nil, expiry > 0 else { return }
+    let delay = max(1, TimeInterval(expiry - Int64(Date().timeIntervalSince1970) - 300))
+    let work = DispatchWorkItem { [weak self] in self?.refreshUserSig(force: true) }
+    userSigRefreshWorkItem = work
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay, execute: work)
   }
 
   private func decodeMessage(_ payload: [String: Any]) throws -> PteIMMessage {
@@ -476,7 +509,9 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     request.setValue(PteIMResponseCipher.requestPublicKey(responseKey), forHTTPHeaderField: "X-Pte-Response-Public-Key")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, httpResponse) = try await session.data(for: request)
-    guard let http = httpResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
+    guard let http = httpResponse as? HTTPURLResponse else { throw PteIMError.invalidResponse }
+    if http.statusCode == 401 { refreshUserSig(force: true) }
+    guard 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
     let clear = try PteIMResponseCipher.decrypt(data, with: responseKey)
     guard let envelope = try JSONSerialization.jsonObject(with: clear) as? [String: Any],
           (envelope["code"] as? NSNumber)?.intValue == 1, let value = envelope["data"] else { throw PteIMError.invalidResponse }
@@ -504,7 +539,9 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     request.setValue(String(config.sdkAppId), forHTTPHeaderField: "X-Pte-Sdk-AppId"); request.setValue(config.userId, forHTTPHeaderField: "X-Pte-User-Id")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, httpResponse) = try await session.data(for: request)
-    guard let http = httpResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
+    guard let http = httpResponse as? HTTPURLResponse else { throw PteIMError.invalidResponse }
+    if http.statusCode == 401 { refreshUserSig(force: true) }
+    guard 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
     let envelope = try JSONDecoder().decode(PteIMSDKEnvelope<T>.self, from: data)
     guard envelope.code == 0, let value = envelope.data else { throw PteIMError.invalidResponse }
     return value

@@ -11,7 +11,7 @@ cd android
 
 应用从 `PteIMUIDemoSplashActivity` 进入：Android 12+ 使用深紫色系统启动窗口与 Android 专用应用图标，随后显示设计稿提供的「PTE Live IM / PTE LIVE」全屏启动图，再进入业务登录。启动图与 Android 图标仅打包在 `PteIMUIDemo`，不会进入 `PteIMSDK` 或 `PteIMUIKit`。
 
-Debug builds connect to the local `pte-live-im` Docker stack through `10.0.2.2` after the user registers or logs in through the complete Demo business-login form. In Contacts, “Add Friend” opens the registered Demo-user list and creates a real bidirectional IM friendship. Release builds retain HTTPS/WSS validation and use the same mobile/password/captcha flow.
+Debug builds connect to the local `pte-live-im` Docker stack through `127.0.0.1` after the user registers or logs in through the complete Demo business-login form. In Contacts, “Add Friend” opens the registered Demo-user list and creates a real bidirectional IM friendship. Release builds retain HTTPS/WSS validation and use the same mobile/password/captcha flow.
 
 Appearance is intentionally independent of login state. Without a manual preference, the demo uses light mode from local 07:00 (inclusive) to 19:00 (exclusive), and dark mode at all other times. Language follows the Android system locale by default. Choosing a theme or `简体中文`/`English` creates a persisted manual override; choosing `跟随系统` clears the language override. Neither preference stores UserSig or any deployment secret.
 

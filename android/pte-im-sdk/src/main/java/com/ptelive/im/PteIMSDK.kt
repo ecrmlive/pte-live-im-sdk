@@ -20,8 +20,7 @@ interface PteIMListener {
   fun onConversationsChanged() {}
   fun onMessage(message: PteIMMessage) {}
   fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) {}
-  fun onUserSigWillExpire() {}
-  fun onUserSigExpired() {}
+  fun onUserSigRefreshFailed(error: Throwable) {}
   fun onThemeModeChanged(themeMode: PteIMThemeMode) {}
   fun onLanguageChanged(language: PteIMLanguage) {}
   fun onError(error: Throwable) {}
@@ -40,6 +39,8 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   private var reconnectAttempt = 0
   @Volatile private var socketConnected = false
   private var outboxRetryFuture: ScheduledFuture<*>? = null
+  private var userSigRefreshFuture: ScheduledFuture<*>? = null
+  @Volatile private var userSigRefreshInFlight = false
   private val listeners = linkedSetOf<PteIMListener>()
   @Volatile private var appearance = PteIMAppearance(initialConfig.base.themeMode, initialConfig.base.language)
   /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
@@ -60,18 +61,43 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     config.validate()
     stopRequested = false
     transport?.close()
+    scheduleUserSigRefresh()
     executor.execute {
       try { e2ee.register(::postSdkData); connect() }
       catch (error: Throwable) { listeners.forEach { it.onError(error) } }
     }
   }
 
-  fun stop() { stopRequested = true; socketConnected = false; outboxRetryFuture?.cancel(false); transport?.close(); transport = null }
+  fun stop() { stopRequested = true; socketConnected = false; outboxRetryFuture?.cancel(false); userSigRefreshFuture?.cancel(false); userSigRefreshFuture = null; transport?.close(); transport = null }
 
-  fun renewUserSig(userSig: String) {
+  /** Applies a provider result. Credentials are never supplied by UI callers. */
+  private fun applyRefreshedUserSig(userSig: String, expireAt: Long) {
     require(userSig.isNotBlank()) { "userSig is required" }
-    config = config.copy(login = config.login.copy(userSig = userSig))
+    config = config.copy(login = config.login.copy(userSig = userSig, userSigExpireAt = if (expireAt > 0) expireAt else config.login.userSigExpireAt))
+    scheduleUserSigRefresh()
     sendEnvelope("renew_user_sig", JSONObject().put("userSig", userSig))
+  }
+
+  /** Uses the host bridge to renew UserSig before expiry or after an auth failure. */
+  fun refreshUserSig(force: Boolean = false): Boolean {
+    val provider = config.login.userSigProvider ?: return false
+    if (stopRequested) return false
+    val now = System.currentTimeMillis() / 1000
+    if (!force && config.login.userSigExpireAt > now + 300) { scheduleUserSigRefresh(); return true }
+    if (userSigRefreshInFlight) return false
+    userSigRefreshInFlight = true
+    provider.refreshUserSig { result ->
+      result.onSuccess { renewed ->
+        if (renewed.userSig.isBlank() || renewed.expireAt <= System.currentTimeMillis() / 1000) {
+          listeners.forEach { it.onUserSigRefreshFailed(IllegalArgumentException("invalid UserSig refresh response")) }
+        } else {
+          applyRefreshedUserSig(renewed.userSig, renewed.expireAt)
+          syncNow(); syncConversationsNow()
+        }
+      }.onFailure { error -> listeners.forEach { it.onUserSigRefreshFailed(error) } }
+      userSigRefreshInFlight = false
+    }
+    return true
   }
 
   /** Updates host-UI preferences without reconnecting or changing the logged-in session. */
@@ -358,8 +384,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
           store.markSent(ack.getString("clientMsgId"), ack.optNullableString("serverMsgId"), ack.optLong("serverSeq"))
           listeners.forEach { it.onMessageStateChanged(ack.getString("clientMsgId"), PteIMSendState.SENT) }
         }
-        "user_sig_will_expire" -> listeners.forEach { it.onUserSigWillExpire() }
-        "user_sig_expired" -> listeners.forEach { it.onUserSigExpired() }
+        "user_sig_will_expire", "user_sig_expired" -> refreshUserSig(force = true)
         "sync_required" -> syncNow()
         else -> Unit
       }
@@ -405,6 +430,15 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     val attempt = reconnectAttempt++.coerceAtMost(5)
     val delayMs = 1_000L shl attempt
     reconnectExecutor.schedule({ if (!stopRequested) connect() }, delayMs.coerceAtMost(30_000L), TimeUnit.MILLISECONDS)
+  }
+
+  private fun scheduleUserSigRefresh() {
+    userSigRefreshFuture?.cancel(false)
+    userSigRefreshFuture = null
+    val expiry = config.login.userSigExpireAt
+    if (stopRequested || config.login.userSigProvider == null || expiry <= 0) return
+    val delaySeconds = (expiry - System.currentTimeMillis() / 1000 - 300).coerceAtLeast(1)
+    userSigRefreshFuture = reconnectExecutor.schedule({ refreshUserSig(force = true) }, delaySeconds, TimeUnit.SECONDS)
   }
 
   private fun flushOutbox() {
@@ -461,7 +495,9 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       connection.setRequestProperty("X-Pte-Response-Public-Key", PteIMResponseCipher.requestPublicKey(responseKey))
       connection.doOutput = true
       connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-      check(connection.responseCode in 200..299) { "sync failed with HTTP ${connection.responseCode}" }
+      val responseCode = connection.responseCode
+      if (responseCode == HttpURLConnection.HTTP_UNAUTHORIZED) refreshUserSig(force = true)
+      check(responseCode in 200..299) { "sync failed with HTTP $responseCode" }
       val encrypted = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
       JSONObject(PteIMResponseCipher.decrypt(encrypted, responseKey))
     } finally { connection.disconnect() }

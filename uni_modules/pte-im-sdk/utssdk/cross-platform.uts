@@ -1,4 +1,4 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChange, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig, PteIMUserSigRefreshResult } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
 import { CrossPlatformPteIMCommerce } from './commerce.uts'
 
@@ -23,6 +23,8 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   private reconnectAttempt: number = 0
   private reconnectTimer: number | null = null
   private outboxRetryTimer: number | null = null
+  private userSigRefreshTimer: number | null = null
+  private userSigRefreshInFlight: boolean = false
   private outbox: PteIMOutboxMessage[] = []
   private messages: PteIMIncomingMessage[] = []
   private remoteConversations: PteIMRemoteConversation[] = []
@@ -52,6 +54,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     this.stopped = false
     if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+    this.scheduleUserSigRefresh()
     if (this.socket == null) this.e2ee.register((path, body, callback) => this.sdkRequest(path, body, callback)).then(() => {
       if (!this.stopped && this.socket == null) this.connect()
     }).catch((error) => this.emitError(error))
@@ -61,16 +64,50 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     this.stopped = true
     if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.outboxRetryTimer != null) { clearTimeout(this.outboxRetryTimer); this.outboxRetryTimer = null }
+    if (this.userSigRefreshTimer != null) { clearTimeout(this.userSigRefreshTimer); this.userSigRefreshTimer = null }
     const wasConnected = this.connected
     this.connected = false
-    if (this.socket != null) this.socket.close()
+    const socket = this.socket
     this.socket = null
+    this.closeSocket(socket, 'PteIM SDK stopped')
     if (wasConnected) this.notifyConnection(false)
   }
-  renewUserSig(userSig: string): void {
+  /** Applies a Provider result; UI code never submits a UserSig directly. */
+  private applyRefreshedUserSig(userSig: string, expireAt: number): void {
     if (userSig.length == 0) throw new Error('userSig is required')
     this.loginConfig.userSig = userSig
+    this.loginConfig.userSigExpireAt = expireAt
+    this.scheduleUserSigRefresh()
     if (this.connected) this.sendEnvelope('renew_user_sig', { userSig })
+  }
+  refreshUserSig(force: boolean = false): Promise<boolean> {
+    const provider = this.loginConfig.userSigProvider
+    if (provider == null || this.stopped) return Promise.resolve(false)
+    const now = Math.floor(Date.now() / 1000)
+    const expireAt = this.loginConfig.userSigExpireAt ?? 0
+    if (!force && expireAt > now + 5 * 60) { this.scheduleUserSigRefresh(); return Promise.resolve(true) }
+    if (this.userSigRefreshInFlight) return Promise.resolve(false)
+    this.userSigRefreshInFlight = true
+    return provider.refreshUserSig().then((result: PteIMUserSigRefreshResult) => {
+      if (result == null || result.userSig.length == 0 || result.expireAt <= now) throw new Error('UserSig refresh response is invalid')
+      this.applyRefreshedUserSig(result.userSig, result.expireAt)
+      this.syncNow()
+      this.syncConversationsNow()
+      return true
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      this.listeners.forEach((listener: PteIMListener) => listener.onUserSigRefreshFailed?.(message))
+      return false
+    }).then((result: boolean) => { this.userSigRefreshInFlight = false; return result })
+  }
+  /**
+   * HTTP APIs can report an expired UserSig before the WebSocket emits its
+   * corresponding expiry event. Route both paths through the same refresh
+   * coordinator so a page never has to ask the user to sign in again.
+   */
+  private handleUserSigExpired(): void {
+    if (this.stopped || this.userSigRefreshInFlight) return
+    void this.refreshUserSig(true)
   }
   updateAppearance(themeMode?: 'system' | 'light' | 'dark', language?: 'system' | 'zh-CN' | 'en-US'): PteIMAppearance {
     const previousTheme = this.base.themeMode ?? 'system'
@@ -163,7 +200,8 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       const message = this.messages[index]
       if (seen.indexOf(message.conversationId) >= 0) continue
       seen.push(message.conversationId)
-      values.push({ conversationId: message.conversationId, lastMessage: message, updatedAt: message.createdAt })
+      const remote = this.remoteConversations.find((value: PteIMRemoteConversation): boolean => String(value.id) === message.conversationId)
+      values.push({ conversationId: message.conversationId, lastMessage: message, updatedAt: message.createdAt, title: remote?.title, avatar: remote?.avatar, unreadCount: remote?.unreadCount })
     }
     return values
   }
@@ -175,7 +213,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     this.sdkRequest('/v1/im/conversations', { page, pageSize }, (data, error) => {
       if (error != null || data == null) { callback(null, error); return }
       const raw = data['list'] as any[]
-      const items = raw == null ? [] : raw.map((item: any) => ({ id: Number(item.id), type: String(item.type), title: String(item.title), avatar: item.avatar, lastMessageSeq: Number(item.last_message_seq), lastMessageSnapshot: item.last_message_snapshot, lastMessageAt: Number(item.last_message_at), unreadCount: Number(item.unread_count) }))
+      const items = raw == null ? [] : raw.map((item: any) => ({ id: Number(item.id), type: String(item.type), title: String(item.title), singleKey: item.single_key == null ? undefined : String(item.single_key), avatar: item.avatar, lastMessageSeq: Number(item.last_message_seq), lastMessageSnapshot: item.last_message_snapshot, lastMessageAt: Number(item.last_message_at), unreadCount: Number(item.unread_count) }))
       callback({ total: Number(data['total']), items }, null)
     })
   }
@@ -234,10 +272,10 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   sendFile(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'file', mediaContent(media)) }
   uploadAndSendImage(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'image') }
   uploadAndSendVideo(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'video') }
-  uploadAndSendFile(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'file') }
-  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform: string = ''): string {
+  uploadAndSendFile(conversationId: string, filePath: string, fileName: string = '', mimeType: string = ''): string { return this.uploadAndSendMedia(conversationId, filePath, 'file', 0, '', fileName, mimeType) }
+  uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform: string = '', fileName: string = '', mimeType: string = ''): string {
     if (durationMs <= 0) throw new Error('durationMs must be positive')
-    return this.uploadAndSendMedia(conversationId, filePath, 'voice', durationMs, waveform)
+    return this.uploadAndSendMedia(conversationId, filePath, 'voice', durationMs, waveform, fileName, mimeType)
   }
   sendVoice(conversationId: string, voice: PteIMVoice): string { return this.sendMessage(conversationId, 'voice', { url: voice.url, durationMs: voice.durationMs, waveform: voice.waveform, sizeBytes: voice.sizeBytes }) }
   sendLocation(conversationId: string, location: PteIMLocation): string { return this.sendMessage(conversationId, 'location', location) }
@@ -263,15 +301,15 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     return clientMsgId
   }
   private sdkRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
-    this.e2ee.responseKey().then((key) => uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId, 'X-Pte-Response-Public-Key': key.publicKey } as UTSJSONObject, data: data as UTSJSONObject,
+    this.e2ee.responseKey().then((key) => uni.request({ url: trimTrailingSlash(this.base.apiDomain) + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId, 'X-Pte-Response-Public-Key': key.publicKey } as UTSJSONObject, data: data as UTSJSONObject,
       success: (response) => {
         try {
           const encrypted = response.data as any
           const root = this.e2ee.decryptResponse(encrypted, key) as UTSJSONObject
-          if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'IM API request failed'); return }
+          if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { const message = root['msg'] as string ?? 'IM API request failed'; if (response.statusCode == 401 || message.indexOf('UserSig') >= 0) this.handleUserSigExpired(); callback(null, message); return }
           callback(root['data'] as UTSJSONObject, null)
         } catch (error) { callback(null, error instanceof Error ? error.message : String(error)) }
-      }, fail: (error) => callback(null, error.message as string ?? String(error)),
+      }, fail: (error) => callback(null, requestFailureMessage(error)),
     })).catch((error) => callback(null, error instanceof Error ? error.message : String(error)))
   }
 
@@ -283,13 +321,13 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
    * host API. `uni.uploadFile` is intentionally not used: it always sends a
    * multipart POST, whereas COS credentials are scoped to an HTTP PUT.
    */
-  private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice' | 'file', durationMs: number = 0, waveform: string = ''): string {
+  private uploadAndSendMedia(conversationId: string, filePath: string, type: 'image' | 'video' | 'voice' | 'file', durationMs: number = 0, waveform: string = '', fileName: string = '', mimeType: string = ''): string {
     if (!/^[1-9][0-9]*$/.test(conversationId)) throw new Error('conversationId must be a positive numeric string returned by openSingleConversation or createGroupConversation')
     if (filePath.length == 0) throw new Error('filePath is required')
     const clientMsgId = requestId()
     this.notifyMessageState({ clientMsgId, state: 'uploading' })
     this.readFileBytes(filePath, (bytes) => {
-      const contentType = mediaContentType(filePath, type)
+      const contentType = mimeType.length > 0 ? mimeType : mediaContentType(fileName.length > 0 ? fileName : filePath, type)
       this.apiImRequest('/v1/im/media/put-url', { mediaType: type, contentType, contentLength: bytes.byteLength }, (credential, credentialError) => {
         if (credential == null || credentialError != null) { this.failUpload(clientMsgId, credentialError ?? 'could not request COS upload credential'); return }
         const uploadUrl = String(credential['uploadUrl'] ?? '')
@@ -304,10 +342,10 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
           header: headers,
           success: (response) => {
             if (response.statusCode < 200 || response.statusCode >= 300) { this.failUpload(clientMsgId, 'COS upload failed with HTTP ' + response.statusCode.toString()); return }
-            const content = type == 'voice' ? { url: key, durationMs, waveform, sizeBytes: bytes.byteLength } : type == 'file' ? { url: key, sizeBytes: bytes.byteLength, fileName: fileNameFromPath(filePath), mimeType: contentType } : { url: key, sizeBytes: bytes.byteLength }
+            const content = type == 'voice' ? { url: key, durationMs, waveform, sizeBytes: bytes.byteLength } : type == 'file' ? { url: key, sizeBytes: bytes.byteLength, fileName: fileName.length > 0 ? fileName : fileNameFromPath(filePath), mimeType: contentType } : { url: key, sizeBytes: bytes.byteLength }
             this.queueMessage(clientMsgId, conversationId, type, content)
           },
-          fail: (error) => this.failUpload(clientMsgId, error.message as string ?? String(error)),
+          fail: (error) => this.failUpload(clientMsgId, requestFailureMessage(error)),
         })
       })
     }, (error) => this.failUpload(clientMsgId, error))
@@ -315,18 +353,18 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   }
 
   private apiImRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
-    uni.request({ url: this.base.apiDomain.trimEnd('/') + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
-      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 0) { callback(null, root['msg'] as string ?? 'media credential request failed'); return }; callback(root['data'] as UTSJSONObject, null) },
-      fail: (error) => callback(null, error.message as string ?? String(error)),
+    uni.request({ url: trimTrailingSlash(this.base.apiDomain) + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
+      success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 0) { const message = root['msg'] as string ?? 'media credential request failed'; if (response.statusCode == 401 || message.indexOf('UserSig') >= 0) this.handleUserSigExpired(); callback(null, message); return }; callback(root['data'] as UTSJSONObject, null) },
+      fail: (error) => callback(null, requestFailureMessage(error)),
     })
   }
 
   private commerceRequest(path: string, data: any, callback: (data: any | null, error: string | null) => void): void {
-    const domain = this.base.commerceDomain == null ? '' : this.base.commerceDomain.trimEnd('/')
+    const domain = this.base.commerceDomain == null ? '' : trimTrailingSlash(this.base.commerceDomain)
     if (domain.length == 0) { callback(null, 'commerceDomain is not configured'); return }
     uni.request({ url: domain + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId } as UTSJSONObject, data: data as UTSJSONObject,
       success: (response) => { const root = response.data as UTSJSONObject; if (response.statusCode < 200 || response.statusCode >= 300 || Number(root['code']) != 1) { callback(null, root['msg'] as string ?? 'Commerce request failed'); return }; callback(root['data'], null) },
-      fail: (error) => callback(null, error.message as string ?? String(error)),
+      fail: (error) => callback(null, requestFailureMessage(error)),
     })
   }
 
@@ -336,7 +374,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       uni.request({ url: filePath, method: 'GET', responseType: 'arraybuffer', success: (response) => {
         if (response.statusCode < 200 || response.statusCode >= 300 || !(response.data instanceof ArrayBuffer)) { fail('could not read the H5 media file'); return }
         success(response.data as ArrayBuffer)
-      }, fail: (error) => fail(error.message as string ?? String(error)) })
+      }, fail: (error) => fail(requestFailureMessage(error)) })
       return
     }
     try {
@@ -357,7 +395,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       this.emitError(new Error('IM outbox limit reached'))
       return
     }
-    this.outbox.push({ clientMsgId, conversationId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
+    this.outbox.push({ clientMsgId, conversationId, senderId: this.loginConfig.userId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
     this.persistOutbox()
     this.notifyMessageState({ clientMsgId, state: 'pending' })
     this.flushOutbox()
@@ -386,7 +424,7 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     socket.onMessage((event: any) => this.handleInbound(event))
     socket.onError((error: any) => {
       this.emitError(error)
-      if (this.socket == socket) socket.close()
+      if (this.socket == socket) this.closeSocket(socket, 'PteIM socket error')
     })
     socket.onClose(() => {
       if (this.socket != socket) return
@@ -397,6 +435,18 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       if (wasConnected) this.notifyConnection(false)
       this.scheduleReconnect()
     })
+  }
+
+  /**
+   * H5's UTS SocketTask can expose event methods without a task-level close()
+   * method. Prefer task close where available, then use the platform-wide API.
+   */
+  private closeSocket(socket: any | null, reason: string): void {
+    const options = { code: 1000, reason } as CloseSocketOptions
+    if (socket != null && typeof socket.close === 'function') {
+      try { socket.close(options); return } catch (_) {}
+    }
+    try { uni.closeSocket(options) } catch (_) {}
   }
 
   // The configured IM service validates UserSig during WSS upgrade. This short-lived query contract is
@@ -427,10 +477,8 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
         this.notifyMessageState({ clientMsgId, state: 'sent' })
       } else if (action == 'message_event') {
         this.applyMessageEvent(payload)
-      } else if (action == 'user_sig_will_expire') {
-        this.listeners.forEach((listener: PteIMListener) => listener.onUserSigWillExpire?.())
-      } else if (action == 'user_sig_expired') {
-        this.listeners.forEach((listener: PteIMListener) => listener.onUserSigExpired?.())
+      } else if (action == 'user_sig_will_expire' || action == 'user_sig_expired') {
+        void this.refreshUserSig(true)
       } else if (action == 'sync_required') {
         this.syncNow()
       }
@@ -643,7 +691,13 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     const message = error != null && error.message != null ? error.message as string : String(error)
     this.listeners.forEach((listener: PteIMListener) => listener.onError?.(message))
   }
-
+  private scheduleUserSigRefresh(): void {
+    if (this.userSigRefreshTimer != null) { clearTimeout(this.userSigRefreshTimer); this.userSigRefreshTimer = null }
+    const expireAt = this.loginConfig.userSigExpireAt ?? 0
+    if (this.stopped || this.loginConfig.userSigProvider == null || expireAt <= 0) return
+    const delay = Math.max(1000, expireAt * 1000 - Date.now() - 5 * 60 * 1000)
+    this.userSigRefreshTimer = setTimeout(() => { this.userSigRefreshTimer = null; void this.refreshUserSig(true) }, delay)
+  }
   private notifyConnection(connected: boolean): void {
     this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged?.(connected))
   }
@@ -661,7 +715,7 @@ function mediaContent(media: PteIMMedia): any {
 }
 
 function remoteConversationFromWire(value: any): PteIMRemoteConversation {
-  return { id: Number(value.id), type: String(value.type), title: String(value.title), avatar: value.avatar == null ? undefined : String(value.avatar), lastMessageSeq: Number(value.last_message_seq), lastMessageSnapshot: value.last_message_snapshot == null ? undefined : String(value.last_message_snapshot), lastMessageAt: Number(value.last_message_at), unreadCount: Number(value.unread_count) }
+  return { id: Number(value.id), type: String(value.type), title: String(value.title), singleKey: value.single_key == null ? undefined : String(value.single_key), avatar: value.avatar == null ? undefined : String(value.avatar), lastMessageSeq: Number(value.last_message_seq), lastMessageSnapshot: value.last_message_snapshot == null ? undefined : String(value.last_message_snapshot), lastMessageAt: Number(value.last_message_at), unreadCount: Number(value.unread_count) }
 }
 
 function profileFromWire(value: any): PteIMUserProfile {
@@ -702,10 +756,27 @@ function mediaContentType(filePath: string, type: 'image' | 'video' | 'voice' | 
 
 function fileNameFromPath(filePath: string): string { const parts = filePath.split('/'); return parts.length == 0 ? 'file' : parts[parts.length - 1] }
 
+function trimTrailingSlash(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] == '/') end -= 1
+  return value.slice(0, end)
+}
+
+function trimLeadingSlash(value: string): string {
+  let start = 0
+  while (start < value.length && value[start] == '/') start += 1
+  return value.slice(start)
+}
+
+function requestFailureMessage(error: any): string {
+  if (error != null && error.errMsg != null) return String(error.errMsg)
+  return String(error)
+}
+
 function resolveCosUrl(cosDomain: string, value?: string): string | null {
   if (value == null) return null
   if (value.startsWith('https://') || value.startsWith('http://')) return value
-  return cosDomain.trimEnd('/') + '/' + value.trimStart('/')
+  return trimTrailingSlash(cosDomain) + '/' + trimLeadingSlash(value)
 }
 
 class CrossPlatformPteIMSDKBootstrap implements PteIMSDKBootstrap {

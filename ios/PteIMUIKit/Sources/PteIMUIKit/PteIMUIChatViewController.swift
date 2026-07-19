@@ -57,6 +57,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public var onCustomInputActionRequested: ((PteIMUICustomInputAction, PteIMUIChatViewController) -> Void)?
   /** `true` starts host recording; `false` finalises/cancels it. The host then calls [sendVoice]. */
   public var onVoiceRecordingChanged: ((Bool, PteIMUIChatViewController) -> Void)?
+  public var onVoiceRecordingCancelled: ((PteIMUIChatViewController) -> Void)?
   public var onAvatarTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var onMessageTapped: ((PteIMMessage, PteIMUIChatViewController) -> Void)?
   public var onMessageAction: ((PteIMUIMessageAction, PteIMMessage, PteIMUIChatViewController) -> Void)?
@@ -533,6 +534,10 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   }
   open func inputBar(_ inputBar: PteIMUIInputBar, voiceRecordingChanged isRecording: Bool) {
     onVoiceRecordingChanged?(isRecording, self)
+  }
+
+  open func inputBarDidCancelVoiceRecording(_ inputBar: PteIMUIInputBar) {
+    onVoiceRecordingCancelled?(self)
   }
 
   // MARK: Built-in attachment routes

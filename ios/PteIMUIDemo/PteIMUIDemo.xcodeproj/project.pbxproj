@@ -19,6 +19,9 @@
 		FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */; };
 		A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */; };
 		D3E0A001B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */; };
+		F10000000000000000000002 /* PteIMUIDemoAuthNavigationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* PteIMUIDemoAuthNavigationBar.swift */; };
+		F10000000000000000000004 /* PteIMUIDemoAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* PteIMUIDemoAssets.swift */; };
+		F10000000000000000000006 /* DemoBusinessAssets in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000005 /* DemoBusinessAssets */; };
 		C2F6B3D7A1E84B9C8D2F4A61 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */; };
 		FF94628F820E023EC4935D1A /* PteIMUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AD7ABEDB728809768AEC0EA5 /* PteIMUIKit */; };
 /* End PBXBuildFile section */
@@ -35,6 +38,9 @@
 		B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoHomeTabsController.swift; sourceTree = "<group>"; };
 		A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoMeViewController.swift; sourceTree = "<group>"; };
 		D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoBusinessAPI.swift; sourceTree = "<group>"; };
+		F10000000000000000000001 /* PteIMUIDemoAuthNavigationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoAuthNavigationBar.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 /* PteIMUIDemoAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PteIMUIDemoAssets.swift; sourceTree = "<group>"; };
+		F10000000000000000000005 /* DemoBusinessAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = DemoBusinessAssets; sourceTree = "<group>"; };
 		B3E3E6F4382118B1B4631982 /* PteIMUILaunchMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILaunchMark.png; sourceTree = "<group>"; };
 		BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PteIMUILogo.png; sourceTree = "<group>"; };
 		C2F6B3D7A1E84B9C8D2F4A60 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -64,6 +70,8 @@
 				B096E40678A9A2FC887DD325 /* PteIMUIDemoHomeTabsController.swift */,
 				A1D7E98F1B4C5D6E7F8090A2 /* PteIMUIDemoMeViewController.swift */,
 				D3E0A002B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift */,
+				F10000000000000000000001 /* PteIMUIDemoAuthNavigationBar.swift */,
+				F10000000000000000000003 /* PteIMUIDemoAssets.swift */,
 				3E51469F58E7162EF0F96A66 /* PteIMUIDemoViewController.swift */,
 				C591A0AA7B6D0C6859701810 /* Resources */,
 			);
@@ -96,6 +104,7 @@
 				BFAE79E0941BBDDE7E712754 /* PteIMUILogo.png */,
 				ADAEBCADBA5A405FEA3F66AA /* PteIMUILogo@2x.png */,
 				0775C2F8C6A0411F32304BD5 /* PteIMUILogo@3x.png */,
+				F10000000000000000000005 /* DemoBusinessAssets */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -179,6 +188,7 @@
 				1349FC69EBCB2996619E74E6 /* PteIMUILogo.png in Resources */,
 				0E2D558D1EE4CE713679E38B /* PteIMUILogo@2x.png in Resources */,
 				7CB98B0A7F413F80EA486E95 /* PteIMUILogo@3x.png in Resources */,
+				F10000000000000000000006 /* DemoBusinessAssets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -193,6 +203,8 @@
 				FF7090DFC4EB7EC65F7A2042 /* PteIMUIDemoHomeTabsController.swift in Sources */,
 				A1D7E98F1B4C5D6E7F8090A1 /* PteIMUIDemoMeViewController.swift in Sources */,
 				D3E0A001B2C3D4E5F6070809 /* PteIMUIDemoBusinessAPI.swift in Sources */,
+				F10000000000000000000002 /* PteIMUIDemoAuthNavigationBar.swift in Sources */,
+				F10000000000000000000004 /* PteIMUIDemoAssets.swift in Sources */,
 				89D79E1C8301A65228B19C13 /* PteIMUIDemoViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

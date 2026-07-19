@@ -54,6 +54,7 @@ open class PteIMUIMediaPreviewActivity : Activity() {
   private val executor = Executors.newSingleThreadExecutor()
   private val mainHandler = Handler(Looper.getMainLooper())
   private var progressTicker: Runnable? = null
+  private var videoPlaybackKey: String? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -93,6 +94,7 @@ open class PteIMUIMediaPreviewActivity : Activity() {
   }
 
   override fun onDestroy() {
+    videoPlaybackKey?.let(PteIMUIMediaPlayback::release)
     progressTicker?.let(mainHandler::removeCallbacks)
     progressTicker = null
     executor.shutdownNow()
@@ -142,6 +144,8 @@ open class PteIMUIMediaPreviewActivity : Activity() {
       setVideoURI(uri)
       setOnPreparedListener { player ->
         player.isLooping = false
+        videoPlaybackKey = "video:${uriText}"
+        PteIMUIMediaPlayback.activateVideo(videoPlaybackKey!!) { pause() }
         start()
       }
     }
@@ -154,6 +158,8 @@ open class PteIMUIMediaPreviewActivity : Activity() {
         if (video.isPlaying) {
           video.pause(); setImageResource(android.R.drawable.ic_media_play)
         } else {
+          videoPlaybackKey = "video:${uriText}"
+          PteIMUIMediaPlayback.activateVideo(videoPlaybackKey!!) { video.pause() }
           video.start(); setImageResource(android.R.drawable.ic_media_pause)
         }
       }

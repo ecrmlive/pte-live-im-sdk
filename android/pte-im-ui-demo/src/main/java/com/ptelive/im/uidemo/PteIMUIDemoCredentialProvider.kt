@@ -18,6 +18,8 @@ internal data class PteIMUIDemoCredential(
   val userId: Long,
   val userSig: String,
   val expiresAt: Long,
+  val refreshToken: String,
+  val refreshExpiresAt: Long,
 )
 
 internal data class PteIMUIDemoCaptcha(val id: String, val png: ByteArray)
@@ -44,6 +46,15 @@ internal class PteIMUIDemoCredentialProvider(
 
   fun register(mobile: String, nickname: String, password: String, captchaId: String, captchaCode: String): PteIMUIDemoCredential =
     authenticate("/api/v1/demo/auth/register", mobile, nickname, password, captchaId, captchaCode)
+
+  /** Exchanges the device-bound refresh token and rotates it with the new UserSig. */
+  fun refresh(credential: PteIMUIDemoCredential): PteIMUIDemoCredential = credentialFrom(
+    postPublic("/api/v1/im/session/refresh", JSONObject().apply {
+      put("refresh_token", credential.refreshToken)
+      put("device_id", deviceId)
+      put("platform", "android")
+    }),
+  )
 
   /**
    * Local-only convenience entry for visual and integration verification.
@@ -92,6 +103,8 @@ internal class PteIMUIDemoCredentialProvider(
       userId = data.getString("user_id").toLong(),
       userSig = data.getString("user_sig"),
       expiresAt = data.optLong("expire_at"),
+      refreshToken = data.getString("refresh_token"),
+      refreshExpiresAt = data.optLong("refresh_expire_at"),
     )
 
   private fun postPublic(path: String, payload: JSONObject): JSONObject {

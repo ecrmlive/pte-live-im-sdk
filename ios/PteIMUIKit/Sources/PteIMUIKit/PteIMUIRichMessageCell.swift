@@ -70,7 +70,7 @@ open class PteIMUIRichMessageCell: UITableViewCell {
     videoPlayButton.isHidden = true
     videoPlayIcon.contentMode = .scaleAspectFit
     videoDurationBadge.backgroundColor = UIColor.white.withAlphaComponent(0.10)
-    videoDurationBadge.layer.cornerRadius = 10
+    videoDurationBadge.layer.cornerRadius = 12
     videoDurationBadge.clipsToBounds = true
     videoDurationBadge.isHidden = true
     videoDurationIcon.contentMode = .scaleAspectFit
@@ -146,13 +146,14 @@ open class PteIMUIRichMessageCell: UITableViewCell {
       videoPlayIcon.heightAnchor.constraint(equalTo: videoPlayIcon.widthAnchor),
       videoDurationBadge.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -9),
       videoDurationBadge.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
-      videoDurationBadge.heightAnchor.constraint(equalToConstant: 20),
+      videoDurationBadge.widthAnchor.constraint(equalToConstant: 72),
+      videoDurationBadge.heightAnchor.constraint(equalToConstant: 24),
       videoDurationIcon.leadingAnchor.constraint(equalTo: videoDurationBadge.leadingAnchor, constant: 6),
       videoDurationIcon.centerYAnchor.constraint(equalTo: videoDurationBadge.centerYAnchor),
       videoDurationIcon.widthAnchor.constraint(equalToConstant: 12),
       videoDurationIcon.heightAnchor.constraint(equalTo: videoDurationIcon.widthAnchor),
       videoDurationLabel.leadingAnchor.constraint(equalTo: videoDurationIcon.trailingAnchor, constant: 4),
-      videoDurationLabel.trailingAnchor.constraint(equalTo: videoDurationBadge.trailingAnchor, constant: -7),
+      videoDurationLabel.trailingAnchor.constraint(equalTo: videoDurationBadge.trailingAnchor, constant: -6),
       videoDurationLabel.centerYAnchor.constraint(equalTo: videoDurationBadge.centerYAnchor)
     ]
     fullArtworkConstraints = [

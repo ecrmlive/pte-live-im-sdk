@@ -6,7 +6,9 @@ export function createPteIMSDK(config: PteIMBaseConfig): PteIMSDKBootstrap {
     getBytes: (length, callback) => {
       try {
         const value = new Uint8Array(length)
-        globalThis.crypto.getRandomValues(value)
+        const cryptoValue = (globalThis as any).crypto as any
+        if (cryptoValue == null || typeof cryptoValue.getRandomValues !== 'function') throw new Error('Web Crypto getRandomValues is unavailable')
+        cryptoValue.getRandomValues(value)
         callback(value, null)
       } catch (error) { callback(null, error instanceof Error ? error.message : String(error)) }
     },

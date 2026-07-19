@@ -1,10 +1,12 @@
-import { PteIMBaseConfig } from '../../uni_modules/pte-im-sdk/utssdk/interface.uts'
+import { PteIMBaseConfig } from './uni_modules/pte-im-sdk/utssdk/interface.uts'
 
 /** Application-scoped connection configuration. It is intentionally separate from business login. */
 export const PteIMUIDemoBaseConfig: PteIMBaseConfig = {
-  apiDomain: 'https://api-im.pte-live.invalid',
-  imDomain: 'wss://wss.pte-live.invalid/ws',
-  cosDomain: 'https://cos.pte-live.invalid',
+  // Local Docker development endpoints. H5 and WeChat DevTools run on the host;
+  // production hosts replace these values during their own application build.
+  apiDomain: 'http://127.0.0.1:11504',
+  imDomain: 'ws://127.0.0.1:11510/ws',
+  cosDomain: 'http://127.0.0.1:11504',
   // Fill platform-restricted AMap keys in the host app; never use a server Web Service key here.
   map: { provider: 'amap', h5Key: '', wechatMiniProgramKey: '' },
   themeMode: 'system',

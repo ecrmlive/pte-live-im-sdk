@@ -25,12 +25,20 @@ const bootstrap = createPteIMSDK({
 const im = bootstrap.login({
   sdkAppId: 1400000001,
   userId: '10001',
-  userSig: 'server-issued-usersig'
+  userSig: 'server-issued-usersig',
+  userSigExpireAt: 1_800_000_000,
+  userSigProvider: {
+    // 调用宿主业务认证服务的 refresh session；不要传入 UserSig 签名密钥。
+    refreshUserSig: async () => {
+      const session = await refreshBusinessIMSession()
+      return { userSig: session.userSig, expireAt: session.expireAt }
+    },
+  },
 })
 im.start()
 ```
 
-H5、微信小程序目标通过 `PteIMListener` 提供连接、消息、消息状态、UserSig 过期、外观变化、状态同步和错误事件；`addListener` 支持业务层与多个 UIKit 页面并行订阅，页面销毁时调用 `removeListener`。SDK 在断线后以 1–30 秒退避重连、收到消息后发送 ACK。默认不将消息、Outbox 或 `syncCursor` 写入 `uni` storage，避免明文缓存；需要重启恢复时，宿主必须在 `PteIMBaseConfig.localStorageCipher` 提供同步加解密器，且密钥不得写入 source 或 `uni` storage。`userSig` 永不写入 storage。配置了加密器后，SDK 会持久化 `syncCursor` 与最新 1,000 条已确认消息，提供 `localMessages()`、`localConversations()` 缓存读取，并在连接成功或服务端发出 `sync_required` 时调用 `syncNow()`；同步消息通过 listener 分发。该实现是加密热缓存，不是海量本地数据库；完整历史必须继续使用服务端游标分页。四端容量、加密与迁移规范见 [本地存储基线](../../docs/local-storage-contract.md)。
+H5、微信小程序目标通过 `PteIMListener` 提供连接、消息、消息状态、UserSig 过期、外观变化、状态同步和错误事件；`addListener` 支持业务层与多个 UIKit 页面并行订阅，页面销毁时调用 `removeListener`。提供 `userSigExpireAt` 与 `userSigProvider` 后，Core 会在到期前 5 分钟、HTTP 401 或 WSS 到期事件时自动续签；仅当 Provider 刷新失败时才触发 `onUserSigRefreshFailed`，由业务层回到登录页。SDK 在断线后以 1–30 秒退避重连、收到消息后发送 ACK。默认不将消息、Outbox 或 `syncCursor` 写入 `uni` storage，避免明文缓存；需要重启恢复时，宿主必须在 `PteIMBaseConfig.localStorageCipher` 提供同步加解密器，且密钥不得写入 source 或 `uni` storage。`userSig` 永不写入 storage。配置了加密器后，SDK 会持久化 `syncCursor` 与最新 1,000 条已确认消息，提供 `localMessages()`、`localConversations()` 缓存读取，并在连接成功或服务端发出 `sync_required` 时调用 `syncNow()`；同步消息通过 listener 分发。该实现是加密热缓存，不是海量本地数据库；完整历史必须继续使用服务端游标分页。四端容量、加密与迁移规范见 [本地存储基线](../../docs/local-storage-contract.md)。
 
 图片、视频和语音可直接上传并发送：`uploadAndSendImage(conversationId, filePath)`、`uploadAndSendVideo(conversationId, filePath)`、`uploadAndSendVoice(conversationId, filePath, durationMs, waveform?)`。它们先调用 `POST /v1/im/media/put-url`，再以 `uni.request` 的二进制 `PUT` 上传到返回的 Tencent COS URL；消息和 Outbox 只保存返回的 object key。上传期间发送 `uploading` 状态，成功后使用相同的 `clientMsgId` 转为 `pending` 并进入持久化 Outbox，失败则发送 `failed`。H5 的 `filePath` 应来自当前页面选择的本地文件，微信小程序应传递其文件选择 API 返回的临时路径；COS 必须允许对应站点的 `PUT`、`Content-Type` 跨域请求。
 

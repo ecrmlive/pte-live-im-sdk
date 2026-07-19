@@ -1,0 +1,61 @@
+<template>
+  <view class="pte-im-ui-navigation-shell">
+    <view class="pte-im-ui-navigation-bar" :class="dark ? 'is-dark' : ''" :style="{ paddingRight: rightInset + 'px' }">
+      <button v-if="showBack" class="pte-im-ui-navigation-back" @click="$emit('back')">
+        <image v-if="dark" src="/static/demo/PteIMUIChatNavBackDark.png" mode="aspectFit" />
+        <image v-else src="/static/demo/PteIMUIChatNavBackLight.svg" mode="aspectFit" />
+      </button>
+      <view v-else class="pte-im-ui-navigation-language" @click="menuOpen = !menuOpen"><text>{{ languageTitle() }}</text></view>
+      <text class="pte-im-ui-navigation-title">{{ title }}</text>
+      <image v-if="dark" class="pte-im-ui-navigation-appearance" src="/static/demo/PteIMUIDemoNavigationThemeDark.png" @click="toggleTheme" />
+      <image v-else class="pte-im-ui-navigation-appearance" src="/static/demo/PteIMUIDemoNavigationThemeLight.png" @click="toggleTheme" />
+    </view>
+    <view v-if="menuOpen" class="pte-im-ui-navigation-menu" :class="dark ? 'is-dark' : ''">
+      <view :class="['pte-im-ui-navigation-language-option', { 'is-selected': language === 'zh-CN' }]" @click="selectLanguage('zh-CN')"><text>简体中文</text><view class="pte-im-ui-navigation-language-indicator"></view></view>
+      <view :class="['pte-im-ui-navigation-language-option', { 'is-selected': language === 'en-US' }]" @click="selectLanguage('en-US')"><text>English</text><view class="pte-im-ui-navigation-language-indicator"></view></view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts">
+export default {
+  props: {
+    title: { type: String, default: '' },
+    language: { type: String, default: 'zh-CN' },
+    dark: { type: Boolean, default: false },
+    showBack: { type: Boolean, default: false },
+    rightInset: { type: Number, default: 15 }
+  },
+  emits: ['language-select', 'theme-select', 'back'],
+  data() { return { menuOpen: false } },
+  methods: {
+    languageTitle(): string { return this.language === 'en-US' ? 'English' : '简体中文' },
+    selectLanguage(language: string) { this.menuOpen = false; this.$emit('language-select', language) },
+    toggleTheme() { this.$emit('theme-select', this.dark ? 'light' : 'dark') }
+  }
+}
+</script>
+
+<style>
+.pte-im-ui-navigation-shell { position: relative; z-index: 100; overflow: visible; flex: none; }.pte-im-ui-navigation-shell button { border:0; outline:0; box-shadow:none; -webkit-appearance:none; appearance:none; }.pte-im-ui-navigation-shell button::after { border:0; }
+.pte-im-ui-navigation-bar { display: flex; flex-direction: row; align-items: center; height: 88rpx; padding: 0 30rpx; background-color: #F4F4FF; box-sizing: border-box; }
+.pte-im-ui-navigation-bar.is-dark { background-color: #0E111C; }
+.pte-im-ui-navigation-language { display: flex; width: 244rpx; height: 68rpx; align-items: center; justify-content: center; padding: 0; color: #656982; font-size: 28rpx; line-height: 68rpx; text-align: center; box-sizing: border-box; }
+.pte-im-ui-navigation-language > text { display: block; width: 100%; height: 68rpx; line-height: 68rpx; text-align: center; }
+.is-dark .pte-im-ui-navigation-language { color: #CCD3F2; border-radius: 36rpx; background-color: #25224D; }
+.pte-im-ui-navigation-back { display: flex; width: 88rpx; height: 88rpx; align-items: center; justify-content: center; margin: 0; padding: 0; border: 0; background: transparent; }
+.pte-im-ui-navigation-back image { width: 88rpx; height: 88rpx; }
+.pte-im-ui-navigation-title { flex: 1; overflow: hidden; color: #171C2E; font-size: 34rpx; font-weight: 600; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.is-dark .pte-im-ui-navigation-title { color: #EFF2FF; }
+.pte-im-ui-navigation-appearance { width: 80rpx; height: 80rpx; margin-left: 0; }
+.is-dark .pte-im-ui-navigation-appearance { border-radius: 40rpx; background-color: #222044; }
+.pte-im-ui-navigation-menu { position: absolute; z-index: 101; top: 104rpx; left: 30rpx; width: 368rpx; padding: 12rpx; border: 1rpx solid #E7E2FA; border-radius: 36rpx; background-color: #FFFFFF; box-shadow: 0 12rpx 28rpx rgba(27, 27, 52, .16); box-sizing: border-box; }
+.pte-im-ui-navigation-menu.is-dark { border-color:#3C3668; background-color: #181735; box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, .35); }
+.pte-im-ui-navigation-language-option { display: flex; height: 88rpx; padding: 0 28rpx; flex-direction: row; align-items: center; justify-content: space-between; border-radius: 26rpx; box-sizing: border-box; }
+.pte-im-ui-navigation-language-option text { color: #303349; font-size: 30rpx; line-height: 88rpx; }
+.pte-im-ui-navigation-menu.is-dark .pte-im-ui-navigation-language-option text { color: #EFF2FF; }
+.pte-im-ui-navigation-language-option.is-selected { background-color: #F2EDFF; }
+.pte-im-ui-navigation-menu.is-dark .pte-im-ui-navigation-language-option.is-selected { background-color: #2A2654; }
+.pte-im-ui-navigation-language-indicator { width: 20rpx; height: 20rpx; border-radius: 10rpx; background-color: transparent; }
+.pte-im-ui-navigation-language-option.is-selected .pte-im-ui-navigation-language-indicator { background-color: #9A50FF; }
+</style>

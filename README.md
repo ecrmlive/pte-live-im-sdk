@@ -57,10 +57,10 @@ Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 
 
 ```text
 PteIMBaseConfig(apiDomain, imDomain, cosDomain, commerceDomain?, themeMode, language)
-PteIMLoginConfig(sdkAppId, userId, userSig)
+PteIMLoginConfig(sdkAppId, userId, userSig, userSigExpireAt?, userSigProvider?)
 ```
 
-`apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。
+`apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。`userSigProvider` 是 SDK Core 的宿主适配点：它只负责用宿主保存的 refresh session 向业务服务换取 `{ userSig, expireAt }`。Core 会在到期前 5 分钟、HTTP 401 和 WSS 过期事件时自动调用它、更新 WSS 凭证并同步数据；业务账号密码、refresh token 存储和风控不进入 SDK。
 
 ### Android
 
@@ -123,7 +123,16 @@ PteIMUIChat({ client: im, conversationId: conversation.id.toString() })
 import { createPteIMSDK } from '@/uni_modules/pte-im-sdk/utssdk/web/index.uts'
 
 const im = createPteIMSDK({ apiDomain, imDomain, cosDomain, themeMode: 'system', language: 'system' })
-  .login({ sdkAppId, userId, userSig })
+  .login({
+    sdkAppId, userId, userSig, userSigExpireAt,
+    userSigProvider: {
+      // 由宿主调用自己的业务认证接口；SDK 不持有签名密钥。
+      refreshUserSig: async () => {
+        const session = await refreshIMSession()
+        return { userSig: session.userSig, expireAt: session.expireAt }
+      },
+    },
+  })
 im.start()
 ```
 
@@ -131,7 +140,7 @@ im.start()
 
 ## 运行 PteIMUIDemo
 
-每个 Demo 都通过 `api-im` 的真实演示业务流程登录：注册使用手机号、唯一昵称、密码与一次性图形验证码；登录使用手机号、密码与图形验证码。中国大陆手机号可直接输入 11 位号码，国际号码使用 E.164 格式（例如 `+14155552671`）。后端绑定默认 IM App 并返回 `userId` 和短期 `userSig`，客户端仅在内存中使用 UserSig，不保存密码、验证码或 UserSig。登录后可从“联系人 → 添加好友”进入已注册演示用户列表，完成真实的双向好友关系创建。
+每个 Demo 都通过 `api-im` 的真实演示业务流程登录：注册使用手机号、唯一昵称、密码与一次性图形验证码；登录使用手机号、密码与图形验证码。中国大陆手机号可直接输入 11 位号码，国际号码使用 E.164 格式（例如 `+14155552671`）。后端绑定默认 IM App 并返回 `userId`、短期 `userSig` 与轮换 refresh session；客户端仅在内存中使用 UserSig，不保存密码或验证码，应用恢复时由业务层先用 refresh session 换取新 UserSig。生产宿主必须将 refresh session 放入平台安全存储，不能交给 Core SDK 或写入源码。登录后可从“联系人 → 添加好友”进入已注册演示用户列表，完成真实的双向好友关系创建。
 
 ```sh
 # Android（仓库已固定 Gradle Wrapper 9.5.0）
@@ -182,7 +191,9 @@ PteIMUIKit 采用“消息内容单元 + 独立输入条 + 宿主业务回调”
 
 Android 的 `PteIMUINotice` 是 UIKit 内置反馈组件，提供 `success`、`error`、`info` 三种语义提示；默认底部弹出，也可配置居中、显示时长、亮暗色板和独立提示颜色。它会自动避免键盘与导航栏，并替换同一窗口内上一条提示。
 
-输入条固定顺序为：`语音切换` → `输入框 / 按住说话` → `+` → `表情` → `发送`。点击语音后，中间区域变为“按住说话”；开始和结束录音只通知宿主，录音权限、编码、上传完成后调用 Core 的 `sendVoice` 仍由业务负责。Android `+` 面板内置图片、拍摄、视频、文件和位置选择：UIKit 使用系统选择器、COS 上传与 Core 消息发送；位置使用 UIKit 自身的当前位置/地点搜索/坐标确认页。礼物、红包、订单和自定义消息只输出统一 Core 消息格式与宿主回调，不完成支付或业务详情。表情面板内置默认表情项。
+输入条固定顺序为：`语音切换` → `输入框 / 按住说话` → `表情` → `+` → `发送`。点击语音后，中间区域变为“按住说话”；手指移出按钮显示“松开手取消录音”。`PteIMUIInputBar` 支持 200 字符上限、40–100px 多行输入、常用/全部表情、44×44 表情格和最多 12 个的三行功能面板（默认 8 项 + 最多 4 项宿主扩展）。
+
+uni-app x 的 `PteIMUIChat` 在 H5 与微信小程序内置图片、相机、视频、文件、地点选择、COS 上传及消息发送：H5 使用 `uni.chooseImage`、`uni.chooseVideo`、`uni.chooseFile`、`uni.chooseLocation` 和浏览器 `MediaRecorder`；微信小程序使用系统媒体/文件/地点选择器与录音管理器。H5 地点选择需在 manifest 的 Web 地图配置中填写受域名限制的地图 Key；微信小程序由其平台地图能力处理。红包、礼物、订单和自定义消息只输出统一 Core 消息格式与宿主回调，不完成支付或业务详情。
 
 默认视觉是蓝紫渐变发送气泡与发送按钮，并为亮/暗模式提供两套完全独立的组件色板：背景、会话面、输入栏、收发气泡、渐变、文字、图标、分割线、表情面板和更多面板均可分别配置。
 

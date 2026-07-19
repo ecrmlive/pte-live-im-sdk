@@ -104,6 +104,7 @@ open class PteIMUIVideoPreviewController: UIViewController {
   private var playerLayer: AVPlayerLayer?
   private var periodicTimeObserver: Any?
   private var duration: Double = 0
+  private let playbackIdentifier = "video-preview-\(UUID().uuidString)"
 
   public init(videoURL: URL?, placeholderImage: UIImage? = nil, title: String? = nil) {
     self.videoURL = videoURL
@@ -137,7 +138,7 @@ open class PteIMUIVideoPreviewController: UIViewController {
   open override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); playerLayer?.frame = playerContainer.bounds }
   open override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
-    if isBeingDismissed || navigationController?.isBeingDismissed == true { removeTimeObserver() }
+    if isBeingDismissed || navigationController?.isBeingDismissed == true { removeTimeObserver(); PteIMUIMediaPlayback.shared.release(identifier: playbackIdentifier) }
   }
 
   private func configurePlaybackControls() {
@@ -206,6 +207,7 @@ open class PteIMUIVideoPreviewController: UIViewController {
     if player.timeControlStatus == .playing {
       player.pause(); playButton.setImage(UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)), for: .normal)
     } else {
+      PteIMUIMediaPlayback.shared.activateVideo(identifier: playbackIdentifier, player: player)
       player.play(); placeholderView.isHidden = true; playButton.setImage(UIImage(systemName: "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)), for: .normal)
     }
   }

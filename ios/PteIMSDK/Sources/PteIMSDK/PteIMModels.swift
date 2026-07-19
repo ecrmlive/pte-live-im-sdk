@@ -76,13 +76,24 @@ public struct PteIMBaseConfig: Sendable {
   }
 }
 
+public struct PteIMUserSigRefreshResult: Sendable {
+  public let userSig: String
+  public let expireAt: Int64
+  public init(userSig: String, expireAt: Int64) { self.userSig = userSig; self.expireAt = expireAt }
+}
+
+/** Host business-auth bridge. It returns a renewed credential without exposing any IM signing secret. */
+public typealias PteIMUserSigProvider = @Sendable () async throws -> PteIMUserSigRefreshResult
+
 public struct PteIMLoginConfig: Sendable {
   public let sdkAppId: Int64
   public let userId: String
   public var userSig: String
-  public init(sdkAppId: Int64, userId: String, userSig: String) throws {
+  public var userSigExpireAt: Int64
+  public let userSigProvider: PteIMUserSigProvider?
+  public init(sdkAppId: Int64, userId: String, userSig: String, userSigExpireAt: Int64 = 0, userSigProvider: PteIMUserSigProvider? = nil) throws {
     guard sdkAppId > 0, let numericUserId = UInt64(userId), numericUserId > 0, !userSig.isEmpty else { throw PteIMError.invalidCredentials }
-    self.sdkAppId = sdkAppId; self.userId = userId; self.userSig = userSig
+    self.sdkAppId = sdkAppId; self.userId = userId; self.userSig = userSig; self.userSigExpireAt = userSigExpireAt; self.userSigProvider = userSigProvider
   }
 }
 
@@ -93,6 +104,8 @@ public struct PteIMSessionConfig: Sendable {
   var apiDomain: URL { base.apiDomain }; var imDomain: URL { base.imDomain }; var cosDomain: URL { base.cosDomain }; var commerceDomain: URL? { base.commerceDomain }
   var sdkAppId: Int64 { login.sdkAppId }; var userId: String { login.userId }
   var userSig: String { get { login.userSig } set { login.userSig = newValue } }
+  var userSigExpireAt: Int64 { get { login.userSigExpireAt } set { login.userSigExpireAt = newValue } }
+  var userSigProvider: PteIMUserSigProvider? { login.userSigProvider }
   var storeKey: String { "\(base.apiDomain.absoluteString.lowercased())|\(base.imDomain.absoluteString.lowercased())|\(base.cosDomain.absoluteString.lowercased())|\(login.sdkAppId)|\(login.userId)" }
 }
 

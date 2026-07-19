@@ -1,4 +1,5 @@
 import { PteIMUIMediaPreviewHandler, PteIMUIMediaPreviewNavigationHandler } from './PteIMUIKit'
+import { PteIMUIMediaPlayback } from './PteIMUIMediaPlayback'
 
 /**
  * Independently embeddable image preview. Hosts can subclass the handler to save into an
@@ -40,10 +41,11 @@ export struct PteIMUIVideoPreview {
       Text('').width('100%').height('100%').backgroundColor('#E6000000').onClick(() => this.navigationHandler.close())
       if (this.uri.length > 0) {
         Video({ src: this.uri, controller: this.controller }).width('100%').height('78%').objectFit(ImageFit.Contain).autoPlay(true).controls(true)
+          .onStart(() => PteIMUIMediaPlayback.activate('video-preview', (): void => { this.controller.pause() }))
           .gesture(LongPressGesture().onAction(() => this.handler.saveVideo(this.uri)))
       }
       Button('×').width(44).height(44).fontSize(30).fontColor(Color.White).backgroundColor('#33000000').borderRadius(22)
-        .position({ x: '86%', y: 24 }).onClick(() => { this.controller.pause(); this.navigationHandler.close() })
+        .position({ x: '86%', y: 24 }).onClick(() => { this.controller.pause(); PteIMUIMediaPlayback.release('video-preview'); this.navigationHandler.close() })
     }.width('100%').height('100%')
   }
 }

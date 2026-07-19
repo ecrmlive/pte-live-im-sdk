@@ -99,9 +99,12 @@ export class PteIMBaseConfig {
   }
 
   validate(): void {
-    if (!this.apiDomain.startsWith('https://')) throw new Error('apiDomain must be an HTTPS origin')
-    if (!this.imDomain.startsWith('wss://') || !this.imDomain.endsWith('/ws')) throw new Error('imDomain must be a WSS URL ending in /ws')
-    if (!this.cosDomain.startsWith('https://')) throw new Error('cosDomain must be an HTTPS origin')
+    const localAPI = this.apiDomain.startsWith('http://127.0.0.1:')
+    const localIM = this.imDomain.startsWith('ws://127.0.0.1:')
+    const localCOS = this.cosDomain.startsWith('http://127.0.0.1:')
+    if (!localAPI && !this.apiDomain.startsWith('https://')) throw new Error('apiDomain must be an HTTPS origin')
+    if (!(localIM || this.imDomain.startsWith('wss://')) || !this.imDomain.endsWith('/ws')) throw new Error('imDomain must be a WSS URL ending in /ws')
+    if (!localCOS && !this.cosDomain.startsWith('https://')) throw new Error('cosDomain must be an HTTPS origin')
     if (this.commerceDomain.length > 0 && !this.commerceDomain.startsWith('https://')) throw new Error('commerceDomain must be an HTTPS origin')
   }
 }
@@ -110,11 +113,15 @@ export class PteIMLoginConfig {
   sdkAppId: number
   userId: string
   userSig: string
+  userSigExpireAt: number
+  userSigProvider: PteIMUserSigProvider | null
 
-  constructor(sdkAppId: number, userId: string, userSig: string) {
+  constructor(sdkAppId: number, userId: string, userSig: string, userSigExpireAt: number = 0, userSigProvider: PteIMUserSigProvider | null = null) {
     this.sdkAppId = sdkAppId
     this.userId = userId
     this.userSig = userSig
+    this.userSigExpireAt = userSigExpireAt
+    this.userSigProvider = userSigProvider
   }
 
   validate(): void {
@@ -123,6 +130,16 @@ export class PteIMLoginConfig {
     if (this.userSig.length === 0) throw new Error('userSig is required')
   }
 }
+
+export class PteIMUserSigRefreshResult {
+  userSig: string
+  expireAt: number
+
+  constructor(userSig: string, expireAt: number) { this.userSig = userSig; this.expireAt = expireAt }
+}
+
+/** Host business-auth bridge. It exchanges a refresh session without exposing an IM signing secret. */
+export interface PteIMUserSigProvider { refreshUserSig(): Promise<PteIMUserSigRefreshResult> }
 
 export class PteIMAppearance {
   themeMode: PteIMThemeMode
@@ -347,8 +364,7 @@ export class PteIMListener {
   onStateChanges(_changes: PteIMStateChange[]): void {}
   onMessage(_message: PteIMMessage): void {}
   onMessageStateChanged(_clientMsgId: string, _state: PteIMSendState): void {}
-  onUserSigWillExpire(): void {}
-  onUserSigExpired(): void {}
+  onUserSigRefreshFailed(error: Error): void {}
   onThemeModeChanged(_themeMode: PteIMThemeMode): void {}
   onLanguageChanged(_language: PteIMLanguage): void {}
   onError(_error: Error): void {}

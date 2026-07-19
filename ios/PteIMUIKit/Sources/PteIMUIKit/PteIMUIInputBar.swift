@@ -30,6 +30,7 @@ open class PteIMUIInputBar: UIView, UITextViewDelegate {
   /** Lets a chat consume an emoji before it is inserted in the draft. */
   public var onEmojiSelected: ((String) -> Bool)?
   public var onVoiceRecordingChanged: ((Bool) -> Void)?
+  public var onVoiceRecordingCancelled: (() -> Void)?
   public var skin: PteIMUISkin { didSet { theme = skin.theme; applySkin() } }
   public var enabledActions: Set<PteIMUIAction> = Set(PteIMUIAction.allCases) { didSet { rebuildMorePanel() } }
   /// Up to four host-owned business actions follow the built-in eight items.
@@ -414,9 +415,8 @@ open class PteIMUIInputBar: UIView, UITextViewDelegate {
   @objc private func voiceTouchCancelled() { finishVoiceRecording(cancelled: true) }
   private func finishVoiceRecording(cancelled: Bool) {
     voiceState = .idle; updateVoiceButtonState()
-    // A host receives the false edge for both completion and cancellation;
-    // it can discard a cancelled draft by observing `isVoiceRecordingCancelled`.
     isVoiceRecordingCancelled = cancelled
+    if cancelled { delegate?.inputBarDidCancelVoiceRecording(self); onVoiceRecordingCancelled?() }
     delegate?.inputBar(self, voiceRecordingChanged: false); onVoiceRecordingChanged?(false)
   }
   /** True only during the completion callback following a drag-out cancel. */

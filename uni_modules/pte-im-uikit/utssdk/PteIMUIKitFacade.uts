@@ -1,8 +1,26 @@
-import { PteIMContact, PteIMContactPage, PteIMConversation, PteIMGroupPage, PteIMIncomingMessage, PteIMListener, PteIMLocation, PteIMMapConfig, PteIMSDKClient } from '../../pte-im-sdk/utssdk/interface.uts'
+import { PteIMContact, PteIMContactPage, PteIMConversation, PteIMGroupPage, PteIMIncomingMessage, PteIMListener, PteIMLocation, PteIMMapConfig, PteIMRemoteConversation, PteIMSDKClient } from '../../pte-im-sdk/utssdk/interface.uts'
 
 /** Actions that require host application permissions, pickers, or business data. */
 /** Built-in actions whose permissions and media selection are completed by UIKit. */
 export type PteIMUIAction = 'image' | 'camera' | 'video' | 'voice' | 'location' | 'gift' | 'red_packet' | 'order' | 'file'
+/** Shared feedback semantics for all UIKit hosts. */
+export type PteIMUINoticeKind = 'success' | 'error' | 'warning'
+export type PteIMUINoticePosition = 'bottom' | 'center'
+export type PteIMUINoticePayload = { message: string, kind: PteIMUINoticeKind, position: PteIMUINoticePosition, duration: number, revision: number }
+/** Host bridge for the reusable notice component. New notices replace the prior one. */
+export class PteIMUINoticeHandler {
+  private revision: number = 0
+  constructor(private callback: (notice: PteIMUINoticePayload) => void = (_notice: PteIMUINoticePayload) => {}) {}
+  show(message: string, kind: PteIMUINoticeKind = 'warning', position: PteIMUINoticePosition = 'bottom', duration: number = 2600): void {
+    const value = message.trim()
+    if (value.length === 0) return
+    this.revision += 1
+    this.callback({ message: value, kind, position, duration: Math.max(400, duration), revision: this.revision })
+  }
+  success(message: string, position: PteIMUINoticePosition = 'bottom', duration: number = 2600): void { this.show(message, 'success', position, duration) }
+  error(message: string, position: PteIMUINoticePosition = 'bottom', duration: number = 3200): void { this.show(message, 'error', position, duration) }
+  warning(message: string, position: PteIMUINoticePosition = 'bottom', duration: number = 3000): void { this.show(message, 'warning', position, duration) }
+}
 /**
  * An optional host action rendered in the last four slots of the composer.
  * UIKit never invents a business payload for these actions; it reports `id`
@@ -18,7 +36,7 @@ export class PteIMUIMapNavigationHandler {
 export type PteIMUIEmoji = { id: string, value: string, imageUrl?: string, group?: 'common' | 'all' }
 export type PteIMUIMessageAction = 'quote' | 'copy' | 'delete' | 'revoke' | 'reaction' | 'retry'
 export type PteIMUIContactListMode = 'friends' | 'follows' | 'groups' | 'custom'
-export type PteIMUIContactPresentation = { identifier: string, title: string, subtitle: string, avatarText: string, isGroup: boolean }
+export type PteIMUIContactPresentation = { identifier: string, title: string, subtitle: string, avatarText: string, avatar?: string, isGroup: boolean, online?: boolean }
 
 /** Business-owned reaction summary. Core only transports messages, not UI reaction state. */
 export type PteIMUIReaction = { emoji: string, count: number }
@@ -27,6 +45,11 @@ export class PteIMUIReactionProvider {
   reactionsFor(_message: PteIMIncomingMessage): PteIMUIReaction[] { return [] }
   /** Return the persisted current-user vote so UIKit can render the selected reaction. */
   reactedByMe(_message: PteIMIncomingMessage, _emoji: string): boolean { return false }
+}
+
+/** Business-owned read receipt source. UIKit renders the supplied state but never fabricates receipt data. */
+export class PteIMUIReadReceiptProvider {
+  isRead(_message: PteIMIncomingMessage): boolean { return false }
 }
 
 /** Explicit colours for one appearance. Light and dark palettes are never auto-inverted. */
@@ -61,6 +84,7 @@ export class PteIMUIChatController {
   private active: boolean = true
   private listener: PteIMListener
   private optimistic: PteIMIncomingMessage[] = []
+  private visibleLimit: number = 20
 
   constructor(private client: PteIMSDKClient, readonly conversationId: string) {
     this.listener = {
@@ -74,12 +98,20 @@ export class PteIMUIChatController {
   }
 
   refresh(): void {
-    const local = this.client.localMessages(this.conversationId, 100)
+    const all = this.client.localMessages(this.conversationId, 1000)
+    const local = all.slice(Math.max(0, all.length - this.visibleLimit))
     const localIds = local.map((message: PteIMIncomingMessage) => message.clientMsgId)
     this.optimistic = this.optimistic.filter((message: PteIMIncomingMessage) => localIds.indexOf(message.clientMsgId) < 0)
     this.messages = local.concat(this.optimistic).sort((left: PteIMIncomingMessage, right: PteIMIncomingMessage) => left.createdAt - right.createdAt)
     this.changed()
   }
+  /** Reveals the next page of durable, server-synchronised history. */
+  loadOlder(): void {
+    const available = this.client.localMessages(this.conversationId, 1000).length
+    this.visibleLimit = Math.min(available, this.visibleLimit + 20)
+    this.refresh()
+  }
+  hasOlder(): boolean { return this.client.localMessages(this.conversationId, 1000).length > this.visibleLimit }
   sendText(text: string): string {
     const value = text.trim()
     if (value.length == 0) return ''
@@ -107,21 +139,111 @@ export class PteIMUIChatController {
   private changed(): void { this.onChanged?.() }
 }
 
-/** Cache-first conversation controller. Call refresh after an explicit sync when necessary. */
+/**
+ * Conversation rows are driven by the server's conversation summaries.  A
+ * message-only cache is not enough: a newly logged-in device can legitimately
+ * have no local messages while the account already owns conversations.
+ */
 export class PteIMUIConversationListController {
   conversations: PteIMConversation[] = []
   onChanged: (() => void) | null = null
   private active: boolean = true
   private listener: PteIMListener
+  private loadingRemote: boolean = false
+  private loadingFriendNames: boolean = false
+  private friendNames: any = {}
+  private friendAvatars: any = {}
+  private refreshVersion: number = 0
   constructor(private client: PteIMSDKClient) {
     this.listener = {
+      onConnectionChanged: (connected: boolean): void => { if (this.active && connected) this.refresh() },
       onMessage: (_message): void => { if (this.active) this.refresh() },
       onMessageStateChanged: (_event): void => { if (this.active) this.refresh() }
     }
     this.refresh()
     client.addListener(this.listener)
   }
-  refresh(): void { this.conversations = this.client.localConversations(100); this.onChanged?.() }
+  refresh(): void {
+    // Render the durable cache immediately, then replace/complete it with the
+    // authoritative page. This keeps offline behaviour while fixing a first
+    // login after server-side data was prepared.
+    this.conversations = this.client.localConversations(100)
+    this.onChanged?.()
+    this.loadFriendNames()
+    this.loadRemotePage()
+  }
+  private loadFriendNames(): void {
+    if (this.loadingFriendNames || Object.keys(this.friendNames).length > 0) return
+    this.loadingFriendNames = true
+    this.client.fetchFriends('', 100, (page, error): void => {
+      this.loadingFriendNames = false
+      if (!this.active || page == null || error != null) return
+      page.list.forEach((friend: PteIMContact): void => {
+        const title = friend.remark.length > 0 ? friend.remark : friend.nickname
+        if (title.length > 0) this.friendNames[friend.userId] = title
+        if (friend.avatar.length > 0) this.friendAvatars[friend.userId] = friend.avatar
+      })
+      // A conversation request already in flight will use these names. When
+      // it has completed, load the summaries once more to update the labels.
+      if (!this.loadingRemote) this.loadRemotePage()
+    })
+  }
+  private loadRemotePage(): void {
+    if (this.loadingRemote) return
+    this.loadingRemote = true
+    const version = ++this.refreshVersion
+    this.client.fetchConversationPage(1, 100, (page, error): void => {
+      this.loadingRemote = false
+      if (!this.active || version != this.refreshVersion || page == null || error != null) return
+      this.conversations = this.mergeRemoteConversations(page.items)
+      this.onChanged?.()
+    })
+  }
+  private mergeRemoteConversations(remoteValues: PteIMRemoteConversation[]): PteIMConversation[] {
+    const localValues = this.client.localConversations(100)
+    const localByConversation: any = {}
+    localValues.forEach((value: PteIMConversation): void => { localByConversation[value.conversationId] = value })
+    const merged: PteIMConversation[] = []
+    remoteValues.forEach((remote: PteIMRemoteConversation): void => {
+      const conversationId = String(remote.id)
+      const local = localByConversation[conversationId] as PteIMConversation | null
+      const placeholder: PteIMIncomingMessage = {
+        clientMsgId: 'pte-im-summary-' + conversationId,
+        conversationId,
+        type: 'text',
+        createdAt: remote.lastMessageAt * 1000,
+        content: { text: remote.lastMessageSnapshot ?? '' }
+      }
+      merged.push({
+        conversationId,
+        lastMessage: local?.lastMessage ?? placeholder,
+        updatedAt: local?.updatedAt ?? placeholder.createdAt,
+        title: this.titleForRemote(remote, conversationId),
+        avatar: this.avatarForRemote(remote),
+        unreadCount: remote.unreadCount
+      })
+      delete localByConversation[conversationId]
+    })
+    Object.keys(localByConversation).forEach((conversationId: string): void => {
+      merged.push(localByConversation[conversationId] as PteIMConversation)
+    })
+    return merged.sort((left: PteIMConversation, right: PteIMConversation): number => right.updatedAt - left.updatedAt)
+  }
+  private titleForRemote(remote: PteIMRemoteConversation, conversationId: string): string {
+    if (remote.title.length > 0) return remote.title
+    if (remote.type != 'single') return conversationId
+    const currentUserId = this.client.currentUserId()
+    const peerId = (remote.singleKey ?? '').split(':').find((value: string): boolean => value != currentUserId)
+    if (peerId != null && this.friendNames[peerId] != null) return String(this.friendNames[peerId])
+    return '私聊'
+  }
+  private avatarForRemote(remote: PteIMRemoteConversation): string {
+    if (String(remote.avatar ?? '').length > 0) return String(remote.avatar)
+    if (remote.type != 'single') return ''
+    const currentUserId = this.client.currentUserId()
+    const peerId = (remote.singleKey ?? '').split(':').find((value: string): boolean => value != currentUserId)
+    return peerId != null && this.friendAvatars[peerId] != null ? String(this.friendAvatars[peerId]) : ''
+  }
   dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null }
 }
 
@@ -136,7 +258,7 @@ export class PteIMUIContactListController {
   loading: boolean = false
   onChanged: (() => void) | null = null
   onError: ((message: string) => void) | null = null
-  onConversationSelected: ((conversationId: string, title: string) => void) | null = null
+  onConversationSelected: ((conversationId: string, title: string, avatar: string) => void) | null = null
   private cursor: string = ''
   private active: boolean = true
   private listener: PteIMListener
@@ -162,19 +284,19 @@ export class PteIMUIContactListController {
   }
   dispose(): void { this.active = false; this.client.removeListener(this.listener); this.onChanged = null; this.onError = null; this.onConversationSelected = null }
   select(item: PteIMUIContactPresentation): void {
-    if (item.isGroup) { this.onConversationSelected?.(item.identifier, item.title); return }
+    if (item.isGroup) { this.onConversationSelected?.(item.identifier, item.title, String(item.avatar ?? '')); return }
     if (!/^[1-9][0-9]*$/.test(item.identifier)) { this.failed('invalid contact userId'); return }
     const userId = Number(item.identifier)
     this.client.openSingleConversation(userId, (conversation, error) => {
       if (conversation == null || error != null) { this.failed(error ?? 'could not open conversation'); return }
-      this.onConversationSelected?.(String(conversation.id), item.title)
+      this.onConversationSelected?.(String(conversation.id), item.title, String(item.avatar ?? ''))
     })
   }
   private receiveContacts(page: PteIMContactPage | null, error: string | null, replacing: boolean): void {
     if (page == null || error != null) { this.failed(error ?? 'could not load contacts'); return }
     const values = page.list.map((contact: PteIMContact): PteIMUIContactPresentation => {
       const title = contact.remark.length > 0 ? contact.remark : (contact.nickname.length > 0 ? contact.nickname : contact.userId)
-      return { identifier: contact.userId, title, subtitle: contact.remark.length > 0 ? contact.nickname : '', avatarText: title.substring(0, 1), isGroup: false }
+      return { identifier: contact.userId, title, subtitle: contact.remark.length > 0 ? contact.nickname : '', avatarText: title.substring(0, 1), avatar: contact.avatar, isGroup: false, online: Boolean((contact as any).online) }
     })
     this.apply(values, page.nextCursor, page.hasMore, replacing)
   }
@@ -182,7 +304,7 @@ export class PteIMUIContactListController {
     if (page == null || error != null) { this.failed(error ?? 'could not load groups'); return }
     const values = page.list.map((group): PteIMUIContactPresentation => {
       const identifier = String(group.id); const title = group.title.length > 0 ? group.title : identifier
-      return { identifier, title, subtitle: '', avatarText: title.substring(0, 1), isGroup: true }
+      return { identifier, title, subtitle: String((group as any).subtitle ?? group.lastMessageSnapshot ?? ''), avatarText: title.substring(0, 1), avatar: String(group.avatar ?? ''), isGroup: true }
     })
     this.apply(values, page.nextCursor, page.hasMore, replacing)
   }

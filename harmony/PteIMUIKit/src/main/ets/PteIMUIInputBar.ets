@@ -9,12 +9,14 @@ export class PteIMUIInputCallbacks {
   private actionSelectedCallback: (action: PteIMUIAction) => void
   private customActionSelectedCallback: (action: PteIMUICustomAction) => void
   private voiceRecordingChangedCallback: (recording: boolean) => void
+  private voiceRecordingCancelledCallback: () => void
 
-  constructor(sendTextCallback: (text: string) => void, emojiSelectedCallback: (packageId: string, emojiId: string, text: string) => void, actionSelectedCallback: (action: PteIMUIAction) => void, voiceRecordingChangedCallback: (recording: boolean) => void, customActionSelectedCallback: (action: PteIMUICustomAction) => void = (_action: PteIMUICustomAction) => {}) {
+  constructor(sendTextCallback: (text: string) => void, emojiSelectedCallback: (packageId: string, emojiId: string, text: string) => void, actionSelectedCallback: (action: PteIMUIAction) => void, voiceRecordingChangedCallback: (recording: boolean) => void, customActionSelectedCallback: (action: PteIMUICustomAction) => void = (_action: PteIMUICustomAction) => {}, voiceRecordingCancelledCallback: () => void = () => {}) {
     this.sendTextCallback = sendTextCallback
     this.emojiSelectedCallback = emojiSelectedCallback
     this.actionSelectedCallback = actionSelectedCallback; this.customActionSelectedCallback = customActionSelectedCallback
     this.voiceRecordingChangedCallback = voiceRecordingChangedCallback
+    this.voiceRecordingCancelledCallback = voiceRecordingCancelledCallback
   }
 
   sendText(text: string): void { this.sendTextCallback(text) }
@@ -22,6 +24,7 @@ export class PteIMUIInputCallbacks {
   actionSelected(action: PteIMUIAction): void { this.actionSelectedCallback(action) }
   customActionSelected(action: PteIMUICustomAction): void { this.customActionSelectedCallback(action) }
   voiceRecordingChanged(recording: boolean): void { this.voiceRecordingChangedCallback(recording) }
+  voiceRecordingCancelled(): void { this.voiceRecordingCancelledCallback() }
 }
 
 /** Reusable ArkUI InputBar with voice, emoji, and a three-row action panel. */
@@ -55,11 +58,10 @@ export struct PteIMUIInputBar {
         }.width(40).height(40).padding(0).backgroundColor(Color.Transparent).onClick(() => { this.dismissTransientUi(); this.voiceMode = !this.voiceMode; this.recording = false })
         if (this.voiceMode) {
           Button() {
-            Row({ space: 7 }) {
-              if (this.recording) Image($r('app.media.PteIMUIChatVoiceModeDark')).width(21).height(21).objectFit(ImageFit.Contain)
+            Row() {
               Text(this.recording ? (this.cancelRecording ? this.copy('cancel') : this.copy('talking')) : this.copy('hold')).fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.recording ? Color.White : this.palette.text)
             }.justifyContent(FlexAlign.Center)
-          }.layoutWeight(1).height(40).backgroundColor(this.recording ? this.palette.outgoingEnd : this.palette.composerInput).borderRadius(12)
+          }.layoutWeight(1).height(40).backgroundColor(this.recording ? (this.cancelRecording ? '#FA4D50' : this.palette.outgoingEnd) : this.palette.composerInput).borderRadius(12)
             .onTouch((event: TouchEvent) => this.handleVoiceTouch(event))
           Button() { this.moreToggleIcon() }.width(40).height(40).padding(0).backgroundColor(Color.Transparent).onClick(() => this.toggleMorePanel())
         } else {
@@ -245,7 +247,7 @@ export struct PteIMUIInputBar {
   private handleVoiceTouch(event: TouchEvent): void {
     if (event.type === TouchType.Down) { this.recording = true; this.cancelRecording = false; this.callbacks.voiceRecordingChanged(true) }
     if (event.type === TouchType.Move && this.recording && event.touches.length > 0) { const point = event.touches[0]; this.cancelRecording = point.x < -8 || point.y < -8 || point.y > 48 }
-    if (event.type === TouchType.Up || event.type === TouchType.Cancel) { this.recording = false; this.cancelRecording = false; this.callbacks.voiceRecordingChanged(false) }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) { const cancelled = this.cancelRecording || event.type === TouchType.Cancel; this.recording = false; this.cancelRecording = false; if (cancelled) this.callbacks.voiceRecordingCancelled(); this.callbacks.voiceRecordingChanged(false) }
   }
-  private copy(key: string): string { const english = this.language === PteIMLanguage.EN_US; if (key === 'message') return english ? 'Say something...' : '说点什么...'; if (key === 'send') return english ? 'Send' : '发送'; if (key === 'hold') return english ? 'Hold to Record' : '按住录音'; if (key === 'talking') return english ? 'Talking' : '正在说话'; if (key === 'cancel') return english ? 'Release to cancel' : '松开手取消录音'; return english ? 'Emoji' : '表情' }
+  private copy(key: string): string { const english = this.language === PteIMLanguage.EN_US; if (key === 'message') return english ? 'Say something...' : '说点什么...'; if (key === 'send') return english ? 'Send' : '发送'; if (key === 'hold') return english ? 'Hold to talk' : '按住说话'; if (key === 'talking') return english ? 'Talking' : '正在说话'; if (key === 'cancel') return english ? 'Release to cancel' : '松开手取消录音'; return english ? 'Emoji' : '表情' }
 }

@@ -1,0 +1,128 @@
+import { PteIMBaseConfig, PteIMLoginConfig, PteIMSDKBootstrap, PteIMUserSigProvider, PteIMUserSigRefreshResult } from './uni_modules/pte-im-sdk/utssdk/interface.uts'
+import { PteIME2EE } from './uni_modules/pte-im-sdk/utssdk/e2ee.uts'
+// #ifdef WEB
+import { createPteIMSDK } from './uni_modules/pte-im-sdk/utssdk/web/index.uts'
+// #endif
+// #ifdef MP-WEIXIN
+import { createPteIMSDK } from './uni_modules/pte-im-sdk/utssdk/mp-weixin/index.uts'
+// #endif
+
+export type PteIMDemoCaptcha = { captchaID: string, imageData: string }
+export type PteIMDemoCredential = { sdkAppId: number, userId: string, userSig: string, expireAt: number, refreshToken: string, refreshExpireAt: number, mobile: string, nickname: string }
+export type PteIMDemoUser = { userId: string, nickname: string, mobile: string }
+export type PteIMDemoUserPage = { items: PteIMDemoUser[], page: number, pageSize: number, hasMore: boolean }
+
+/**
+ * Business-auth bridge shared by H5 and WeChat. It mirrors the Harmony
+ * response-key envelope protocol and never contains an IM signing secret.
+ */
+export class PteIMUIDemoBusinessAuth {
+  private readonly bootstrap: PteIMSDKBootstrap
+  private readonly responseCrypto: PteIME2EE
+
+  constructor(private readonly base: PteIMBaseConfig) {
+    this.bootstrap = createPteIMSDK(base)
+    this.responseCrypto = new PteIME2EE(base, { sdkAppId: 1, userId: '1', userSig: 'business-auth' } as PteIMLoginConfig)
+  }
+
+  sdkBootstrap(): PteIMSDKBootstrap { return this.bootstrap }
+
+  async captcha(): Promise<PteIMDemoCaptcha> {
+    const data = await this.request('/api/v1/demo/auth/captcha', {})
+    const captchaID = String(data['captcha_id'] ?? '')
+    const imageData = String(data['image_data'] ?? '')
+    if (captchaID.length === 0 || imageData.length === 0) throw new Error('验证码响应不完整')
+    return { captchaID, imageData }
+  }
+
+  async authenticate(register: boolean, mobile: string, nickname: string, password: string, captchaID: string, captchaCode: string): Promise<PteIMDemoCredential> {
+    const result = await this.request(register ? '/api/v1/demo/auth/register' : '/api/v1/demo/auth/login', {
+      mobile, nickname: register ? nickname : undefined, password, captcha_id: captchaID, captcha_code: captchaCode,
+      device_id: this.deviceID(), platform: 'uniapp-x',
+    })
+    return this.credentialFromResponse(result, mobile, nickname)
+  }
+
+  async refresh(credential: PteIMDemoCredential): Promise<PteIMDemoCredential> {
+    const result = await this.request('/api/v1/im/session/refresh', {
+      refresh_token: credential.refreshToken,
+      device_id: this.deviceID(),
+      platform: 'uniapp-x',
+    })
+    return this.credentialFromResponse(result, credential.mobile, credential.nickname)
+  }
+
+  async logout(credential: PteIMDemoCredential): Promise<void> {
+    await this.request('/api/v1/im/session/logout', { refresh_token: credential.refreshToken })
+  }
+
+  userSigProvider(initial: PteIMDemoCredential, onRenewed: (credential: PteIMDemoCredential) => void): PteIMUserSigProvider {
+    let current = initial
+    return {
+      refreshUserSig: (): Promise<PteIMUserSigRefreshResult> => this.refresh(current).then((renewed: PteIMDemoCredential): PteIMUserSigRefreshResult => {
+        current = renewed
+        onRenewed(renewed)
+        return { userSig: renewed.userSig, expireAt: renewed.expireAt }
+      })
+    }
+  }
+
+  async users(credential: PteIMDemoCredential, page: number = 1, pageSize: number = 10): Promise<PteIMDemoUserPage> {
+    const result = await this.request('/api/v1/demo/users', { page, page_size: pageSize }, credential)
+    const legacy = result instanceof Array
+    const rows = legacy ? result : result['items']
+    if (!(rows instanceof Array)) throw new Error('演示用户列表响应不正确')
+    const values = rows.map((row: any): PteIMDemoUser => ({ userId: String(row['user_id'] ?? ''), nickname: String(row['nickname'] ?? ''), mobile: String(row['mobile'] ?? '') })).filter((row: PteIMDemoUser): boolean => /^[1-9][0-9]*$/.test(row.userId))
+    const items = legacy ? values.slice((page - 1) * pageSize, page * pageSize) : values
+    const hasMore = legacy ? values.length > page * pageSize : Boolean(result['has_more'] ?? false)
+    return { items, page: legacy ? page : Number(result['page'] ?? page), pageSize: legacy ? pageSize : Number(result['page_size'] ?? pageSize), hasMore }
+  }
+
+  async addFriend(credential: PteIMDemoCredential, targetUserId: string): Promise<void> {
+    if (!/^[1-9][0-9]*$/.test(targetUserId)) throw new Error('好友用户 ID 不正确')
+    await this.request('/api/v1/demo/friends/add', { target_user_id: targetUserId }, credential)
+  }
+
+  private credentialFromResponse(result: any, mobile: string, nickname: string): PteIMDemoCredential {
+    const sdkAppId = Number(result['sdk_app_id'] ?? 0)
+    const userId = String(result['user_id'] ?? '')
+    const userSig = String(result['user_sig'] ?? '')
+    const expireAt = Number(result['expire_at'] ?? 0)
+    const refreshToken = String(result['refresh_token'] ?? '')
+    const refreshExpireAt = Number(result['refresh_expire_at'] ?? 0)
+    if (sdkAppId <= 0 || !/^[1-9][0-9]*$/.test(userId) || userSig.length === 0 || expireAt <= 0 || refreshToken.length === 0 || refreshExpireAt <= 0) throw new Error('登录凭证响应不完整')
+    return { sdkAppId, userId, userSig, expireAt, refreshToken, refreshExpireAt, mobile: String(result['mobile'] ?? mobile), nickname: String(result['nickname'] ?? nickname) }
+  }
+
+  private async request(path: string, body: any, credential: PteIMDemoCredential | null = null): Promise<any> {
+    if (this.base.apiDomain.length === 0 || this.base.apiDomain.indexOf('.invalid') >= 0) throw new Error('业务登录 API 未配置')
+    const key = await this.responseCrypto.responseKey()
+    const response = await new Promise<any>((resolve, reject) => {
+      uni.request({
+        url: this.base.apiDomain.replace(/\/$/, '') + path,
+        method: 'POST',
+        header: credential == null
+          ? { 'Content-Type': 'application/json', 'X-Pte-Response-Public-Key': key.publicKey }
+          : { 'Content-Type': 'application/json', 'X-Pte-Response-Public-Key': key.publicKey, 'Authorization': 'Bearer ' + credential.userSig, 'X-Pte-Sdk-AppId': credential.sdkAppId.toString(), 'X-Pte-User-Id': credential.userId },
+        data: body,
+        success: (result: any) => resolve(result),
+        fail: (error: any) => reject(new Error(String(error?.errMsg ?? error ?? '网络请求失败'))),
+      })
+    })
+    if (Number(response.statusCode ?? 0) < 200 || Number(response.statusCode ?? 0) >= 300) throw new Error(`服务响应 HTTP ${String(response.statusCode ?? 0)}`)
+    const encrypted = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    const root = this.responseCrypto.decryptResponse(encrypted, key)
+    if (Number(root['code'] ?? 0) !== 1) throw new Error(String(root['msg'] ?? '请求失败'))
+    if (root['data'] == null) throw new Error('响应数据为空')
+    return root['data']
+  }
+
+  private deviceID(): string {
+    const key = 'pte-im-ui-demo-device-id'
+    const existing = String(uni.getStorageSync(key) ?? '')
+    if (existing.length > 0) return existing
+    const value = `uniapp-x-${Date.now().toString()}-${Math.random().toString().substring(2)}`
+    uni.setStorageSync(key, value)
+    return value
+  }
+}

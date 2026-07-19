@@ -38,7 +38,14 @@ data class PteIMBaseConfig(
   }
 
   private fun allowsInsecure(uri: Uri, expectedScheme: String): Boolean =
-    allowInsecureLocalhost && uri.scheme == expectedScheme && uri.host in setOf("localhost", "127.0.0.1", "10.0.2.2")
+    allowInsecureLocalhost && uri.scheme == expectedScheme && uri.host in setOf("localhost", "127.0.0.1")
+}
+
+data class PteIMUserSigRefreshResult(val userSig: String, val expireAt: Long)
+
+/** Host business-auth bridge. It exchanges its own refresh session, never an IM signing secret. */
+fun interface PteIMUserSigProvider {
+  fun refreshUserSig(callback: (Result<PteIMUserSigRefreshResult>) -> Unit)
 }
 
 /** Account-scoped login input. Never log userSig. */
@@ -46,6 +53,8 @@ data class PteIMLoginConfig(
   val sdkAppId: Long,
   val userId: String,
   val userSig: String,
+  val userSigExpireAt: Long = 0,
+  val userSigProvider: PteIMUserSigProvider? = null,
 ) {
   fun validate() {
     require(sdkAppId > 0) { "sdkAppId must be positive" }

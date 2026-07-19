@@ -72,10 +72,12 @@ import PteIMSDK
   func inputBar(_ inputBar: PteIMUIInputBar, didSendText text: String)
   func inputBar(_ inputBar: PteIMUIInputBar, didSelect action: PteIMUIInputBarAction)
   func inputBar(_ inputBar: PteIMUIInputBar, voiceRecordingChanged isRecording: Bool)
+  func inputBarDidCancelVoiceRecording(_ inputBar: PteIMUIInputBar)
 }
 
 public extension PteIMUIInputBarDelegate {
   func inputBar(_ inputBar: PteIMUIInputBar, didSendText text: String) {}
   func inputBar(_ inputBar: PteIMUIInputBar, didSelect action: PteIMUIInputBarAction) {}
   func inputBar(_ inputBar: PteIMUIInputBar, voiceRecordingChanged isRecording: Bool) {}
+  func inputBarDidCancelVoiceRecording(_ inputBar: PteIMUIInputBar) {}
 }

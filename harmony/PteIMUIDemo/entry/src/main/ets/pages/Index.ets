@@ -1,5 +1,6 @@
-import { PteIMBusinessContent, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessageType, PteIMSDK, PteIMSDKBootstrap, PteIMSendState, PteIMThemeMode, PteIMLanguage, PteIMVoice, PteIMResponseCrypto } from '@ptelive/pte-im-sdk'
-import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChat, PteIMUIChatNavigationHandler, PteIMUIConversationHandler, PteIMUIConversationList, PteIMUINavigationBackHandler, PteIMUINavigationBar, PteIMUINavigationHandler, PteIMUINotice, PteIMUINoticeDismissHandler, PteIMUINoticeHandler, PteIMUINoticeKind, PteIMUINoticePosition } from '@ptelive/pte-im-uikit'
+import { PteIMBusinessContent, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMessage, PteIMMessageType, PteIMSDK, PteIMSDKBootstrap, PteIMSendState, PteIMThemeMode, PteIMLanguage, PteIMVoice, PteIMResponseCrypto, PteIMUserSigProvider, PteIMUserSigRefreshResult } from '@ptelive/pte-im-sdk'
+import { PteIMUIAction, PteIMUIActionHandler, PteIMUIChat, PteIMUIChatNavigationHandler, PteIMUIConversationHandler, PteIMUIConversationList, PteIMUINotice, PteIMUINoticeDismissHandler, PteIMUINoticeHandler, PteIMUINoticeKind, PteIMUINoticePosition } from '@ptelive/pte-im-uikit'
+import { PteIMUIDemoAuthNavigation, PteIMUIDemoAuthNavigationBackHandler, PteIMUIDemoAuthNavigationHandler } from '../components/PteIMUIDemoAuthNavigation'
 import { preferences } from '@kit.ArkData'
 import { common } from '@kit.AbilityKit'
 import { i18n } from '@kit.LocalizationKit'
@@ -27,9 +28,20 @@ class DemoCaptchaResponse {
 }
 
 class DemoAuthResponse {
+  mobile: string = ''
+  nickname: string = ''
   sdk_app_id: string = ''
   user_id: string = ''
   user_sig: string = ''
+  expire_at: number = 0
+  refresh_token: string = ''
+  refresh_expire_at: number = 0
+}
+
+class DemoRefreshRequest {
+  refresh_token: string = ''
+  device_id: string = ''
+  platform: string = ''
 }
 
 class DemoUserResponse {
@@ -40,6 +52,20 @@ class DemoUserResponse {
 
 interface DemoHttpRequestOptions extends http.HttpRequestOptions {}
 
+class DemoSessionRefreshProvider implements PteIMUserSigProvider {
+  private readonly refreshSession: () => Promise<PteIMUserSigRefreshResult>
+  constructor(refreshSession: () => Promise<PteIMUserSigRefreshResult>) {
+    this.refreshSession = refreshSession
+  }
+  refreshUserSig(): Promise<PteIMUserSigRefreshResult> { return this.refreshSession() }
+}
+
+class DemoCredentialListener extends PteIMListener {
+  private readonly failed: (error: Error) => void
+  constructor(failed: (error: Error) => void) { super(); this.failed = failed }
+  onUserSigRefreshFailed(error: Error): void { this.failed(error) }
+}
+
 /** App-level domains are configured in EntryAbility. Login receives only business-issued IM credentials. */
 @Entry
 @Component
@@ -47,9 +73,13 @@ struct Index {
   @State sdkAppId: string = '432532532'
   @State userId: string = '123654'
   @State userSig: string = ''
-  @State mobile: string = ''
-  @State nickname: string = ''
-  @State password: string = ''
+  private refreshToken: string = ''
+  private userSigExpiresAt: number = 0
+  private refreshTokenExpiresAt: number = 0
+  // Harmony uses Demo account 03. The registration page reuses the same values.
+  @State mobile: string = '13500000003'
+  @State nickname: string = '云间小筑'
+  @State password: string = '12345678'
   @State captchaID: string = ''
   @State captchaCode: string = ''
   @State captchaImage: string = ''
@@ -79,6 +109,7 @@ struct Index {
   @State readReceiptsOn: boolean = true
   private chatReturnScreen: string = 'conversations'
   private client: PteIMSDK | null = null
+  private credentialListener: PteIMListener | null = null
   private appearanceStore: preferences.Preferences | null = null
   private appearanceTimer: number = -1
   private startupTimer: number = -1
@@ -104,8 +135,8 @@ struct Index {
     this.setScreen('chat')
   })
   private chatNavigationHandler: PteIMUIChatNavigationHandler = new PteIMUIChatNavigationHandler(() => this.setScreen(this.chatReturnScreen))
-  private navigationHandler: PteIMUINavigationHandler = new PteIMUINavigationHandler((language: PteIMLanguage) => this.applyLanguage(language), (theme: PteIMThemeMode) => this.applyTheme(theme))
-  private registrationBackHandler: PteIMUINavigationBackHandler = new PteIMUINavigationBackHandler(() => {
+  private navigationHandler: PteIMUIDemoAuthNavigationHandler = new PteIMUIDemoAuthNavigationHandler((language: PteIMLanguage) => this.applyLanguage(language), (theme: PteIMThemeMode) => this.applyTheme(theme))
+  private registrationBackHandler: PteIMUIDemoAuthNavigationBackHandler = new PteIMUIDemoAuthNavigationBackHandler(() => {
     this.noticeVisible = false
     this.setScreen('login')
   })
@@ -180,7 +211,7 @@ struct Index {
       Scroll() {
         Column() {
           // Match the Android artboard: the fixed navigation sits above a deliberately quiet brand area.
-          Blank().height(138)
+          Blank().height(63)
           Column() {
             Image($r('app.media.PteIMUILogo')).width(103).height(103)
             Text('PrivateChat').fontSize(29).fontWeight(FontWeight.Bold).fontColor(this.darkMode ? '#F0EDFF' : '#17182B').margin({ top: 34 })
@@ -197,7 +228,7 @@ struct Index {
             TextInput({ placeholder: this.english ? 'Password' : '密码', text: this.password }).type(InputType.Password).height(46).fontSize(15).fontColor(this.darkMode ? '#F0EDFF' : '#17182B').placeholderColor(this.darkMode ? '#A69FC7' : '#656982').backgroundColor(this.darkMode ? '#201E4C' : '#EDE9FF').borderRadius(18).padding({ left: 16, right: 16 }).onChange((value: string) => this.password = value).width('100%')
             this.formLabel(this.english ? 'Verification code' : '图形验证码')
             Row({ space: 10 }) {
-              Column() { this.formInput(this.english ? 'Code' : '验证码', this.captchaCode, (value: string) => this.captchaCode = value, InputType.Number) }.layoutWeight(1)
+              Column() { this.formInput(this.english ? 'Code' : '验证码', this.captchaCode, (value: string) => this.captchaCode = value, InputType.Normal) }.layoutWeight(1)
               if (this.captchaImage.length > 0) Image(this.captchaImage).width(132).height(46).objectFit(ImageFit.Contain).onClick(() => { void this.loadCaptcha() })
               else Button(this.english ? 'Load' : '加载').width(132).height(46).onClick(() => { void this.loadCaptcha() })
             }.width('100%')
@@ -212,8 +243,8 @@ struct Index {
           }.width('100%').padding({ left: 24, top: 26, right: 24, bottom: 24 }).backgroundColor(this.darkMode ? '#11102A' : Color.White).border({ width: 1, color: this.darkMode ? '#39345A' : Color.Transparent, radius: 24 }).shadow({ radius: this.darkMode ? 0 : 18, color: '#22000000', offsetX: 0, offsetY: 8 })
         }.width('100%').alignItems(HorizontalAlign.Center).padding({ left: 30, right: 30, top: 12, bottom: 28 })
       }.width('100%').height('100%').scrollBar(BarState.Off).backgroundColor(this.darkMode ? '#0D0D21' : '#F4F4FF')
-      if (register) PteIMUINavigationBar({ title: '', language: this.selectedLanguage(), dark: this.darkMode, showBack: true, handler: this.navigationHandler, backHandler: this.registrationBackHandler })
-      else PteIMUINavigationBar({ language: this.selectedLanguage(), dark: this.darkMode, handler: this.navigationHandler })
+      if (register) PteIMUIDemoAuthNavigation({ title: '', language: this.selectedLanguage(), dark: this.darkMode, showBack: true, handler: this.navigationHandler, backHandler: this.registrationBackHandler })
+      else PteIMUIDemoAuthNavigation({ language: this.selectedLanguage(), dark: this.darkMode, handler: this.navigationHandler })
     }.width('100%').height('100%')
   }
 
@@ -286,7 +317,7 @@ struct Index {
               Image($r('app.media.PteIMUIProfileLogout')).width(18).height(18)
               Text(this.english ? 'Log Out' : '退出登录').fontSize(14).fontWeight(FontWeight.Medium).fontColor('#ED3340')
             }.justifyContent(FlexAlign.Center).width('100%')
-          }.height(48).width('90%').margin({ top: 14, bottom: 24 }).borderRadius(16).backgroundColor(this.darkMode ? '#2A0F21' : '#F4DFE7').onClick(() => { this.client?.stop(); this.client = null; this.setScreen('login') })
+          }.height(48).width('90%').margin({ top: 14, bottom: 24 }).borderRadius(16).backgroundColor(this.darkMode ? '#2A0F21' : '#F4DFE7').onClick(() => { this.clearDemoSession(); this.setScreen('login') })
         }.width('100%').backgroundColor(this.pageColor())
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off)
     }.width('100%').layoutWeight(1).backgroundColor(this.pageColor())
@@ -542,8 +573,10 @@ struct Index {
       if (this.userId.length === 0 || this.userSig.length === 0) throw new Error('业务后端应返回 userId 与短期 UserSig')
       const bootstrap = AppStorage.get<PteIMSDKBootstrap>('pteDemoBootstrap')
       if (bootstrap === undefined) throw new Error('IMBaseConfig 初始化失败')
+      this.detachCredentialLifecycle()
       this.client?.stop()
-      this.client = await bootstrap.login(new PteIMLoginConfig(Number(this.sdkAppId), this.userId, this.userSig))
+      this.client = await bootstrap.login(new PteIMLoginConfig(Number(this.sdkAppId), this.userId, this.userSig, this.userSigExpiresAt, new DemoSessionRefreshProvider(() => this.refreshSession())))
+      this.attachCredentialLifecycle(this.client)
       this.setScreen('conversations')
     } catch (error) { this.showError(`登录错误：${error instanceof Error ? error.message : String(error)}`) }
   }
@@ -563,7 +596,7 @@ struct Index {
       const data = new DemoAuthRequest(); data.mobile = this.mobile; data.password = this.password; data.captcha_id = this.captchaID; data.captcha_code = this.captchaCode; data.device_id = 'harmony-demo'; data.platform = 'harmony'
       if (register) data.nickname = this.nickname
       const result = await this.demoRequest(register ? '/api/v1/demo/auth/register' : '/api/v1/demo/auth/login', data) as DemoAuthResponse
-      this.sdkAppId = result.sdk_app_id; this.userId = result.user_id; this.userSig = result.user_sig
+      this.sdkAppId = result.sdk_app_id; this.userId = result.user_id; this.userSig = result.user_sig; this.refreshToken = result.refresh_token; this.userSigExpiresAt = result.expire_at; this.refreshTokenExpiresAt = result.refresh_expire_at
       await this.connect()
     } catch (error) { this.showError(`登录错误：${this.errorMessage(error)}`); this.captchaCode = ''; void this.loadCaptcha() }
   }
@@ -584,10 +617,10 @@ struct Index {
 
   private async demoRequest(path: string, body: Object, authenticated: boolean = false): Promise<Object> {
     const key = await PteIMResponseCrypto.createRequestKey()
-    const primaryDomain = AppStorage.get<string>('pteDemoApiDomain') ?? 'https://api-im.pte-live.invalid'
-    const domains = primaryDomain === 'http://10.0.2.2:11504'
+    const primaryDomain = AppStorage.get<string>('pteDemoApiDomain') ?? 'http://127.0.0.1:11504'
+    const domains = primaryDomain === 'http://127.0.0.1:11504'
       ? [primaryDomain]
-      : [primaryDomain, 'http://10.0.2.2:11504']
+      : [primaryDomain, 'http://127.0.0.1:11504']
     let lastError: Error = new Error('网络请求失败')
     for (let index = 0; index < domains.length; index++) {
       const request = http.createHttp()
@@ -609,6 +642,47 @@ struct Index {
       } finally { request.destroy() }
     }
     throw lastError
+  }
+
+  private attachCredentialLifecycle(client: PteIMSDK): void {
+    const listener = new DemoCredentialListener((_error: Error) => this.endExpiredSession(client))
+    this.credentialListener = listener
+    client.addListener(listener)
+  }
+
+  private detachCredentialLifecycle(): void {
+    if (this.client !== null && this.credentialListener !== null) this.client.removeListener(this.credentialListener)
+    this.credentialListener = null
+  }
+
+  /** Invoked only by SDK Core. The Demo rotates and retains its refresh session. */
+  private async refreshSession(): Promise<PteIMUserSigRefreshResult> {
+    if (this.refreshToken.length === 0) throw new Error('missing refresh session')
+    const request = new DemoRefreshRequest()
+    request.refresh_token = this.refreshToken
+    request.device_id = 'harmony-demo'
+    request.platform = 'harmony'
+    const result = await this.demoRequest('/api/v1/im/session/refresh', request) as DemoAuthResponse
+    if (result.user_sig.length === 0 || result.refresh_token.length === 0 || result.expire_at <= Math.floor(Date.now() / 1000)) throw new Error('invalid refresh response')
+    this.sdkAppId = result.sdk_app_id; this.userId = result.user_id; this.userSig = result.user_sig; this.refreshToken = result.refresh_token; this.userSigExpiresAt = result.expire_at; this.refreshTokenExpiresAt = result.refresh_expire_at
+    return new PteIMUserSigRefreshResult(result.user_sig, result.expire_at)
+  }
+
+  private endExpiredSession(client: PteIMSDK): void {
+    if (this.client !== client) return
+    this.clearDemoSession()
+    this.setScreen('login')
+    this.showError(this.english ? 'Session expired. Please sign in again.' : '登录状态已失效，请重新登录')
+  }
+
+  private clearDemoSession(): void {
+    this.detachCredentialLifecycle()
+    this.client?.stop()
+    this.client = null
+    this.userSig = ''
+    this.refreshToken = ''
+    this.userSigExpiresAt = 0
+    this.refreshTokenExpiresAt = 0
   }
 
   private errorMessage(error: Object): string {

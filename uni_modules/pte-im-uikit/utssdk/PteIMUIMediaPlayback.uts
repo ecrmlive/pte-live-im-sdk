@@ -1,0 +1,57 @@
+/**
+ * UIKit-wide media arbiter.  A chat may create many message cells, but audio
+ * and video always share this single coordinator so starting one stops the
+ * previous item first.
+ */
+export class PteIMUIMediaPlayback {
+  private static activeKey: string = ''
+  private static voice: any = null
+  private static stopVideo: (() => void) | null = null
+
+  static playVoice(key: string, url: string): void {
+    if (url.length === 0) return
+    if (this.activeKey === key && this.voice != null) {
+      this.stop()
+      return
+    }
+    this.stop()
+    const player: any = uni.createInnerAudioContext()
+    this.activeKey = key
+    this.voice = player
+    player.src = url
+    player.onEnded(() => { if (this.voice === player) this.clear() })
+    player.onError(() => { if (this.voice === player) this.clear() })
+    player.play()
+  }
+
+  static activateVideo(key: string, stop: () => void): void {
+    if (this.activeKey !== key) this.stop()
+    this.activeKey = key
+    this.stopVideo = stop
+  }
+
+  static release(key: string): void {
+    if (this.activeKey === key) this.clear()
+  }
+
+  static stop(): void {
+    const player = this.voice
+    this.voice = null
+    if (player != null) {
+      player.stop()
+      player.destroy()
+    }
+    const stopVideo = this.stopVideo
+    this.stopVideo = null
+    if (stopVideo != null) stopVideo()
+    this.activeKey = ''
+  }
+
+  private static clear(): void {
+    const player = this.voice
+    this.voice = null
+    if (player != null) player.destroy()
+    this.stopVideo = null
+    this.activeKey = ''
+  }
+}

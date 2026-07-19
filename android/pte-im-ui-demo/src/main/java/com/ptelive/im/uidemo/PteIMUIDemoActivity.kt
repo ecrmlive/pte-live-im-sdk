@@ -29,10 +29,11 @@ import com.ptelive.im.PteIMLoginConfig
 import com.ptelive.im.PteIMMessageType
 import com.ptelive.im.PteIMSDK
 import com.ptelive.im.PteIMThemeMode
+import com.ptelive.im.PteIMUserSigProvider
+import com.ptelive.im.PteIMUserSigRefreshResult
 import com.ptelive.im.ui.PteIMUIAction
 import com.ptelive.im.ui.PteIMUIChatView
 import com.ptelive.im.ui.PteIMUIContactListMode
-import com.ptelive.im.ui.PteIMUINavigationBar
 import com.ptelive.im.ui.PteIMUINotice
 import com.ptelive.im.ui.PteIMUINoticeStyle
 import com.ptelive.im.ui.PteIMUINoticeType
@@ -61,7 +62,7 @@ class PteIMUIDemoActivity : Activity() {
   private val darkBorder = Color.rgb(57, 52, 90)
 
   private var client: PteIMSDK? = null
-  private var sessionCredential: PteIMUIDemoCredential? = null
+  @Volatile private var sessionCredential: PteIMUIDemoCredential? = null
   private var credentialListener: PteIMListener? = null
   private lateinit var sessionStore: PteIMUIDemoSessionStore
   private lateinit var credentialProvider: PteIMUIDemoCredentialProvider
@@ -169,7 +170,7 @@ class PteIMUIDemoActivity : Activity() {
   private fun authenticationView(register: Boolean): View {
     visibleScreen = if (register) PteIMUIDemoScreen.REGISTER else PteIMUIDemoScreen.LOGIN
     val navigationPalette = loginNavigationPalette()
-    PteIMUINavigationBar.applySystemBars(this, navigationPalette, darkMode)
+    PteIMUIDemoNavigationBar.applySystemBars(this, navigationPalette, darkMode)
     val root = FrameLayout(this).apply {
       setBackgroundColor(if (darkMode) darkCanvas else canvas)
       clipChildren = false
@@ -216,6 +217,10 @@ class PteIMUIDemoActivity : Activity() {
     password = credentialField(if (english) "Password" else "请输入密码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD).also {
       it.transformationMethod = PasswordTransformationMethod.getInstance()
     }
+    // Android uses Demo account 02. The registration page reuses the same values.
+    mobile.setText("13500000002")
+    nickname.setText("晚风听澜")
+    password.setText("12345678")
     captchaCode = credentialField(if (english) "Verification code" else "请输入图形验证码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS).apply {
       filters = arrayOf(android.text.InputFilter.LengthFilter(4))
       setOnFocusChangeListener { _, _ -> text?.toString()?.uppercase(Locale.ROOT)?.let(::setText) }
@@ -254,7 +259,7 @@ class PteIMUIDemoActivity : Activity() {
     return root
   }
 
-  private fun loginHeader(register: Boolean = false): View = PteIMUINavigationBar(this).apply {
+  private fun loginHeader(register: Boolean = false): View = PteIMUIDemoNavigationBar(this).apply {
     apply(loginNavigationPalette(), if (darkMode) PteIMThemeMode.DARK else PteIMThemeMode.LIGHT, selectedLanguage)
     showLanguageControl = !register
     if (register) onBackRequested = {
@@ -334,9 +339,16 @@ class PteIMUIDemoActivity : Activity() {
   private fun startSession(credential: PteIMUIDemoCredential) {
     credentialListener?.let { listener -> client?.removeListener(listener) }
     client?.stop()
+    sessionCredential = credential
     runCatching {
       PteIMUIDemoApplication.bootstrap.login(
-        PteIMLoginConfig(credential.sdkAppId, credential.userId.toString(), credential.userSig),
+        PteIMLoginConfig(
+          sdkAppId = credential.sdkAppId,
+          userId = credential.userId.toString(),
+          userSig = credential.userSig,
+          userSigExpireAt = credential.expiresAt,
+          userSigProvider = sessionUserSigProvider(),
+        ),
       )
     }.onSuccess { value ->
       client = value
@@ -356,6 +368,7 @@ class PteIMUIDemoActivity : Activity() {
         setContentView(homeView())
       }
     }.onFailure { error ->
+      sessionCredential = null
       status.text = "IM 登录失败：${error.message}"
       status.visibility = View.VISIBLE
       notice(status.text, PteIMUINoticeType.ERROR)
@@ -364,19 +377,43 @@ class PteIMUIDemoActivity : Activity() {
 
   private fun attachCredentialLifecycle(value: PteIMSDK) {
     credentialListener = object : PteIMListener {
-      override fun onUserSigExpired() = runOnUiThread {
-        value.stop()
-        client = null
-        setContentView(loginView())
-      }
+      override fun onUserSigRefreshFailed(error: Throwable) = runOnUiThread { endExpiredSession(value) }
     }.also(value::addListener)
+  }
+
+  /** The SDK invokes this bridge itself; the Demo only owns refresh-session storage. */
+  private fun sessionUserSigProvider(): PteIMUserSigProvider = PteIMUserSigProvider { callback ->
+    Thread {
+      val credential = sessionCredential
+      if (credential == null) {
+        callback(Result.failure(IllegalStateException("missing refresh session")))
+      } else {
+        runCatching { credentialProvider.refresh(credential) }
+          .onSuccess { refreshed ->
+          sessionCredential = refreshed
+            callback(Result.success(PteIMUserSigRefreshResult(refreshed.userSig, refreshed.expiresAt)))
+          }
+          .onFailure { error -> callback(Result.failure(error)) }
+      }
+    }.apply { name = "PteIMUIDemoSessionRefresh" }.start()
+  }
+
+  private fun endExpiredSession(value: PteIMSDK) {
+    if (client !== value) return
+    credentialListener?.let(value::removeListener)
+    credentialListener = null
+    value.stop()
+    client = null
+    sessionCredential = null
+    setContentView(loginView())
+    notice(if (english) "Session expired. Please sign in again." else "登录状态已失效，请重新登录", PteIMUINoticeType.ERROR)
   }
 
   private fun homeView(selected: PteIMUIDemoTab = PteIMUIDemoTab.CHATS): View {
     visibleScreen = PteIMUIDemoScreen.HOME
     activeTab = selected
     val palette = if (darkMode) PteIMUITheme.blueVioletDark() else PteIMUITheme.blueVioletLight()
-    PteIMUINavigationBar.applySystemBars(this, palette, darkMode)
+    PteIMUIDemoNavigationBar.applySystemBars(this, palette, darkMode)
     val root = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       setBackgroundColor(palette.background)
@@ -535,7 +572,7 @@ class PteIMUIDemoActivity : Activity() {
   private fun settingsScreen(): View {
     visibleScreen = PteIMUIDemoScreen.SETTINGS
     val palette = if (darkMode) PteIMUITheme.blueVioletDark() else PteIMUITheme.blueVioletLight()
-    PteIMUINavigationBar.applySystemBars(this, palette, darkMode)
+    PteIMUIDemoNavigationBar.applySystemBars(this, palette, darkMode)
     return ScrollView(this).apply {
       setBackgroundColor(palette.background)
       setOnApplyWindowInsetsListener { view, insets ->
@@ -569,7 +606,7 @@ class PteIMUIDemoActivity : Activity() {
   private fun languageSettingsScreen(): View {
     visibleScreen = PteIMUIDemoScreen.LANGUAGE
     val palette = if (darkMode) PteIMUITheme.blueVioletDark() else PteIMUITheme.blueVioletLight()
-    PteIMUINavigationBar.applySystemBars(this, palette, darkMode)
+    PteIMUIDemoNavigationBar.applySystemBars(this, palette, darkMode)
     return LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL; setBackgroundColor(palette.background)
       setOnApplyWindowInsetsListener { view, insets ->
@@ -636,7 +673,8 @@ class PteIMUIDemoActivity : Activity() {
     addView(label(if (english) "Log Out" else "退出登录").apply { textSize = 15f; typeface = android.graphics.Typeface.DEFAULT_BOLD; setTextColor(Color.rgb(225, 52, 68)) })
     setOnClickListener {
       credentialListener?.let { listener -> client?.removeListener(listener) }
-      client?.stop(); client = null; sessionStore.markLoggedOut(); setContentView(loginView())
+      credentialListener = null
+      client?.stop(); client = null; sessionCredential = null; sessionStore.markLoggedOut(); setContentView(loginView())
     }
   }
 
@@ -644,9 +682,9 @@ class PteIMUIDemoActivity : Activity() {
     val palette = if (darkMode) PteIMUITheme.blueVioletDark() else PteIMUITheme.blueVioletLight()
     gravity = Gravity.CENTER; setPadding(dp(14), dp(3), dp(14), dp(5)); background = rounded(palette.surface, palette.divider, 0)
     listOf(
-      Triple(PteIMUIDemoTab.CHATS, if (english) "Chats" else "会话", com.ptelive.im.ui.R.drawable.pte_im_ui_tab_chats_selected),
-      Triple(PteIMUIDemoTab.CONTACTS, if (english) "Contacts" else "联系人", com.ptelive.im.ui.R.drawable.pte_im_ui_tab_contacts_unselected),
-      Triple(PteIMUIDemoTab.ME, if (english) "Me" else "我的", com.ptelive.im.ui.R.drawable.pte_im_ui_tab_me_unselected),
+      Triple(PteIMUIDemoTab.CHATS, if (english) "Chats" else "会话", R.drawable.pte_im_ui_tab_chats_selected),
+      Triple(PteIMUIDemoTab.CONTACTS, if (english) "Contacts" else "联系人", R.drawable.pte_im_ui_tab_contacts_unselected),
+      Triple(PteIMUIDemoTab.ME, if (english) "Me" else "我的", R.drawable.pte_im_ui_tab_me_unselected),
     ).forEach { (tab, title, icon) ->
       addView(LinearLayout(this@PteIMUIDemoActivity).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true; isFocusable = true; setOnClickListener { setContentView(homeView(tab)) }
@@ -696,7 +734,7 @@ class PteIMUIDemoActivity : Activity() {
   private fun chatScreen(chatView: PteIMUIChatView): View {
     val base = if (darkMode) PteIMUITheme.blueVioletDark() else PteIMUITheme.blueVioletLight()
     val systemPalette = base.copy(background = base.surface)
-    PteIMUINavigationBar.applySystemBars(this, systemPalette, darkMode)
+    PteIMUIDemoNavigationBar.applySystemBars(this, systemPalette, darkMode)
     return FrameLayout(this).apply {
       setBackgroundColor(base.surface)
       addView(chatView, FrameLayout.LayoutParams(-1, -1))

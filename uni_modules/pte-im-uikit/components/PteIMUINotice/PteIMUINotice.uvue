@@ -1,0 +1,57 @@
+<template>
+  <view v-if="visible && message.length > 0" class="pte-im-ui-notice-layer" :class="['is-' + position, { 'is-dark': dark }]" @click="dismiss">
+    <view v-if="position === 'center'" class="pte-im-ui-notice-veil"></view>
+    <view class="pte-im-ui-notice-card" @click.stop>
+      <view :class="['pte-im-ui-notice-icon', 'is-' + kind]"><text>{{ iconText() }}</text></view>
+      <view class="pte-im-ui-notice-copy"><text class="pte-im-ui-notice-title">{{ titleText() }}</text><text class="pte-im-ui-notice-message">{{ message }}</text></view>
+      <button class="pte-im-ui-notice-close" @click.stop="dismiss">×</button>
+    </view>
+  </view>
+</template>
+
+<script lang="uts">
+export default {
+  props: {
+    visible: { type: Boolean, default: false },
+    message: { type: String, default: '' },
+    kind: { type: String, default: 'warning' },
+    position: { type: String, default: 'bottom' },
+    dark: { type: Boolean, default: false },
+    english: { type: Boolean, default: false },
+    duration: { type: Number, default: 2600 },
+    revision: { type: Number, default: 0 }
+  },
+  emits: ['dismiss'],
+  data() { return { timer: 0 as any } },
+  watch: {
+    visible() { this.scheduleDismiss() },
+    revision() { this.scheduleDismiss() }
+  },
+  mounted() { this.scheduleDismiss() },
+  beforeUnmount() { this.clearDismissTimer() },
+  methods: {
+    iconText(): string { return this.kind === 'success' ? '✓' : '!' },
+    titleText(): string {
+      if (this.kind === 'success') return this.english ? 'Success' : '成功'
+      if (this.kind === 'error') return this.english ? 'Error' : '错误'
+      return this.english ? 'Warning' : '警告'
+    },
+    clearDismissTimer() { if (this.timer != 0) { clearTimeout(this.timer); this.timer = 0 } },
+    scheduleDismiss() { this.clearDismissTimer(); if (!this.visible || this.message.length === 0 || this.duration <= 0) return; this.timer = setTimeout(() => this.dismiss(), Math.max(400, this.duration)) },
+    dismiss() { this.clearDismissTimer(); this.$emit('dismiss') }
+  }
+}
+</script>
+
+<style>
+.pte-im-ui-notice-layer { position:fixed; z-index:2000; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column; align-items:center; pointer-events:auto; }.pte-im-ui-notice-layer button { border:0; outline:0; box-shadow:none; -webkit-appearance:none; appearance:none; }.pte-im-ui-notice-layer button::after { border:0; }
+.pte-im-ui-notice-layer.is-bottom { justify-content:flex-end; padding:0 20px calc(24px + env(safe-area-inset-bottom)); box-sizing:border-box; }
+.pte-im-ui-notice-layer.is-center { justify-content:center; padding:0 20px; box-sizing:border-box; }
+.pte-im-ui-notice-veil { position:absolute; top:0; right:0; bottom:0; left:0; background:rgba(0,0,0,.22); }
+.pte-im-ui-notice-card { position:relative; z-index:1; display:flex; flex-direction:row; align-items:center; width:100%; max-width:420px; min-height:52px; padding:10px 8px 10px 14px; border:1px solid rgba(22,20,43,.10); border-radius:16px; color:#201E33; background:rgba(255,255,255,.98); box-shadow:0 8px 18px rgba(25,23,50,.16); box-sizing:border-box; }
+.is-dark .pte-im-ui-notice-card { border-color:rgba(255,255,255,.16); color:#F4F2FF; background:rgba(34,32,59,.98); box-shadow:0 8px 18px rgba(0,0,0,.34); }
+.pte-im-ui-notice-icon { display:flex; flex:none; align-items:center; justify-content:center; width:32px; height:32px; border-radius:16px; color:#FFF; font-size:16px; font-weight:700; }
+.pte-im-ui-notice-icon.is-success { background:#20B878; }.pte-im-ui-notice-icon.is-error { background:#E5484D; }.pte-im-ui-notice-icon.is-warning { background:#DA9418; }
+.pte-im-ui-notice-copy { display:flex; flex:1; flex-direction:column; min-width:0; margin-left:10px; }.pte-im-ui-notice-title { color:inherit; font-size:13px; font-weight:700; line-height:18px; }.pte-im-ui-notice-message { overflow:hidden; margin-top:2px; color:#5E5A75; font-size:13px; line-height:18px; text-overflow:ellipsis; white-space:nowrap; }.is-dark .pte-im-ui-notice-message { color:#C9C4E8; }
+.pte-im-ui-notice-close { display:flex; flex:none; align-items:center; justify-content:center; width:28px; height:28px; margin:0 0 0 4px; padding:0; border:0; color:#5E5A75; background:transparent; font-size:21px; line-height:28px; }.is-dark .pte-im-ui-notice-close { color:#C9C4E8; }
+</style>

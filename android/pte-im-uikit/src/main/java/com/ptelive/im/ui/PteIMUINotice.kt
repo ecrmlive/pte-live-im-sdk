@@ -16,7 +16,7 @@ import android.widget.TextView
 import java.util.WeakHashMap
 
 /** The semantic appearance of a [PteIMUINotice]. */
-enum class PteIMUINoticeType { SUCCESS, ERROR, INFO }
+enum class PteIMUINoticeType { SUCCESS, ERROR, WARNING, INFO }
 
 /** The overlay placement for a [PteIMUINotice]. */
 enum class PteIMUINoticePosition { BOTTOM, CENTER }
@@ -32,6 +32,7 @@ data class PteIMUINoticeColors(
   val success: Int,
   val error: Int,
   val info: Int,
+  val warning: Int = Color.rgb(232, 163, 34),
 ) {
   companion object {
     fun light() = PteIMUINoticeColors(
@@ -41,6 +42,7 @@ data class PteIMUINoticeColors(
       success = Color.rgb(22, 181, 112),
       error = Color.rgb(232, 65, 82),
       info = Color.rgb(104, 72, 238),
+      warning = Color.rgb(220, 146, 24),
     )
 
     fun dark() = PteIMUINoticeColors(
@@ -50,6 +52,7 @@ data class PteIMUINoticeColors(
       success = Color.rgb(42, 204, 132),
       error = Color.rgb(255, 105, 120),
       info = Color.rgb(159, 117, 255),
+      warning = Color.rgb(255, 190, 72),
     )
   }
 }
@@ -84,6 +87,9 @@ object PteIMUINotice {
   fun info(host: View, message: CharSequence, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) =
     show(host, message, PteIMUINoticeType.INFO, style)
 
+  fun warning(host: View, message: CharSequence, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) =
+    show(host, message, PteIMUINoticeType.WARNING, style)
+
   fun success(context: Context, message: CharSequence, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) =
     activityRoot(context)?.let { success(it, message, style) }
 
@@ -92,6 +98,9 @@ object PteIMUINotice {
 
   fun info(context: Context, message: CharSequence, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) =
     activityRoot(context)?.let { info(it, message, style) }
+
+  fun warning(context: Context, message: CharSequence, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) =
+    activityRoot(context)?.let { warning(it, message, style) }
 
   fun show(host: View, message: CharSequence, type: PteIMUINoticeType = PteIMUINoticeType.INFO, style: PteIMUINoticeStyle = PteIMUINoticeStyle()) {
     if (message.isBlank()) return
@@ -150,6 +159,7 @@ object PteIMUINotice {
     val accent = when (type) {
       PteIMUINoticeType.SUCCESS -> style.colors.success
       PteIMUINoticeType.ERROR -> style.colors.error
+      PteIMUINoticeType.WARNING -> style.colors.warning
       PteIMUINoticeType.INFO -> style.colors.info
     }
     val card = LinearLayout(context).apply {
@@ -165,6 +175,7 @@ object PteIMUINotice {
       text = when (type) {
         PteIMUINoticeType.SUCCESS -> "✓"
         PteIMUINoticeType.ERROR -> "!"
+        PteIMUINoticeType.WARNING -> "!"
         PteIMUINoticeType.INFO -> "i"
       }
       gravity = Gravity.CENTER

@@ -1,0 +1,86 @@
+/**
+ * Local-only fixture used by the demo's “Preview UI” entry. It never opens a
+ * socket or calls an API, so designers can inspect H5 visual states before a
+ * business backend has issued a UserSig.
+ */
+export function createPteIMUIVisualPreviewClient(): any {
+  const now = Date.now()
+  const listenerValues = [] as any[]
+  let appearance: any = { themeMode: 'light', language: 'en-US' }
+  let sequence = 0
+  const conversations = [
+    conversation('101', 'Alice Chen', '10001', '明天见！See you tomorrow!', now - 8 * 60 * 1000, 2, true),
+    conversation('102', 'Work Team 工作群', '10002', '[图片] [Image]', now - 41 * 60 * 1000, 5, false),
+    conversation('103', 'Bob Li', '10003', '[语音] 12秒', now - 24 * 60 * 60 * 1000, 0, true),
+    conversation('104', 'Project Alpha', '10004', '收到，我来处理 Got it', now - 48 * 60 * 60 * 1000, 0, false),
+    conversation('105', 'Carol Wu', '10005', '[红包] 恭喜发财', now - 72 * 60 * 60 * 1000, 0, true),
+    conversation('106', 'Dave Zhang', '10006', '[订单] iPhone 15 Pro', now - 96 * 60 * 60 * 1000, 0, false),
+  ] as any[]
+  const messages = [
+    message('work-1', '102', '10002', 'text', { text: '你好！在吗？Hey!\nAre you there?' }, now - 19 * 60 * 1000),
+    message('work-2', '102', '12345', 'text', { text: '在的，什么事？\nYes, what’s up?' }, now - 17 * 60 * 1000),
+    message('work-3', '102', '10002', 'location', { latitude: 31.2304, longitude: 121.4737, name: '上海市浦东新区张江科技园', address: 'Zhangjiang Hi-Tech Park, Pudong' }, now - 15 * 60 * 1000),
+    message('work-4', '102', '12345', 'image', { url: '' }, now - 14 * 60 * 1000),
+    message('work-5', '102', '10002', 'voice', { durationMs: 8000 }, now - 12 * 60 * 1000),
+    message('work-6', '102', '12345', 'voice', { durationMs: 15000 }, now - 11 * 60 * 1000),
+    message('work-7', '102', '10002', 'video', { url: '', durationMs: 32000 }, now - 9 * 60 * 1000),
+    message('work-8', '102', '12345', 'red_packet', { title: 'Alice', subtitle: '恭喜发财，大吉大利' }, now - 8 * 60 * 1000),
+    message('work-9', '102', '10002', 'gift', { title: 'Starlight Box', subtitle: 'Open your gift' }, now - 7 * 60 * 1000),
+    message('work-10', '102', '10002', 'order', { title: 'iPhone 15 Pro 256GB 深空黑', subtitle: '¥8,999' }, now - 5 * 60 * 1000),
+    message('work-11', '102', '12345', 'file', { url: '', fileName: '项目报价单.pdf', sizeBytes: 327680 }, now - 3 * 60 * 1000),
+  ] as any[]
+  const friends = [
+    contact('10001', 'Alice Chen', '在线 · Online', true), contact('10003', 'Bob Li', '今天10:30 · Today 10:30', false), contact('10005', 'Carol Wu', '在线 · Online', true), contact('10006', 'Dave Zhang', '昨天 · Yesterday', false), contact('10007', 'Eve Wang', '在线 · Online', true), contact('10008', 'Frank Sun', '3天前 · 3 days ago', false),
+  ] as any[]
+  const groups = [
+    group('102', 'Work Team 工作群', '8 members · 刚刚 Just now'), group('202', 'Family 家庭群', '5 members · 今天 Today'), group('104', 'Project Alpha', '12 members · 昨天 Yesterday'),
+  ] as any[]
+
+  const client: any = {
+    start(): void {}, stop(): void {}, currentUserId(): string { return '12345' }, mapConfig(): any { return null },
+    currentAppearance(): any { return appearance },
+    updateAppearance(themeMode: any = null, language: any = null): any {
+      if (themeMode != null) appearance.themeMode = themeMode
+      if (language != null) appearance.language = language
+      listenerValues.forEach((listener: any) => { if (themeMode != null && listener.onThemeModeChanged != null) listener.onThemeModeChanged(appearance.themeMode); if (language != null && listener.onLanguageChanged != null) listener.onLanguageChanged(appearance.language) })
+      return appearance
+    },
+    addListener(listener: any): void { if (listenerValues.indexOf(listener) < 0) listenerValues.push(listener) },
+    removeListener(listener: any): void { const index = listenerValues.indexOf(listener); if (index >= 0) listenerValues.splice(index, 1) },
+    localConversations(_limit: number = 100): any[] { return conversations },
+    localMessages(conversationId: string, _limit: number = 100): any[] { return messages.filter((item: any) => item.conversationId === conversationId) },
+    localRemoteConversations(_limit: number = 100): any[] { return conversations.map((item: any) => ({ id: Number(item.conversationId), type: item.conversationId === '102' || item.conversationId === '104' ? 'group' : 'single', title: item.title, singleKey: item.conversationId === '102' || item.conversationId === '104' ? undefined : '12345:' + item.lastMessage.senderId, avatar: '', lastMessageSeq: 1, lastMessageSnapshot: String(item.lastMessage.content.text ?? ''), lastMessageAt: Math.floor(Number(item.updatedAt) / 1000), unreadCount: Number(item.unreadCount ?? 0) })) },
+    fetchConversationPage(_page: number, _pageSize: number, callback: any): void { callback({ total: conversations.length, items: client.localRemoteConversations(100) }, null) },
+    fetchFriends(_cursor: string, _limit: number, callback: any): void { callback({ list: friends, nextCursor: '', hasMore: false }, null) },
+    fetchFollows(_cursor: string, _limit: number, callback: any): void { callback({ list: friends, nextCursor: '', hasMore: false }, null) },
+    fetchGroups(_cursor: string, _limit: number, callback: any): void { callback({ list: groups, nextCursor: '', hasMore: false }, null) },
+    openSingleConversation(userId: number, callback: any): void { const found = conversations.find((item: any) => item.conversationId === '101' || item.lastMessage.senderId === String(userId)); callback({ id: Number(found?.conversationId ?? 101), type: 'single', title: String(found?.title ?? 'Alice Chen'), lastMessageSeq: 1, lastMessageAt: now, unreadCount: 0 }, null) },
+    createGroupConversation(_title: string, _memberIds: number[], _avatar: string | null, callback: any): void { callback({ id: 102, type: 'group', title: 'Work Team 工作群', lastMessageSeq: 1, lastMessageAt: now, unreadCount: 0 }, null) },
+    sendText(conversationId: string, text: string): string { return append(conversationId, 'text', { text }) },
+    sendEmoji(conversationId: string, _packageId: string, emojiId: string): string { return append(conversationId, 'emoji', { emojiId }) },
+    uploadAndSendImage(conversationId: string, filePath: string): string { return append(conversationId, 'image', { url: filePath }) },
+    uploadAndSendVideo(conversationId: string, filePath: string): string { return append(conversationId, 'video', { url: filePath }) },
+    uploadAndSendFile(conversationId: string, filePath: string, fileName: string = '', mimeType: string = ''): string { return append(conversationId, 'file', { url: filePath, fileName: fileName.length > 0 ? fileName : 'Attachment', mimeType }) },
+    uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number): string { return append(conversationId, 'voice', { url: filePath, durationMs }) },
+    sendLocation(conversationId: string, value: any): string { return append(conversationId, 'location', value) },
+    sendGift(conversationId: string, value: any): string { return append(conversationId, 'gift', value) },
+    sendRedPacket(conversationId: string, value: any): string { return append(conversationId, 'red_packet', value) },
+    sendOrder(conversationId: string, value: any): string { return append(conversationId, 'order', value) },
+    retryMessage(_clientMsgId: string): boolean { return true },
+    recallMessage(_serverMsgId: string, callback: any): void { callback(null) }, deleteMessage(_serverMsgId: string, callback: any): void { callback(null) }, syncNow(): void {}, syncConversationsNow(): void {},
+  }
+
+  function append(conversationId: string, type: string, content: any): string {
+    sequence += 1
+    const value = message('preview-' + sequence.toString(), conversationId, '12345', type, content, Date.now())
+    messages.push(value)
+    listenerValues.forEach((listener: any) => { if (listener.onMessage != null) listener.onMessage(value) })
+    return value.clientMsgId
+  }
+  return client
+}
+
+function message(clientMsgId: string, conversationId: string, senderId: string, type: string, content: any, createdAt: number): any { return { clientMsgId, serverMsgId: clientMsgId, conversationId, senderId, type, createdAt, content } }
+function conversation(conversationId: string, title: string, senderId: string, preview: string, updatedAt: number, unreadCount: number, online: boolean): any { return { conversationId, title, unreadCount, online, updatedAt, lastMessage: message('last-' + conversationId, conversationId, senderId, 'text', { text: preview }, updatedAt) } }
+function contact(userId: string, nickname: string, status: string, online: boolean): any { return { userId, nickname: status, remark: nickname, avatar: '', gender: 'unknown', followedAt: 0, online } }
+function group(id: string, title: string, subtitle: string): any { return { id: Number(id), type: 'group', title, avatar: '', lastMessageSeq: 0, lastMessageSnapshot: subtitle, lastMessageAt: 0, unreadCount: 0 } }

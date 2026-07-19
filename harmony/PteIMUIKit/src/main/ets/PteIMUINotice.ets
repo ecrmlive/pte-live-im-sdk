@@ -2,6 +2,7 @@
 export enum PteIMUINoticeKind {
   SUCCESS = 'success',
   ERROR = 'error',
+  WARNING = 'warning',
 }
 
 /** Bottom notices keep the current page interactive; centered notices add a light modal veil. */
@@ -51,6 +52,10 @@ export class PteIMUINoticeHandler {
 
   error(message: string, position: PteIMUINoticePosition = PteIMUINoticePosition.BOTTOM, duration: number = 3200): void {
     this.show(message, PteIMUINoticeKind.ERROR, position, duration)
+  }
+
+  warning(message: string, position: PteIMUINoticePosition = PteIMUINoticePosition.BOTTOM, duration: number = 3000): void {
+    this.show(message, PteIMUINoticeKind.WARNING, position, duration)
   }
 }
 
@@ -108,15 +113,24 @@ export struct PteIMUINotice {
   private noticeBorderColor(): string { return this.dark ? '#4D8B7DD4' : '#1A16142B' }
   private titleColor(): string { return this.dark ? '#F4F2FF' : '#201E33' }
   private detailColor(): string { return this.dark ? '#C9C4E8' : '#5E5A75' }
-  private iconColor(): string { return this.kind === PteIMUINoticeKind.SUCCESS ? '#20B878' : '#E5484D' }
+  private iconColor(): string {
+    if (this.kind === PteIMUINoticeKind.SUCCESS) return '#20B878'
+    if (this.kind === PteIMUINoticeKind.WARNING) return '#DA9418'
+    return '#E5484D'
+  }
   private iconText(): string { return this.kind === PteIMUINoticeKind.SUCCESS ? '✓' : '!' }
+  private title(): string {
+    if (this.kind === PteIMUINoticeKind.SUCCESS) return 'Success'
+    if (this.kind === PteIMUINoticeKind.WARNING) return 'Warning'
+    return 'Error'
+  }
 
   @Builder noticeCard() {
     Row({ space: 10 }) {
       Text(this.iconText()).fontSize(15).fontWeight(FontWeight.Bold).fontColor(Color.White).textAlign(TextAlign.Center)
         .width(24).height(24).borderRadius(12).backgroundColor(this.iconColor())
       Column({ space: 3 }) {
-        Text(this.kind === PteIMUINoticeKind.SUCCESS ? 'Success' : 'Error').fontSize(13).fontWeight(FontWeight.Medium).fontColor(this.titleColor())
+        Text(this.title()).fontSize(13).fontWeight(FontWeight.Medium).fontColor(this.titleColor())
         Text(this.message).fontSize(13).fontColor(this.detailColor()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Button('×').type(ButtonType.Normal).width(28).height(28).fontSize(21).fontColor(this.detailColor()).backgroundColor(Color.Transparent).padding(0)

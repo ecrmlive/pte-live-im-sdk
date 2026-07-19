@@ -519,15 +519,15 @@ open class PteIMUIInputBar(context: Context, private var palette: PteIMUIThemePa
       recording && recordingCancelled -> "松开手取消录音"
       recording && english -> "Talking"
       recording -> "正在说话"
-      english -> "Hold to Record"
-      else -> "按住录音"
+      english -> "Hold to talk"
+      else -> "按住说话"
     }
     if (recording) {
       holdToTalk.setTextColor(Color.WHITE)
       // Voice recording uses its own violet state surface. Do not reuse the
       // blue-to-violet outgoing message bubble gradient here.
-      val start = if (dark) Color.rgb(151, 91, 244) else palette.outgoingStart
-      val end = if (dark) Color.rgb(163, 84, 244) else palette.outgoingEnd
+      val start = if (recordingCancelled) Color.rgb(223, 68, 82) else if (dark) Color.rgb(151, 91, 244) else palette.outgoingStart
+      val end = if (recordingCancelled) Color.rgb(250, 77, 80) else if (dark) Color.rgb(163, 84, 244) else palette.outgoingEnd
       holdToTalk.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(start, end)).apply { cornerRadius = dp(12).toFloat() }
     } else {
       holdToTalk.setTextColor(palette.secondaryText)

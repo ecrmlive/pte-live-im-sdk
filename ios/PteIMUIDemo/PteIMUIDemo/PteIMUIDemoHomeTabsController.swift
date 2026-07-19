@@ -124,8 +124,8 @@ final class PteIMUIDemoHomeTabsController: UITabBarController {
   private func makeTabItem(title: String, normalArtwork: String, selectedArtwork: String) -> UITabBarItem {
     let item = UITabBarItem(
       title: title,
-      image: PteIMUIResources.image(named: normalArtwork)?.withRenderingMode(.alwaysTemplate),
-      selectedImage: PteIMUIResources.image(named: selectedArtwork)?.withRenderingMode(.alwaysTemplate)
+      image: PteIMUIDemoAssets.image(named: normalArtwork)?.withRenderingMode(.alwaysTemplate),
+      selectedImage: PteIMUIDemoAssets.image(named: selectedArtwork)?.withRenderingMode(.alwaysTemplate)
     )
     item.imageInsets = .zero
     item.titlePositionAdjustment = .zero

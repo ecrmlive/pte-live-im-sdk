@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
 import util from '@ohos.util'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage } from './IMModels'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage, PteIMUserSigRefreshResult } from './IMModels'
 import { PteIMRdbStore, PteIMStoredRemoteConversation } from './PteIMRdbStore'
 import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
@@ -62,6 +62,8 @@ export class PteIMSDK {
   private reconnectAttempt: number = 0
   private reconnectTimer: number = -1
   private outboxTimer: number = -1
+  private userSigRefreshTimer: number = -1
+  private userSigRefreshInFlight: boolean = false
   private syncing: boolean = false
   private conversationSyncing: boolean = false
   private appearance: PteIMAppearance
@@ -98,6 +100,7 @@ export class PteIMSDK {
   start(): void {
     this.stopped = false
     this.cancelTimers()
+    this.scheduleUserSigRefresh()
     if (this.socket === null) void this.registerAndConnect()
   }
 
@@ -113,11 +116,34 @@ export class PteIMSDK {
     if (wasConnected) this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged(false))
   }
 
-  renewUserSig(userSig: string): void {
+  /** Applies a Provider result; UI code never submits a UserSig directly. */
+  private applyRefreshedUserSig(userSig: string, expireAt: number): void {
     if (userSig.length === 0) throw new Error('userSig is required')
     this.config.userSig = userSig
+    if (expireAt > 0) this.config.userSigExpireAt = expireAt
+    this.scheduleUserSigRefresh()
     const body = new PteIMRequestBody(); body.userSig = userSig
     this.sendEnvelope('renew_user_sig', body)
+  }
+
+  async refreshUserSig(force: boolean = false): Promise<boolean> {
+    const provider = this.config.userSigProvider
+    if (this.stopped || provider === null) return false
+    const now = Math.floor(Date.now() / 1000)
+    if (!force && this.config.userSigExpireAt > now + 300) { this.scheduleUserSigRefresh(); return true }
+    if (this.userSigRefreshInFlight) return false
+    this.userSigRefreshInFlight = true
+    try {
+      const renewed: PteIMUserSigRefreshResult = await provider.refreshUserSig()
+      if (renewed.userSig.length === 0 || renewed.expireAt <= Math.floor(Date.now() / 1000)) throw new Error('invalid UserSig refresh response')
+      this.applyRefreshedUserSig(renewed.userSig, renewed.expireAt)
+      void this.syncNow(); void this.syncConversationsNow()
+      return true
+    } catch (error) {
+      const value = error instanceof Error ? error : new Error(String(error))
+      this.listeners.forEach((listener: PteIMListener) => listener.onUserSigRefreshFailed(value))
+      return false
+    } finally { this.userSigRefreshInFlight = false }
   }
 
   updateAppearance(themeMode: PteIMThemeMode | null = null, language: PteIMLanguage | null = null): PteIMAppearance {
@@ -448,8 +474,7 @@ export class PteIMSDK {
         this.store.markSent(clientMsgId, this.stringValue(payload, 'serverMsgId'), this.numberValue(payload, 'serverSeq')).then(() => {
           this.listeners.forEach((listener: PteIMListener) => listener.onMessageStateChanged(clientMsgId, PteIMSendState.SENT))
         }).catch((error: Error) => this.emitError(error))
-      } else if (action === 'user_sig_will_expire') this.listeners.forEach((listener: PteIMListener) => listener.onUserSigWillExpire())
-      else if (action === 'user_sig_expired') this.listeners.forEach((listener: PteIMListener) => listener.onUserSigExpired())
+      } else if (action === 'user_sig_will_expire' || action === 'user_sig_expired') { void this.refreshUserSig(true) }
       else if (action === 'sync_required') this.syncNow()
     } catch (error) { this.emitError(error) }
   }
@@ -490,10 +515,19 @@ export class PteIMSDK {
     this.reconnectTimer = setTimeout(() => { if (!this.stopped && this.socket === null) this.connect() }, delay)
   }
 
+  private scheduleUserSigRefresh(): void {
+    if (this.userSigRefreshTimer >= 0) clearTimeout(this.userSigRefreshTimer)
+    this.userSigRefreshTimer = -1
+    if (this.stopped || this.config.userSigProvider === null || this.config.userSigExpireAt <= 0) return
+    const delay = Math.max(1000, this.config.userSigExpireAt * 1000 - Date.now() - 300000)
+    this.userSigRefreshTimer = setTimeout(() => { this.userSigRefreshTimer = -1; void this.refreshUserSig(true) }, delay)
+  }
+
   private cancelTimers(): void {
     if (this.reconnectTimer >= 0) clearTimeout(this.reconnectTimer)
     if (this.outboxTimer >= 0) clearTimeout(this.outboxTimer)
-    this.reconnectTimer = -1; this.outboxTimer = -1
+    if (this.userSigRefreshTimer >= 0) clearTimeout(this.userSigRefreshTimer)
+    this.reconnectTimer = -1; this.outboxTimer = -1; this.userSigRefreshTimer = -1
   }
 
   private resolveMedia(media: PteIMMedia): PteIMMedia { return new PteIMMedia(this.resolveCosUrl(media.url), this.resolveCosUrl(media.thumbnailUrl), this.resolveCosUrl(media.coverUrl), media.width, media.height, media.durationMs, media.sizeBytes) }
@@ -511,6 +545,7 @@ export class PteIMSDK {
       requestHeaders.set('X-Pte-Response-Public-Key', responseKey.publicKey)
       const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
       const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
+      if (response.responseCode === 401) void this.refreshUserSig(true)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
       const root = await PteIMResponseCrypto.decryptResponse(JSON.parse(response.result.toString()) as WireObject, responseKey)
       if (this.numberValue(root, 'code') !== 1) throw new Error(this.stringValue(root, 'msg'))
@@ -524,6 +559,7 @@ export class PteIMSDK {
       const requestHeaders = this.apiRequestHeaders()
       const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
       const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
+      if (response.responseCode === 401) void this.refreshUserSig(true)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
       const root = JSON.parse(response.result.toString()) as WireObject
       if (this.numberValue(root, 'code') !== 0) throw new Error(this.stringValue(root, 'msg'))

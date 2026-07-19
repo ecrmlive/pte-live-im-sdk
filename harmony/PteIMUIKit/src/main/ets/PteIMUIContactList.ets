@@ -1,4 +1,4 @@
-import { PteIMContact, PteIMContactPage, PteIMGroupPage, PteIMLanguage, PteIMSDK, PteIMThemeMode } from '@ptelive/pte-im-sdk'
+import { PteIMContact, PteIMContactPage, PteIMGroupPage, PteIMSDK } from '@ptelive/pte-im-sdk'
 import { PteIMUIAvatarHandler, PteIMUIContactHandler, PteIMUIContactListMode, PteIMUILoadErrorHandler } from './PteIMUIKit'
 import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
 
@@ -117,10 +117,7 @@ export struct PteIMUIContactList {
   @Builder navigationBar() {
     Row() {
       Row({ space: 10 }) { Text('◉').width(34).height(34).textAlign(TextAlign.Center).fontColor(Color.White).fontSize(16).linearGradient({ angle: 90, colors: [[this.palette().outgoingStart, 0.0], [this.palette().outgoingEnd, 1.0]] }).borderRadius(17); Text(this.client.currentAppearance().language.toString() === 'en-US' ? 'Contacts' : '联系人').fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.palette().text) }.layoutWeight(1)
-      Row({ space: 14 }) { Text('◐').fontSize(18).fontColor(this.palette().icon).onClick(() => this.toggleAppearance()); Text('◎').fontSize(18).fontColor(this.palette().icon).onClick(() => this.toggleLanguage()); Text('＋').fontSize(22).fontColor(this.palette().icon) }
     }.height(56).padding({ left: 18, right: 18 }).backgroundColor(this.palette().surface)
   }
-  private toggleAppearance(): void { const appearance = this.client.currentAppearance(); this.client.updateAppearance(appearance.themeMode === PteIMThemeMode.DARK ? PteIMThemeMode.LIGHT : PteIMThemeMode.DARK, appearance.language) }
-  private toggleLanguage(): void { const appearance = this.client.currentAppearance(); this.client.updateAppearance(appearance.themeMode, appearance.language === PteIMLanguage.EN_US ? PteIMLanguage.ZH_CN : PteIMLanguage.EN_US) }
   private palette(): PteIMUIThemePalette { return PteIMUITheme.resolve(this.client, this.theme, this.systemColorMode === 'dark') }
 }

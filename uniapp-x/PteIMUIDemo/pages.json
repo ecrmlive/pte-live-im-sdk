@@ -1,7 +1,7 @@
 {
   "pages": [{
     "path": "pages/index/index",
-    "style": { "navigationBarTitleText": "PteIMUIDemo", "navigationBarBackgroundColor": "#1769AA", "navigationBarTextStyle": "white" }
+    "style": { "navigationStyle": "custom", "backgroundColor": "#F4F4FF" }
   }],
   "globalStyle": { "backgroundColor": "#F6F8FB" }
 }
