@@ -182,8 +182,8 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   public func syncState(cursor: String = "", limit: Int = 100) async throws -> PteIMStateChangePage { try await sdkRequest(path: "v1/im/state/sync", body: ["cursor": cursor, "limit": limit], response: PteIMStateChangePage.self) }
   public func fetchDefaultSetting() async throws -> PteIMDefaultSetting { try await sdkRequest(path: "v1/im/settings/default", body: [:], response: PteIMDefaultSetting.self) }
 
-  @discardableResult public func sendText(conversationId: String, text: String) -> PteIMMessage {
-    send(PteIMMessage(conversationId: conversationId, type: .text, text: text))
+  @discardableResult public func sendText(conversationId: String, text: String, quote: PteIMQuote? = nil) -> PteIMMessage {
+    send(PteIMMessage(conversationId: conversationId, type: .text, text: text, quote: quote))
   }
   @discardableResult public func sendEmoji(conversationId: String, packageId: String, emojiId: String) -> PteIMMessage {
     send(PteIMMessage(conversationId: conversationId, type: .emoji, packageId: packageId, emojiId: emojiId))
@@ -211,6 +211,23 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   }
   @discardableResult public func sendFile(conversationId: String, media: PteIMMedia) -> PteIMMessage {
     send(PteIMMessage(conversationId: conversationId, type: .file, media: media))
+  }
+  /** IM-core global recall. The service verifies sender ownership and its recall window. */
+  public func recallMessage(_ message: PteIMMessage) async throws {
+    guard let messageId = message.serverMsgId, !messageId.isEmpty else { throw PteIMError.invalidResponse }
+    let _: PteIMMessageActionResponse = try await sdkRequest(path: "v1/im/messages/recall", body: ["messageId": messageId], response: PteIMMessageActionResponse.self)
+  }
+  /** IM-core per-user deletion; it never recalls the message for other members. */
+  public func deleteMessage(_ message: PteIMMessage) async throws {
+    guard let messageId = message.serverMsgId, !messageId.isEmpty else { throw PteIMError.invalidResponse }
+    let _: PteIMOKResponse = try await sdkRequest(path: "v1/im/messages/delete", body: ["messageId": messageId], response: PteIMOKResponse.self)
+    try store.deleteLocal(clientMsgId: message.clientMsgId)
+  }
+  public func addMessageReaction(_ message: PteIMMessage, emoji: String) async throws -> PteIMMessageReactionResult { try await changeMessageReaction(message, emoji: emoji, add: true) }
+  public func removeMessageReaction(_ message: PteIMMessage, emoji: String) async throws -> PteIMMessageReactionResult { try await changeMessageReaction(message, emoji: emoji, add: false) }
+  private func changeMessageReaction(_ message: PteIMMessage, emoji: String, add: Bool) async throws -> PteIMMessageReactionResult {
+    guard let messageId = message.serverMsgId, !messageId.isEmpty else { throw PteIMError.invalidResponse }
+    return try await sdkRequest(path: add ? "v1/im/messages/reactions/add" : "v1/im/messages/reactions/remove", body: ["messageId": messageId, "emoji": emoji], response: PteIMMessageReactionResult.self)
   }
   /**
    Requeues a failed or pending message with its original client ID. This is
@@ -385,7 +402,9 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
       guard let self else { return }
       do {
         let encrypted = try await self.e2ee.encrypt(message) { path, body in try await self.e2eeRequest(path: path, body: body) }
-        self.sendEnvelope(action: "send_message", payload: ["clientMsgId": message.clientMsgId, "conversationId": message.conversationId, "type": message.type.rawValue, "e2ee": encrypted])
+        var payload: [String: Any] = ["clientMsgId": message.clientMsgId, "conversationId": message.conversationId, "type": message.type.rawValue, "e2ee": encrypted]
+        if let quoteMessageId = message.quote?.serverMsgId, !quoteMessageId.isEmpty { payload["quoteMessageId"] = quoteMessageId }
+        self.sendEnvelope(action: "send_message", payload: payload)
       } catch { self.notify { $0.onError?(error) } }
     }
   }
@@ -439,11 +458,25 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
         let sequence = (payload["serverSeq"] as? NSNumber)?.int64Value
         try store.markSent(clientMsgId: id, serverMsgId: payload["serverMsgId"] as? String, serverSeq: sequence)
         notify { $0.onMessageStateChanged?(id, .sent) }
+      case "message_event":
+        try applyMessageEvent(payload)
       case "user_sig_will_expire", "user_sig_expired": refreshUserSig(force: true)
       case "sync_required": syncNow()
       default: break
       }
     } catch { notify { $0.onError?(error) } }
+  }
+
+  private func applyMessageEvent(_ payload: [String: Any]) throws {
+    guard let serverMsgId = payload["serverMsgId"] as? String, !serverMsgId.isEmpty else { return }
+    let eventType = payload["eventType"] as? String ?? ""
+    let status = (payload["status"] as? NSNumber)?.intValue ?? 0
+    let recalledAt = (payload["recalledAt"] as? NSNumber)?.int64Value ?? 0
+    let emoji = payload["emoji"] as? String ?? ""
+    let reactionAction = payload["reactionAction"] as? String ?? ""
+    let actor = payload["userId"] as? String ?? ""
+    guard let message = try store.applyMessageEvent(serverMsgId: serverMsgId, eventType: eventType, status: status, recalledAt: recalledAt, emoji: emoji, reactionAction: reactionAction, actor: actor, currentUserId: config.userId) else { return }
+    notify { $0.onMessageUpdated?(message) }
   }
 
   private func sendEnvelope(action: String, payload: [String: Any]) {

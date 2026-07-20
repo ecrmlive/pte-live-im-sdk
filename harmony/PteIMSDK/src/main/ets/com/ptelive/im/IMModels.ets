@@ -65,6 +65,7 @@ export class PteIMWireContent {
   subtitle: string = ''
   actionUrl: string = ''
   quoteClientMsgId: string = ''
+  quoteServerMsgId: string = ''
   quoteText: string = ''
 }
 
@@ -76,6 +77,7 @@ export class PteIMWireMessage {
   senderId: string = ''
   type: string = ''
   createdAt: number = 0
+  quoteMessageId: string = ''
   content: PteIMWireContent = new PteIMWireContent()
 }
 
@@ -232,6 +234,7 @@ export class PteIMMessage {
   state: PteIMSendState
   /** Display-only quote metadata; the original message remains immutable. */
   quoteClientMsgId: string = ''
+  quoteServerMsgId: string = ''
   quoteText: string = ''
 
   constructor(conversationId: string, type: PteIMMessageType, text: string = '',
@@ -277,6 +280,7 @@ export class PteIMMessage {
       content.businessId = this.business.businessId; content.title = this.business.title; content.subtitle = this.business.subtitle; content.actionUrl = this.business.actionUrl
     }
     content.quoteClientMsgId = this.quoteClientMsgId
+    content.quoteServerMsgId = this.quoteServerMsgId
     content.quoteText = this.quoteText
     const message = new PteIMWireMessage()
     message.clientMsgId = this.clientMsgId
@@ -286,6 +290,7 @@ export class PteIMMessage {
     message.senderId = this.senderId
     message.type = this.type
     message.createdAt = this.createdAt
+    message.quoteMessageId = this.quoteServerMsgId
     message.content = content
     return message
   }

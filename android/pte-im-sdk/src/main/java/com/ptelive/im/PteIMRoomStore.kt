@@ -91,6 +91,43 @@ internal class PteIMRoomStore(context: Context, storeKey: String) {
     delete("messages", "client_msg_id = ?", arrayOf(clientMsgId))
   }
 
+  /** Applies a durable IM message event to the encrypted local cache. */
+  fun applyMessageEvent(serverMsgId: String, eventType: String, event: JSONObject, currentUserId: String): PteIMMessage? = db.transactionResult {
+    val row = query("SELECT client_msg_id, payload, server_seq, created_at, state FROM messages WHERE server_msg_id = ?", arrayOf(serverMsgId)).use { cursor ->
+      if (!cursor.moveToFirst()) return@transactionResult null
+      arrayOf(cursor.getString(0), cipher.decrypt(cursor.getString(1)), cursor.getLongOrNull(2)?.toString(), cursor.getLong(3).toString(), cursor.getString(4))
+    }
+    if (eventType == "chat.message.deleted") {
+      delete("outbox", "client_msg_id = ?", arrayOf(row[0]!!))
+      delete("messages", "client_msg_id = ?", arrayOf(row[0]!!))
+      return@transactionResult null
+    }
+    val payload = JSONObject(row[1])
+    when (eventType) {
+      "chat.message.recalled" -> {
+        payload.put("status", event.optInt("status", 2))
+        payload.put("recalledAt", event.optLong("recalledAt"))
+      }
+      "chat.message.reaction_changed" -> {
+        val emoji = event.optString("emoji")
+        if (emoji.isBlank()) return@transactionResult null
+        val actor = event.optString("userId")
+        val added = event.optString("reactionAction") == "added"
+        val reactions = payload.optJSONArray("reactions") ?: org.json.JSONArray()
+        var target: JSONObject? = null
+        for (index in 0 until reactions.length()) if (reactions.optJSONObject(index)?.optString("emoji") == emoji) target = reactions.optJSONObject(index)
+        val item = target ?: JSONObject().put("emoji", emoji).put("count", 0).put("reactedByMe", false).also { reactions.put(it) }
+        item.put("count", (item.optLong("count") + if (added) 1 else -1).coerceAtLeast(0))
+        if (actor == currentUserId) item.put("reactedByMe", added)
+        payload.put("reactions", reactions)
+      }
+      else -> return@transactionResult null
+    }
+    val message = messageFromJson(payload, "").copy(serverMsgId = serverMsgId, serverSeq = row[2]?.toLongOrNull(), createdAt = row[3]!!.toLong(), state = runCatching { PteIMSendState.valueOf(row[4]!!) }.getOrDefault(PteIMSendState.SENT))
+    insertMessage(this, message)
+    message
+  }
+
   fun applyDelta(nextCursor: String, messages: List<PteIMMessage>) = db.transaction {
     messages.forEach { insertMessage(this, it.copy(state = PteIMSendState.SENT)) }
     update("sync_state", PTE_IM_CONFLICT_REPLACE, ContentValues().apply { put("cursor", cipher.encrypt(nextCursor)) }, "id = 1", null)

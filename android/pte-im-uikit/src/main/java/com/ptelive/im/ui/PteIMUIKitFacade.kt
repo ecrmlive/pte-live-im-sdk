@@ -31,6 +31,7 @@ import com.ptelive.im.PteIMContactPage
 import com.ptelive.im.PteIMGroupPage
 import com.ptelive.im.PteIMRemoteConversation
 import com.ptelive.im.PteIMMessage
+import com.ptelive.im.PteIMMessageReactionResult
 import com.ptelive.im.PteIMMessageType
 import com.ptelive.im.PteIMQuote
 import com.ptelive.im.PteIMSendState
@@ -224,6 +225,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   private val localReactionOverrides = mutableMapOf<String, MutableMap<String, Boolean>>()
   private val listener = object : PteIMListener {
     override fun onMessage(message: PteIMMessage) { if (message.conversationId == conversationId) post { render() } }
+    override fun onMessageUpdated(message: PteIMMessage) { if (message.conversationId == conversationId) post { render() } }
     override fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) { post {
       if (state == PteIMSendState.SENT) clearUploadRetrySource(clientMsgId)
       render()
@@ -522,9 +524,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
    */
   protected open fun maximumTextMessageWidth(): Int = dp(260)
 
-  /** Merges host/server counts with this device's optimistic reaction toggle. */
+  /** IM-core reaction state is primary; the legacy host provider is retained as a compatibility fallback. */
   protected open fun reactionsFor(message: PteIMMessage): List<PteIMUIReaction> {
     val states = linkedMapOf<String, PteIMUIReaction>()
+	message.reactions.forEach { reaction -> states[reaction.emoji] = PteIMUIReaction(reaction.emoji, reaction.count.toInt(), reaction.reactedByMe) }
     reactionProvider?.invoke(message)
       ?.filter { it.emoji.isNotBlank() && it.count > 0 }
       ?.forEach { reaction ->
@@ -553,9 +556,9 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   private fun toggleReaction(message: PteIMMessage, emoji: String) {
     val currentlyReacted = reactionsFor(message).firstOrNull { it.emoji == emoji }?.reactedByCurrentUser == true
     val added = !currentlyReacted
-    val serverReacted = reactionProvider?.invoke(message)
+    val serverReacted = message.reactions.firstOrNull { it.emoji == emoji }?.reactedByMe ?: (reactionProvider?.invoke(message)
       ?.filter { it.emoji == emoji && it.count > 0 }
-      ?.any { it.reactedByCurrentUser } == true
+      ?.any { it.reactedByCurrentUser } == true)
     val messageKey = reactionMessageKey(message)
     val overrides = localReactionOverrides.getOrPut(messageKey) { linkedMapOf() }
     if (added == serverReacted) overrides.remove(emoji) else overrides[emoji] = added
@@ -563,6 +566,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     val updated = reactionsFor(message).firstOrNull { it.emoji == emoji } ?: PteIMUIReaction(emoji, 0)
     onReactionChanged?.invoke(message, updated, added)
     onMessageActionRequested?.invoke(PteIMUIMessageAction.REACT, message)
+	if (message.serverMsgId != null) {
+		val completion: (Result<PteIMMessageReactionResult>) -> Unit = { result -> post { result.onFailure { PteIMUINotice.error(context, it.message ?: "Reaction failed") }; render() } }
+		if (added) client.addMessageReaction(message, emoji, completion) else client.removeMessageReaction(message, emoji, completion)
+	}
     dismissMessageMenu()
     render()
   }
@@ -819,18 +826,10 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
         PteIMUINotice.success(context, if (client.currentAppearance().language.isEnglish(context)) "Copied" else "已复制")
       }
       PteIMUIMessageAction.DELETE -> {
-        client.deleteLocalMessage(message)
-        clearUploadRetrySource(message.clientMsgId)
-        onMessageDeleted?.invoke(message)
-        render()
+		client.deleteMessage(message) { result -> post { result.onSuccess { clearUploadRetrySource(message.clientMsgId); onMessageDeleted?.invoke(message); render() }.onFailure { PteIMUINotice.error(context, it.message ?: "Delete failed") } } }
       }
       PteIMUIMessageAction.REVOKE -> {
-        // The current realtime protocol does not accept a recall envelope.
-        // Hide instantly, then let the host call its authorised recall API.
-        client.deleteLocalMessage(message)
-        clearUploadRetrySource(message.clientMsgId)
-        onMessageRevoked?.invoke(message)
-        render()
+		client.recallMessage(message) { result -> post { result.onSuccess { onMessageRevoked?.invoke(message) }.onFailure { PteIMUINotice.error(context, it.message ?: "Recall failed") } } }
       }
     }
     onMessageActionRequested?.invoke(action, message)
@@ -968,6 +967,7 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
   var onAvatarTapped: ((PteIMUIConversationPresentation) -> Unit)? = null
   private val listener = object : PteIMListener {
     override fun onMessage(message: PteIMMessage) { post { refresh() } }
+    override fun onMessageUpdated(message: PteIMMessage) { post { refresh() } }
     override fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) { post { refresh() } }
     override fun onConversationsChanged() { post { refresh(); finishPullRefresh() } }
     override fun onThemeModeChanged(themeMode: PteIMThemeMode) { post { applyTheme() } }

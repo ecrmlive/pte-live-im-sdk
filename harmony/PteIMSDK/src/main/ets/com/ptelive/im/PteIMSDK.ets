@@ -9,7 +9,7 @@ import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
 
 type WireObject = Record<string, Object>
-interface PteIMSendMessagePayload { clientMsgId: string; conversationId: string; type: PteIMMessageType; e2ee: WireObject }
+interface PteIMSendMessagePayload { clientMsgId: string; conversationId: string; type: PteIMMessageType; e2ee: WireObject; quoteMessageId: string }
 interface PteIMDecryptedMessage extends WireObject { clientMsgId: Object; serverMsgId: Object; serverSeq: Object; conversationId: Object; senderId: Object; type: Object; createdAt: Object; content: WireObject }
 
 interface PteIMHttpRequestOptions extends http.HttpRequestOptions {}
@@ -31,6 +31,8 @@ class PteIMRequestBody {
   contentType: string = ''
   contentLength: number = 0
   serverMsgId: string = ''
+  messageId: string = ''
+  emoji: string = ''
   field: string = ''
   value: string = ''
   cursor: string = ''
@@ -188,9 +190,10 @@ export class PteIMSDK {
   /** Sends a host-defined message envelope. The server must explicitly allow the custom type. */
   async sendCustom(conversationId: string, content: PteIMBusinessContent): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.CUSTOM, '', '', '', null, null, null, content)) }
   /** Sends text while retaining quote metadata for UIKit and other clients. */
-  async sendTextWithQuote(conversationId: string, text: string, quoteClientMsgId: string, quoteText: string): Promise<PteIMMessage> {
+  async sendTextWithQuote(conversationId: string, text: string, quoteClientMsgId: string, quoteServerMsgId: string, quoteText: string): Promise<PteIMMessage> {
     const message = new PteIMMessage(conversationId, PteIMMessageType.TEXT, text)
     message.quoteClientMsgId = quoteClientMsgId
+    message.quoteServerMsgId = quoteServerMsgId
     message.quoteText = quoteText
     return await this.send(message)
   }
@@ -205,6 +208,29 @@ export class PteIMSDK {
   /** Removes only the current device copy. Remote deletion/revoke remains server-authoritative. */
   async deleteLocalMessage(clientMsgId: string): Promise<void> {
     await this.store.removeMessage(clientMsgId)
+  }
+
+  /** Globally recalls the caller's own message through the IM service. */
+  async recallMessage(message: PteIMMessage): Promise<void> {
+    if (message.serverMsgId.length === 0) throw new Error('message must be sent before recall')
+    const body = new PteIMRequestBody(); body.messageId = message.serverMsgId
+    await this.sdkRequest('/v1/im/messages/recall', body)
+  }
+
+  /** Hides a message only for this IM account after durable server confirmation. */
+  async deleteMessage(message: PteIMMessage): Promise<void> {
+    if (message.serverMsgId.length === 0) throw new Error('message must be sent before delete')
+    const body = new PteIMRequestBody(); body.messageId = message.serverMsgId
+    await this.sdkRequest('/v1/im/messages/delete', body)
+    await this.store.removeMessage(message.clientMsgId)
+  }
+
+  async addMessageReaction(message: PteIMMessage, emoji: string): Promise<WireObject> { return await this.changeMessageReaction(message, emoji, true) }
+  async removeMessageReaction(message: PteIMMessage, emoji: string): Promise<WireObject> { return await this.changeMessageReaction(message, emoji, false) }
+  private async changeMessageReaction(message: PteIMMessage, emoji: string, add: boolean): Promise<WireObject> {
+    if (message.serverMsgId.length === 0 || emoji.trim().length === 0) throw new Error('message and emoji are required')
+    const body = new PteIMRequestBody(); body.messageId = message.serverMsgId; body.emoji = emoji
+    return await this.sdkRequest(add ? '/v1/im/messages/reactions/add' : '/v1/im/messages/reactions/remove', body)
   }
 
   async syncNow(): Promise<void> {
@@ -501,7 +527,7 @@ export class PteIMSDK {
         await this.store.recordOutboxAttempt(message.clientMsgId, now)
         const e2ee = await this.e2ee.encrypt(message, (path: string, body: WireObject): Promise<Object> => this.sdkRequest(path, body))
         const payload: PteIMSendMessagePayload = {
-          clientMsgId: message.clientMsgId, conversationId: message.conversationId, type: message.type, e2ee,
+          clientMsgId: message.clientMsgId, conversationId: message.conversationId, type: message.type, e2ee, quoteMessageId: message.quoteServerMsgId,
         }
         this.sendEnvelope('send_message', payload)
       }
@@ -621,6 +647,7 @@ export class PteIMSDK {
     message.senderId = this.stringValue(value, 'senderId')
     message.serverMsgId = this.stringValue(value, 'serverMsgId'); message.serverSeq = this.numberValue(value, 'serverSeq')
     message.quoteClientMsgId = this.stringValue(content, 'quoteClientMsgId')
+    message.quoteServerMsgId = this.stringValue(content, 'quoteServerMsgId') || this.stringValue(value, 'quoteMessageId')
     message.quoteText = this.stringValue(content, 'quoteText')
     return message
   }

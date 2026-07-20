@@ -57,6 +57,9 @@ data class PteIMMedia(
 data class PteIMVoice(val url: String, val durationMs: Long, val waveform: String? = null, val sizeBytes: Long? = null)
 data class PteIMLocation(val latitude: Double, val longitude: Double, val name: String, val address: String? = null)
 data class PteIMBusinessContent(val businessId: String, val title: String, val subtitle: String? = null, val actionUrl: String? = null)
+/** Durable IM-core aggregate for one emoji on one message. */
+data class PteIMMessageReaction(val emoji: String, val count: Long, val reactedByMe: Boolean)
+data class PteIMMessageReactionResult(val messageId: String, val reactions: List<PteIMMessageReaction>)
 /**
  * Compact, immutable quote metadata carried with a new message.  The source
  * message itself remains in its original conversation position, while this
@@ -123,6 +126,10 @@ data class PteIMMessage(
   val serverSeq: Long? = null,
   val createdAt: Long = System.currentTimeMillis(),
   val state: PteIMSendState = PteIMSendState.PENDING,
+  /** 1 normal, 2 recalled. Per-user delete removes the message from this account cache. */
+  val status: Int = 1,
+  val recalledAt: Long? = null,
+  val reactions: List<PteIMMessageReaction> = emptyList(),
 ) {
   fun contentJson(): JSONObject = JSONObject().apply {
     text?.let { put("text", it) }
@@ -159,6 +166,11 @@ data class PteIMMessage(
     senderNickname?.let { put("senderNickname", it) }
     put("type", type.name.lowercase())
     put("createdAt", createdAt)
+    put("status", status)
+    recalledAt?.let { put("recalledAt", it) }
+    if (reactions.isNotEmpty()) put("reactions", org.json.JSONArray().apply {
+      reactions.forEach { reaction -> put(JSONObject().put("emoji", reaction.emoji).put("count", reaction.count).put("reactedByMe", reaction.reactedByMe)) }
+    })
     put("content", contentJson())
   }
 }

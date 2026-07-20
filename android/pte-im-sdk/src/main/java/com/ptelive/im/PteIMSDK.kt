@@ -19,6 +19,8 @@ interface PteIMListener {
   /** Server-authoritative conversation cursor sync has updated the local cache. */
   fun onConversationsChanged() {}
   fun onMessage(message: PteIMMessage) {}
+  /** A recalled message, per-user deletion, or durable reaction changed locally. */
+  fun onMessageUpdated(message: PteIMMessage) {}
   fun onMessageStateChanged(clientMsgId: String, state: PteIMSendState) {}
   fun onUserSigRefreshFailed(error: Throwable) {}
   fun onThemeModeChanged(themeMode: PteIMThemeMode) {}
@@ -212,6 +214,32 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     listeners.forEach { it.onMessageStateChanged(message.clientMsgId, message.state) }
   }
 
+  /** Globally recalls the caller's own message through the IM protocol. */
+  fun recallMessage(message: PteIMMessage, callback: (Result<PteIMMessage>) -> Unit) {
+    val messageId = message.serverMsgId ?: return callback(Result.failure(IllegalArgumentException("message must be sent before recall")))
+    executor.execute { callback(runCatching { decodeMessage(postSdkJson("/v1/im/messages/recall", JSONObject().put("messageId", messageId))) }) }
+  }
+
+  /** Hides a message only from the current account, after durable IM confirmation. */
+  fun deleteMessage(message: PteIMMessage, callback: (Result<Unit>) -> Unit) {
+    val messageId = message.serverMsgId ?: return callback(Result.failure(IllegalArgumentException("message must be sent before delete")))
+    executor.execute {
+      callback(runCatching {
+        postSdkJson("/v1/im/messages/delete", JSONObject().put("messageId", messageId))
+        store.deleteLocal(message.clientMsgId)
+        Unit
+      })
+    }
+  }
+
+  fun addMessageReaction(message: PteIMMessage, emoji: String, callback: (Result<PteIMMessageReactionResult>) -> Unit) = changeMessageReaction(message, emoji, true, callback)
+  fun removeMessageReaction(message: PteIMMessage, emoji: String, callback: (Result<PteIMMessageReactionResult>) -> Unit) = changeMessageReaction(message, emoji, false, callback)
+
+  private fun changeMessageReaction(message: PteIMMessage, emoji: String, add: Boolean, callback: (Result<PteIMMessageReactionResult>) -> Unit) {
+    val messageId = message.serverMsgId ?: return callback(Result.failure(IllegalArgumentException("message must be sent before reacting")))
+    executor.execute { callback(runCatching { reactionResultFromJson(postSdkJson(if (add) "/v1/im/messages/reactions/add" else "/v1/im/messages/reactions/remove", JSONObject().put("messageId", messageId).put("emoji", emoji))) }) }
+  }
+
   /** Uploads through apiDomain and then sends an image message with the same client message ID. */
   fun uploadAndSendImage(conversationId: String, uri: Uri, onProgress: (Long, Long?) -> Unit = { _, _ -> }): PteIMMessage =
     uploadAndSendMedia(conversationId, uri, PteIMMessageType.IMAGE, onProgress)
@@ -360,6 +388,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     put("conversationId", message.conversationId)
     put("type", message.type.name.lowercase())
     put("e2ee", e2ee.encrypt(message, ::postSdkData))
+	message.quote?.serverMsgId?.takeIf { it.isNotBlank() }?.let { put("quoteMessageId", it) }
   })
 
   override fun onOpen() {
@@ -384,6 +413,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
           store.markSent(ack.getString("clientMsgId"), ack.optNullableString("serverMsgId"), ack.optLong("serverSeq"))
           listeners.forEach { it.onMessageStateChanged(ack.getString("clientMsgId"), PteIMSendState.SENT) }
         }
+        "message_event" -> handleMessageEvent(envelope.getJSONObject("payload"))
         "user_sig_will_expire", "user_sig_expired" -> refreshUserSig(force = true)
         "sync_required" -> syncNow()
         else -> Unit
@@ -413,6 +443,13 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       put("payload", payload)
     }
     runCatching { transport?.sendText(envelope.toString()) }.onFailure { error -> listeners.forEach { it.onError(error) } }
+  }
+
+  private fun handleMessageEvent(payload: JSONObject) {
+    val serverMsgId = payload.optNullableString("serverMsgId") ?: return
+    val eventType = payload.optString("eventType")
+    val updated = store.applyMessageEvent(serverMsgId, eventType, payload, config.userId) ?: return
+    listeners.forEach { it.onMessageUpdated(updated) }
   }
 
   /** The configured IM service authenticates the WSS upgrade. Android's dependency-free transport cannot add
@@ -625,7 +662,7 @@ class PteIMSDKBootstrap internal constructor(private val context: Context, priva
   }
 }
 
-private fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
+internal fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
   val content = json.optJSONObject("content") ?: JSONObject()
   val type = PteIMMessageType.valueOf(json.getString("type").uppercase())
   val media = if (type in setOf(PteIMMessageType.IMAGE, PteIMMessageType.VIDEO, PteIMMessageType.FILE)) PteIMMedia(
@@ -656,13 +693,27 @@ private fun messageFromJson(json: JSONObject, cosDomain: String): PteIMMessage {
       )
     }
   }
+
+  val reactions = json.optJSONArray("reactions")?.let { array ->
+    (0 until array.length()).mapNotNull { index -> array.optJSONObject(index)?.let { value ->
+      value.optNullableString("emoji")?.takeIf { it.isNotBlank() }?.let { emoji -> PteIMMessageReaction(emoji, value.optLong("count"), value.optBoolean("reactedByMe")) }
+    } }
+  } ?: emptyList()
   return PteIMMessage(
     conversationId = json.getString("conversationId"), senderId = json.optNullableString("senderId"),
     senderNickname = json.optNullableString("senderNickname") ?: json.optNullableString("senderName") ?: json.optNullableString("nickname"), type = type,
     text = content.optNullableString("text"), packageId = content.optNullableString("packageId"), emojiId = content.optNullableString("emojiId"),
     media = media, voice = voice, location = location, business = business, quote = quote, clientMsgId = json.getString("clientMsgId"), serverMsgId = json.optNullableString("serverMsgId"),
     serverSeq = json.optLong("serverSeq").takeIf { it > 0 }, createdAt = json.optLong("createdAt", System.currentTimeMillis()), state = PteIMSendState.SENT,
+    status = json.optInt("status", 1), recalledAt = json.optLong("recalledAt").takeIf { it > 0 }, reactions = reactions,
   )
+}
+
+private fun reactionResultFromJson(json: JSONObject): PteIMMessageReactionResult {
+  val reactions = json.optJSONArray("reactions") ?: JSONArray()
+  return PteIMMessageReactionResult(json.getString("messageId"), (0 until reactions.length()).mapNotNull { index -> reactions.optJSONObject(index)?.let { value ->
+    value.optNullableString("emoji")?.takeIf { it.isNotBlank() }?.let { emoji -> PteIMMessageReaction(emoji, value.optLong("count"), value.optBoolean("reactedByMe")) }
+  } })
 }
 
 private fun JSONObject.optNullableString(name: String): String? =

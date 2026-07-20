@@ -85,6 +85,38 @@ final class PteIMCoreDataStore: @unchecked Sendable {
     }
   }
 
+  func deleteLocal(clientMsgId: String) throws {
+    try write { context in
+      if let outbox = self.record(key: "outbox:\(clientMsgId)", in: context) { context.delete(outbox) }
+      if let row = self.record(key: clientMsgId, in: context) { context.delete(row) }
+    }
+  }
+
+  func applyMessageEvent(serverMsgId: String, eventType: String, status: Int, recalledAt: Int64, emoji: String, reactionAction: String, actor: String, currentUserId: String) throws -> PteIMMessage? {
+    try write { context in
+      let predicate = NSPredicate(format: "kind == %@ AND serverMsgId == %@", Kind.message, serverMsgId)
+      guard let row = try self.records(kind: Kind.message, predicate: predicate, sort: [], limit: 1, in: context).first else { return nil }
+      if eventType == "chat.message.deleted" { context.delete(row); return nil }
+      var message = try JSONDecoder().decode(PteIMMessage.self, from: Data((try self.cipher.decrypt(row.value(forKey: "payload") as? String ?? "{}")).utf8))
+      if eventType == "chat.message.recalled" {
+        message.status = status == 0 ? 2 : status
+        message.recalledAt = recalledAt > 0 ? recalledAt : nil
+      } else if eventType == "chat.message.reaction_changed", !emoji.isEmpty {
+        let added = reactionAction == "added"
+        var reactions = message.reactions
+        if let index = reactions.firstIndex(where: { $0.emoji == emoji }) {
+          let current = reactions[index]
+          reactions[index] = PteIMMessageReaction(emoji: emoji, count: max(0, current.count + (added ? 1 : -1)), reactedByMe: actor == currentUserId ? added : current.reactedByMe)
+        } else if added {
+          reactions.append(PteIMMessageReaction(emoji: emoji, count: 1, reactedByMe: actor == currentUserId))
+        }
+        message.reactions = reactions
+      } else { return nil }
+      try self.upsert(message, state: .sent, in: context)
+      return message
+    }
+  }
+
   func applyRemoteConversations(_ rows: [PteIMRemoteConversation], nextCursor: String) throws {
     try write { context in
       for row in rows {

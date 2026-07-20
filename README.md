@@ -258,7 +258,7 @@ chat.onVoiceRecordingChanged = { recording, controller in
 }
 ```
 
-`PteIMUIThemePalette` 的所有字段均为公开参数，包含展开输入框专用的 `composerInputColor`，因此可以只替换 `light` 或 `dark` 的任意组件颜色，不会影响另一套模式。`themeMode = system` 时 UIKit 会自动随系统外观刷新。iOS 聊天页还支持 `navigationSubtitleText`（在线状态/群成员数）与 `reactionProvider`（宿主持久化的消息反应汇总）。
+`PteIMUIThemePalette` 的所有字段均为公开参数，包含展开输入框专用的 `composerInputColor`，因此可以只替换 `light` 或 `dark` 的任意组件颜色，不会影响另一套模式。`themeMode = system` 时 UIKit 会自动随系统外观刷新。iOS 聊天页还支持 `navigationSubtitleText`（在线状态/群成员数）；消息反应优先读取 IM Core 的持久化聚合数据，`reactionProvider` 仅用于兼容已有宿主数据。
 
 iOS 将文本/表情/语音与富消息卡片分离：`PteIMUIMessageCell` 渲染前者，`PteIMUIRichMessageCell` 原生渲染图片、视频、定位地图、红包、礼物、订单与文件。富消息只负责呈现与消息收发；红包、礼物和订单的业务状态、支付和详情页始终通过宿主的消息点击回调处理。宿主可通过 `PteIMUIIconProvider` 替换 `.messageImagePlaceholder`、`.messageVideoPlay`、`.messageRedPacketBackground`、`.messageGiftBackground`，无需把任何页面资源放入 `PteIMSDK`。
 
@@ -266,9 +266,9 @@ iOS 将文本/表情/语音与富消息卡片分离：`PteIMUIMessageCell` 渲�
 
 Android 使用 `PteIMUITheme(light = …, dark = …)` 并传给 `PteIMUIKit.createChatView`、`createConversationListView` 或 `createContactListView`；HarmonyOS 通过三个组件的 `theme` 属性传入；UTS 通过 `<PteIMUIChat>`、`<PteIMUIConversationList>`、`<PteIMUIContactList>` 的 `:theme` 属性传入。三端均遵循同一套色板字段和输入回调：`onActionRequested` / `action` 负责更多面板，`onVoiceRecordingChanged` / `voice-recording` 负责按住说话状态。
 
-三端聊天页与 iOS 一致提供标题副文案（在线状态/群成员数）、消息状态时间、文本/表情/语音与图片、视频、定位、红包、礼物、订单、文件富消息卡片。Android 使用 `navigationSubtitleText`、`reactionProvider` 和 `onReactionChanged`；其中 `PteIMUIReaction.reactedByCurrentUser` 声明当前用户是否已反应，UIKit 会乐观地执行新增/取消、仅在数量大于 1 时显示数字，并通过回调交由宿主持久化。HarmonyOS 使用 `navigationSubtitleText`、`PteIMUIReactionProvider`；UTS 使用 `subtitle`、`:reaction-provider`。UIKit 不把业务反应写入 Core。
+三端聊天页与 iOS 一致提供标题副文案（在线状态/群成员数）、消息状态时间、文本/表情/语音与图片、视频、定位、红包、礼物、订单、文件富消息卡片。撤回、删除、引用、表情反应均是 IM Core 能力：撤回由发送者在服务端时限内全局生效；删除只隐藏当前账户；引用以服务端 `quoteMessageId` 和快照保证跨分页可展示；表情反应由 IM 持久化并实时同步。`reactionProvider` / `onReactionChanged` 只保留为兼容扩展，不再要求业务服务保存反应状态。
 
-Android 的图片和视频卡片点击后进入 UIKit 原生预览：`PteIMUIMediaPreviewActivity` 是 `open` 页面，图片点击关闭、长按保存相册；视频支持暂停/播放、关闭和底部进度条。文件进入 `PteIMUIFilePreviewActivity`（同为 `open` 页面），点击交给系统预览、长按保存到系统文件。定位卡片使用地图缩略图，不叠加定位图标；点击后按高德、百度、腾讯、Google、系统地图的顺序检测并携带目的地唤起外置地图。二级导航的返回与更多均为 44 dp 点击区并使用满幅图标。长按菜单始终可引用；仅文本消息显示复制；撤回与删除仅对当前用户发送的消息显示。UIKit 会本地即时更新删除/撤回并通过回调交由业务调用其已授权的服务端撤回接口。
+Android 的图片和视频卡片点击后进入 UIKit 原生预览：`PteIMUIMediaPreviewActivity` 是 `open` 页面，图片点击关闭、长按保存相册；视频支持暂停/播放、关闭和底部进度条。文件进入 `PteIMUIFilePreviewActivity`（同为 `open` 页面），点击交给系统预览、长按保存到系统文件。定位卡片使用地图缩略图，不叠加定位图标；点击后按高德、百度、腾讯、Google、系统地图的顺序检测并携带目的地唤起外置地图。二级导航的返回与更多均为 44 dp 点击区并使用满幅图标。长按菜单的撤回调用 IM 服务端全局撤回，删除调用 IM 服务端仅删除当前用户可见记录；两者不再以 `deleteLocalMessage` 代替。
 
 会话与联系人页面均提供设计稿对应的品牌标题栏、亮暗切换入口、语言切换入口、搜索/快捷操作区、渐变头像、时间和分隔层级；列表数据、头像点击、添加好友/建群和跳转仍通过公开回调交给宿主业务层。Android 会话页的 `PteIMUIConversationPresentation` 可通过 `presentationTransformer` 重写昵称、预览、时间、头像、在线状态与未读数；`onCreateConversation`、`onThemeModeRequested`、`onLanguageRequested` 交给宿主处理业务路由和持久化，`maxVisibleConversations` 只控制展示数量，不改变 Core 同步或分页。Android 允许覆写 `conversationHeader()`、`conversationRow(item)`、`contactHeader()`、`contactRow()`；HarmonyOS 与 UTS 保持组件属性和事件形式，便于按宿主页面重排。
 
@@ -276,7 +276,7 @@ Android 的图片和视频卡片点击后进入 UIKit 原生预览：`PteIMUIMed
 
 Android 的三个 UIKit 入口均为 `open class`，不需要 fork SDK。`PteIMUIConversationListView` 可覆写 `conversationHeader()`、`searchBar()`、`createConversationCell()`/`conversationRow()`、`selectConversation()`，并使用 `onAvatarTapped` 接管头像事件；固定导航栏与搜索栏、下拉刷新和 Core 分页同步仍由 UIKit 保留。`PteIMUIContactListView` 可覆写 `contactHeader()`、`createContactCell()`/`contactRow()`、`presentation()` 和 `select()`，并使用 `onAvatarTapped` 进入宿主资料页。`PteIMUIChatView` 可覆写 `buildHeader()`、`messageView()`、`messageBody()`、`messageAvatar()`、`voiceBubble()`、`businessCard()`、`showMessageMenu()`；`inputBar` 与 `header` 为 `protected`，可通过 `addNavigationExtension()` 增加宿主导航项。
 
-`PteIMUIChatView` 内置文本和 Unicode 表情混合发送、失败重试、已读上报、引用、复制、仅本地删除、乐观表情反应；`onMessageRevoked`、`onMessageDeleted`、`onMessageRetryRequested` 和 `onReactionChanged` 用于把结果同步到业务服务。图片、视频、文件的选择、COS 上传、发送与失败重试由 UIKit 完成；`mediaPreviewActivityClass`、`filePreviewActivityClass` 可分别替换成继承自 `PteIMUIMediaPreviewActivity`、`PteIMUIFilePreviewActivity` 的宿主页面。`sendCustomMessage(PteIMUICustomMessage)` 为红包、礼物、订单和自定义业务消息提供统一入口，`CUSTOM` 仅触发 `onCustomMessageRequested`。
+`PteIMUIChatView` 内置文本和 Unicode 表情混合发送、失败重试、已读上报、引用、复制、服务端删除/撤回与 IM 表情反应；`onMessageRevoked`、`onMessageDeleted`、`onMessageRetryRequested` 和 `onReactionChanged` 是可选的宿主通知，而非 IM 状态持久化通道。图片、视频、文件的选择、COS 上传、发送与失败重试由 UIKit 完成；`mediaPreviewActivityClass`、`filePreviewActivityClass` 可分别替换成继承自 `PteIMUIMediaPreviewActivity`、`PteIMUIFilePreviewActivity` 的宿主页面。`sendCustomMessage(PteIMUICustomMessage)` 为红包、礼物、订单和自定义业务消息提供统一入口，`CUSTOM` 仅触发 `onCustomMessageRequested`。
 
 ```kotlin
 class OrderChatView(context: Context, client: PteIMSDK, id: String) :

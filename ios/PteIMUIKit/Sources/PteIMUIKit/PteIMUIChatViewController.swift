@@ -173,10 +173,8 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   }
   public func sendText(_ text: String) {
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-    // The current IM wire format carries plain Unicode text, which naturally
-    // supports mixed text and emoji. Quoting remains host-renderable metadata
-    // until the server quote contract is enabled.
-    append(message: client.sendText(conversationId: conversationId, text: text))
+    let quote = quotedMessage.map { PteIMQuote(clientMsgId: $0.clientMsgId, serverMsgId: $0.serverMsgId, senderId: $0.senderId, text: PteIMUIMessageText.render($0, language: language)) }
+    append(message: client.sendText(conversationId: conversationId, text: text, quote: quote))
     quotedMessage = nil
     inputBar.clearText()
   }
@@ -263,6 +261,10 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   open func reactions(for message: PteIMMessage) -> [PteIMUIReaction] {
     var orderedEmoji: [String] = []
     var counts: [String: Int] = [:]
+    for reaction in message.reactions where !reaction.emoji.isEmpty {
+      if counts[reaction.emoji] == nil { orderedEmoji.append(reaction.emoji) }
+      counts[reaction.emoji, default: 0] += Int(reaction.count)
+    }
     for reaction in reactionProvider?(message) ?? [] where !reaction.emoji.isEmpty {
       if counts[reaction.emoji] == nil { orderedEmoji.append(reaction.emoji) }
       counts[reaction.emoji, default: 0] += reaction.count
@@ -342,6 +344,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   }
   private func bindClient() {
     listener.onMessage = { [weak self] message in guard message.conversationId == self?.conversationId else { return }; DispatchQueue.main.async { self?.append(message: message) } }
+    listener.onMessageUpdated = { [weak self] message in guard message.conversationId == self?.conversationId else { return }; DispatchQueue.main.async { self?.upsert(message); self?.tableView.reloadData() } }
     listener.onMessageStateChanged = { [weak self] id, state in DispatchQueue.main.async { guard let self, let index = self.messages.firstIndex(where: { $0.clientMsgId == id }) else { return }; self.messages[index].state = state; self.tableView.reloadData() } }
     listener.onThemeModeChanged = { [weak self] _ in DispatchQueue.main.async { self?.appearanceController.refresh() } }
     listener.onLanguageChanged = { [weak self] _ in DispatchQueue.main.async {
@@ -443,7 +446,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
 
   private func toggleReaction(_ emoji: String, for message: PteIMMessage) {
     let key = "\(message.clientMsgId)|\(emoji)"
-    let wasSelected = locallySelectedReactionKeys.contains(key)
+    let wasSelected = locallySelectedReactionKeys.contains(key) || message.reactions.contains(where: { $0.emoji == emoji && $0.reactedByMe })
     if wasSelected {
       locallySelectedReactionKeys.remove(key)
       reactionDeltas[message.clientMsgId, default: [:]][emoji, default: 0] -= 1
@@ -456,27 +459,36 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
       tableView.reloadRows(at: [indexPath], with: .none)
     }
     onReactionToggled?(emoji, message, !wasSelected, self)
+    guard message.serverMsgId?.isEmpty == false else { return }
+    Task { [weak self] in
+      do {
+        if wasSelected { _ = try await self?.client.removeMessageReaction(message, emoji: emoji) }
+        else { _ = try await self?.client.addMessageReaction(message, emoji: emoji) }
+      } catch { /* Core listener keeps optimistic UI reconciled; host receives its existing callback. */ }
+    }
   }
 
-  /**
-   Executes UIKit-owned operations immediately and then emits the same action
-   to the host for a server-side audit/recall/delete implementation.
-   */
+  /** Executes IM-core message operations and then emits the optional host callback. */
   open func performMessageAction(_ action: PteIMUIMessageAction, for message: PteIMMessage) {
     switch action {
     case .quote:
       quotedMessage = message
-      // Quote context is made visible to a host through the callback. The
-      // server quote format is intentionally not guessed by the SDK.
       onQuoteRequested?(message, self)
     case .copy:
       UIPasteboard.general.string = PteIMUIMessageText.render(message, language: language)
     case .delete:
-      removeMessageLocally(message)
-      onMessageDeleted?(message, self)
+      Task { [weak self] in
+        guard let self else { return }
+        guard (try? await self.client.deleteMessage(message)) != nil else { return }
+        self.removeMessageLocally(message)
+        self.onMessageDeleted?(message, self)
+      }
     case .revoke:
-      removeMessageLocally(message)
-      onMessageRevoked?(message, self)
+      Task { [weak self] in
+        guard let self else { return }
+        guard (try? await self.client.recallMessage(message)) != nil else { return }
+        self.onMessageRevoked?(message, self)
+      }
     }
     onMessageAction?(action, message, self)
   }

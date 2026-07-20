@@ -8,6 +8,7 @@ import Foundation
 public final class PteIMListener: @unchecked Sendable {
   public var onConnectionChanged: ((Bool) -> Void)?
   public var onMessage: ((PteIMMessage) -> Void)?
+  public var onMessageUpdated: ((PteIMMessage) -> Void)?
   public var onMessageStateChanged: ((String, PteIMSendState) -> Void)?
   public var onUserSigRefreshFailed: ((Error) -> Void)?
   public var onThemeModeChanged: ((PteIMThemeMode) -> Void)?

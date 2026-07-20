@@ -227,6 +227,29 @@ public struct PteIMRemoteMessage: Decodable, Sendable {
 }
 public struct PteIMMessagePage: Decodable, Sendable { public let list: [PteIMRemoteMessage] }
 
+public struct PteIMMessageReaction: Codable, Sendable, Hashable {
+  public let emoji: String
+  public let count: Int64
+  public let reactedByMe: Bool
+  public init(emoji: String, count: Int64, reactedByMe: Bool) { self.emoji = emoji; self.count = count; self.reactedByMe = reactedByMe }
+}
+
+public struct PteIMMessageReactionResult: Decodable, Sendable {
+  public let messageId: String
+  public let reactions: [PteIMMessageReaction]
+}
+
+/** Immutable source snapshot plus the server message ID used by the IM quote contract. */
+public struct PteIMQuote: Codable, Sendable, Hashable {
+  public let clientMsgId: String
+  public let serverMsgId: String?
+  public let senderId: String?
+  public let text: String
+  public init(clientMsgId: String, serverMsgId: String? = nil, senderId: String? = nil, text: String) { self.clientMsgId = clientMsgId; self.serverMsgId = serverMsgId; self.senderId = senderId; self.text = text }
+}
+
+struct PteIMMessageActionResponse: Decodable {}
+
 public struct PteIMMessage: Codable, Sendable {
   public let clientMsgId: String
   public var serverMsgId: String? = nil
@@ -242,14 +265,18 @@ public struct PteIMMessage: Codable, Sendable {
   public var voice: PteIMVoice? = nil
   public var location: PteIMLocation? = nil
   public var business: PteIMBusinessContent? = nil
+  public var quote: PteIMQuote? = nil
   public var state: PteIMSendState
+  public var status: Int = 1
+  public var recalledAt: Int64? = nil
+  public var reactions: [PteIMMessageReaction] = []
 
-  public init(conversationId: String, senderId: String? = nil, type: PteIMMessageType, text: String? = nil, packageId: String? = nil, emojiId: String? = nil, media: PteIMMedia? = nil, voice: PteIMVoice? = nil, location: PteIMLocation? = nil, business: PteIMBusinessContent? = nil, clientMsgId: String = UUID().uuidString, createdAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000), state: PteIMSendState = .pending) {
-    self.clientMsgId = clientMsgId; self.conversationId = conversationId; self.senderId = senderId; self.type = type; self.text = text; self.packageId = packageId; self.emojiId = emojiId; self.media = media; self.voice = voice; self.location = location; self.business = business; self.createdAt = createdAt; self.state = state
+  public init(conversationId: String, senderId: String? = nil, type: PteIMMessageType, text: String? = nil, packageId: String? = nil, emojiId: String? = nil, media: PteIMMedia? = nil, voice: PteIMVoice? = nil, location: PteIMLocation? = nil, business: PteIMBusinessContent? = nil, quote: PteIMQuote? = nil, clientMsgId: String = UUID().uuidString, createdAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000), state: PteIMSendState = .pending) {
+    self.clientMsgId = clientMsgId; self.conversationId = conversationId; self.senderId = senderId; self.type = type; self.text = text; self.packageId = packageId; self.emojiId = emojiId; self.media = media; self.voice = voice; self.location = location; self.business = business; self.quote = quote; self.createdAt = createdAt; self.state = state
   }
 
-  enum CodingKeys: String, CodingKey { case clientMsgId, serverMsgId, conversationId, senderId, type, createdAt, serverSeq, content }
-  enum ContentKeys: String, CodingKey { case text, packageId, emojiId, url, thumbnailUrl, coverUrl, width, height, durationMs, sizeBytes, fileName, mimeType, waveform, latitude, longitude, name, address, businessId, title, subtitle, actionUrl }
+  enum CodingKeys: String, CodingKey { case clientMsgId, serverMsgId, conversationId, senderId, type, createdAt, serverSeq, status, recalledAt, reactions, content }
+  enum ContentKeys: String, CodingKey { case text, packageId, emojiId, url, thumbnailUrl, coverUrl, width, height, durationMs, sizeBytes, fileName, mimeType, waveform, latitude, longitude, name, address, businessId, title, subtitle, actionUrl, quote }
 
   public init(from decoder: Decoder) throws {
     let root = try decoder.container(keyedBy: CodingKeys.self)
@@ -262,6 +289,8 @@ public struct PteIMMessage: Codable, Sendable {
     voice = type == .voice ? try content.decodeIfPresent(String.self, forKey: .url).map { PteIMVoice(url: $0, durationMs: try content.decode(Int64.self, forKey: .durationMs), waveform: try content.decodeIfPresent(String.self, forKey: .waveform), sizeBytes: try content.decodeIfPresent(Int64.self, forKey: .sizeBytes)) } : nil
     location = type == .location ? try content.decodeIfPresent(Double.self, forKey: .latitude).map { latitude in PteIMLocation(latitude: latitude, longitude: try content.decode(Double.self, forKey: .longitude), name: try content.decode(String.self, forKey: .name), address: try content.decodeIfPresent(String.self, forKey: .address)) } : nil
     business = (type == .gift || type == .red_packet || type == .order) ? try content.decodeIfPresent(String.self, forKey: .businessId).map { id in PteIMBusinessContent(businessId: id, title: try content.decode(String.self, forKey: .title), subtitle: try content.decodeIfPresent(String.self, forKey: .subtitle), actionUrl: try content.decodeIfPresent(String.self, forKey: .actionUrl)) } : nil
+    quote = try content.decodeIfPresent(PteIMQuote.self, forKey: .quote)
+    status = try root.decodeIfPresent(Int.self, forKey: .status) ?? 1; recalledAt = try root.decodeIfPresent(Int64.self, forKey: .recalledAt); reactions = try root.decodeIfPresent([PteIMMessageReaction].self, forKey: .reactions) ?? []
     state = .sent
   }
 
@@ -269,6 +298,7 @@ public struct PteIMMessage: Codable, Sendable {
     var root = encoder.container(keyedBy: CodingKeys.self)
     try root.encode(clientMsgId, forKey: .clientMsgId); try root.encodeIfPresent(serverMsgId, forKey: .serverMsgId); try root.encode(conversationId, forKey: .conversationId); try root.encodeIfPresent(senderId, forKey: .senderId)
     try root.encode(type, forKey: .type); try root.encode(createdAt, forKey: .createdAt); try root.encodeIfPresent(serverSeq, forKey: .serverSeq)
+    try root.encode(status, forKey: .status); try root.encodeIfPresent(recalledAt, forKey: .recalledAt); try root.encode(reactions, forKey: .reactions)
     var content = root.nestedContainer(keyedBy: ContentKeys.self, forKey: .content)
     try content.encodeIfPresent(text, forKey: .text); try content.encodeIfPresent(packageId, forKey: .packageId); try content.encodeIfPresent(emojiId, forKey: .emojiId)
     try content.encodeIfPresent(media?.url, forKey: .url); try content.encodeIfPresent(media?.thumbnailUrl, forKey: .thumbnailUrl); try content.encodeIfPresent(media?.coverUrl, forKey: .coverUrl)
@@ -277,6 +307,7 @@ public struct PteIMMessage: Codable, Sendable {
     try content.encodeIfPresent(voice?.url, forKey: .url); try content.encodeIfPresent(voice?.durationMs, forKey: .durationMs); try content.encodeIfPresent(voice?.waveform, forKey: .waveform); try content.encodeIfPresent(voice?.sizeBytes, forKey: .sizeBytes)
     try content.encodeIfPresent(location?.latitude, forKey: .latitude); try content.encodeIfPresent(location?.longitude, forKey: .longitude); try content.encodeIfPresent(location?.name, forKey: .name); try content.encodeIfPresent(location?.address, forKey: .address)
     try content.encodeIfPresent(business?.businessId, forKey: .businessId); try content.encodeIfPresent(business?.title, forKey: .title); try content.encodeIfPresent(business?.subtitle, forKey: .subtitle); try content.encodeIfPresent(business?.actionUrl, forKey: .actionUrl)
+    try content.encodeIfPresent(quote, forKey: .quote)
   }
 
   /** JSON representation of the type-specific message content for language bridges. */

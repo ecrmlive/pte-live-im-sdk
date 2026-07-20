@@ -112,6 +112,7 @@ export struct PteIMUIChat {
   @State draft: string = ''
   @State selectedMessageId: string = ''
   @State quotedMessageId: string = ''
+  @State quotedServerMsgId: string = ''
   @State quotedText: string = ''
   @State composerDismissSignal: number = 0
   @State emojiOpenSignal: number = 0
@@ -421,14 +422,16 @@ export struct PteIMUIChat {
       const message = new PteIMMessage(this.conversationId, PteIMMessageType.TEXT, value, '', '', null, null, null, null, '', Date.now(), PteIMSendState.SENT)
       message.senderId = this.previewUserId
       message.quoteClientMsgId = this.quotedMessageId
+      message.quoteServerMsgId = this.quotedServerMsgId
       message.quoteText = this.quotedText
       this.messages = [...this.messages, message]
     } else {
-      if (this.quotedMessageId.length > 0) await this.client.sendTextWithQuote(this.conversationId, value, this.quotedMessageId, this.quotedText)
+      if (this.quotedMessageId.length > 0) await this.client.sendTextWithQuote(this.conversationId, value, this.quotedMessageId, this.quotedServerMsgId, this.quotedText)
       else await this.client.sendText(this.conversationId, value)
       await this.loadMessages()
     }
     this.quotedMessageId = ''
+    this.quotedServerMsgId = ''
     this.quotedText = ''
   }
   private async sendEmoji(packageId: string, emojiId: string): Promise<void> {
@@ -616,6 +619,10 @@ export struct PteIMUIChat {
       this.localReactions = updated
     } else this.localReactions = [...this.localReactions, new PteIMUILocalReaction(message.clientMsgId, emoji, selected)]
     this.operationHandler.react(message, emoji, selected)
+    if (this.client !== null && message.serverMsgId.length > 0) {
+      const operation = selected ? this.client.addMessageReaction(message, emoji) : this.client.removeMessageReaction(message, emoji)
+      operation.catch((_error: Error) => { /* The optional host callback remains a compatibility hook. */ })
+    }
     this.selectedMessageId = ''
   }
   /** Merges host-supplied reaction counts with this UI's current-user reaction. */
@@ -643,6 +650,7 @@ export struct PteIMUIChat {
   }
   private quoteMessage(message: PteIMMessage): void {
     this.quotedMessageId = message.clientMsgId
+    this.quotedServerMsgId = message.serverMsgId
     this.quotedText = this.messageText(message)
     this.operationHandler.quote(message)
     this.selectedMessageId = ''
@@ -659,13 +667,13 @@ export struct PteIMUIChat {
   private async revokeMessage(message: PteIMMessage): Promise<void> {
     this.operationHandler.revoke(message)
     if (this.client === null) this.messages = this.messages.filter((item: PteIMMessage) => item.clientMsgId !== message.clientMsgId)
-    else { await this.client.deleteLocalMessage(message.clientMsgId); await this.loadMessages() }
+    else { await this.client.recallMessage(message); await this.loadMessages() }
     this.selectedMessageId = ''
   }
   private async deleteMessage(message: PteIMMessage): Promise<void> {
     this.operationHandler.delete(message)
     if (this.client === null) this.messages = this.messages.filter((item: PteIMMessage) => item.clientMsgId !== message.clientMsgId)
-    else { await this.client.deleteLocalMessage(message.clientMsgId); await this.loadMessages() }
+    else { await this.client.deleteMessage(message); await this.loadMessages() }
     this.selectedMessageId = ''
   }
   private presentation(message: PteIMMessage, outgoing: boolean): PteIMUIMessagePresentation {
