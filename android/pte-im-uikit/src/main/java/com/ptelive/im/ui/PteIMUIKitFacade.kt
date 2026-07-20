@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.app.Activity
+import android.graphics.BitmapFactory
 import android.graphics.drawable.ColorDrawable
 import android.graphics.Color
 import android.graphics.Typeface
@@ -37,6 +38,25 @@ import com.ptelive.im.PteIMThemeMode
 import com.ptelive.im.PteIMSDK
 import com.ptelive.im.systemTheme
 import kotlin.math.min
+import java.net.URL
+
+/**
+ * Loads a remote avatar without stretching it. The image is initially
+ * transparent so the caller's initials remain a safe fallback on failure.
+ */
+private fun Context.coverAvatar(url: String): ImageView = ImageView(this).apply {
+  scaleType = ImageView.ScaleType.CENTER_CROP
+  background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) }
+  clipToOutline = true
+  alpha = 0f
+  tag = url
+  Thread {
+    val bitmap = runCatching { URL(url).openConnection().getInputStream().use(BitmapFactory::decodeStream) }.getOrNull()
+    post {
+      if (tag == url && bitmap != null) { setImageBitmap(bitmap); alpha = 1f }
+    }
+  }.start()
+}
 
 /** Actions which need an application picker, location provider, or business workflow. */
 enum class PteIMUIAction { IMAGE, CAMERA, VIDEO, VOICE, LOCATION, GIFT, RED_PACKET, ORDER, FILE }
@@ -73,7 +93,7 @@ enum class PteIMUIReceiptStatus { READ, UNREAD, HIDDEN }
 enum class PteIMUIContactListMode { FRIENDS, FOLLOWS, GROUPS, CUSTOM }
 
 /** Display metadata can be replaced by an inheriting view before it creates a cell. */
-data class PteIMUIContactPresentation(val identifier: String, val title: String, val subtitle: String = "", val avatarText: String = title.take(1), val isGroup: Boolean = false)
+data class PteIMUIContactPresentation(val identifier: String, val title: String, val subtitle: String = "", val avatarText: String = title.take(1), val isGroup: Boolean = false, val avatarUrl: String? = null)
 /**
  * Host-persisted reaction summary. [reactedByCurrentUser] lets UIKit apply a
  * local add/remove toggle without guessing whether the current user already
@@ -98,6 +118,7 @@ data class PteIMUIConversationPresentation(
   val avatarText: String = title.take(1),
   val avatarColor: Int? = null,
   val isOnline: Boolean = false,
+  val avatarUrl: String? = null,
 )
 
 /** Public, dependency-free Android UI Kit entry point. */
@@ -122,6 +143,8 @@ object PteIMUIKit {
  cell / InputBar architecture, but with no third-party dependency.
  */
 open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, protected val conversationId: String, title: String, var uiTheme: PteIMUITheme = PteIMUITheme()) : LinearLayout(context) {
+  /** Null keeps circular chat/header/message avatars; set dp for a custom radius. */
+  var avatarCornerRadiusDp: Int? = null
   /** Enable for group conversations. Only other members' messages show the sender name. */
   open var isGroupChat: Boolean = false
   /** Lets an embedding app resolve a group alias from its own member cache. */
@@ -347,9 +370,9 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     }
     return LinearLayout(context).apply {
       gravity = if (outgoing) Gravity.END else Gravity.START; setPadding(dp(12), dp(4), dp(12), dp(4))
-      if (!outgoing) addView(messageAvatar(message.senderId?.take(1) ?: "A", false), LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8); topMargin = dp(2) })
+      if (!outgoing) addView(messageAvatar(message, message.senderId?.take(1) ?: "A", false), LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8); topMargin = dp(2) })
       addView(stack)
-      if (outgoing) addView(messageAvatar("M", true), LayoutParams(dp(28), dp(28)).apply { marginStart = dp(8); topMargin = dp(2) })
+      if (outgoing) addView(messageAvatar(message, "M", true), LayoutParams(dp(28), dp(28)).apply { marginStart = dp(8); topMargin = dp(2) })
       // Rich cards have nested child views; bind the row too so long press
       // always reaches the same MessageKit-style action surface.
       setOnLongClickListener { showMessageMenu(message, this); true }
@@ -428,7 +451,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   protected open fun buildHeader(title: String) {
     header.removeAllViews()
     header.addView(iconButton(R.drawable.pte_im_ui_chat_back, "Back") { onBackRequested?.invoke() }, LayoutParams(dp(44), dp(44)))
-    header.addView(TextView(context).apply { text = "#"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = rounded(Color.rgb(10, 155, 188), Color.TRANSPARENT, 18) }, LayoutParams(dp(34), dp(34)).apply { marginStart = dp(2); marginEnd = dp(8) })
+    header.addView(PteIMUIAvatarView(context).apply { cornerRadiusDp = this@PteIMUIChatView.avatarCornerRadiusDp; bind("#", Color.rgb(10, 155, 188)) }, LayoutParams(dp(34), dp(34)).apply { marginStart = dp(2); marginEnd = dp(8) })
     header.addView(LinearLayout(context).apply {
       orientation = VERTICAL; gravity = Gravity.CENTER_VERTICAL
       addView(TextView(context).apply { text = title; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false; tag = "pte-title" }, LayoutParams(-1, dp(21)))
@@ -459,6 +482,11 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     addView(View(context).apply { setBackgroundColor(palette.divider) }, LayoutParams(0, dp(1), 1f).apply { marginStart = dp(10); marginEnd = dp(16) })
   }
   /** Override for remote-image avatars or profile click behaviour. */
+  var messageAvatarUrlProvider: ((PteIMMessage, Boolean) -> String?)? = null
+  protected open fun messageAvatar(message: PteIMMessage, text: String, outgoing: Boolean): View = PteIMUIAvatarView(context).apply {
+    cornerRadiusDp = this@PteIMUIChatView.avatarCornerRadiusDp
+    bind(text, if (outgoing) palette.outgoingEnd else Color.rgb(134, 79, 241), messageAvatarUrlProvider?.invoke(message, outgoing))
+  }
   protected open fun messageAvatar(text: String, outgoing: Boolean): View = TextView(context).apply { this.text = text; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = rounded(if (outgoing) palette.outgoingEnd else Color.rgb(134, 79, 241), Color.TRANSPARENT, 16) }
   /**
    * Per-message content-cell factory. This is the Android equivalent of a
@@ -909,6 +937,8 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
  * duplicating the SDK's encrypted-cache and cursor-sync behaviour.
  */
 open class PteIMUIConversationListView(context: Context, protected val client: PteIMSDK, protected val onConversationClick: (String) -> Unit, var uiTheme: PteIMUITheme = PteIMUITheme()) : LinearLayout(context) {
+  /** Null is a circle; set dp to override the avatar radius in every row. */
+  var avatarCornerRadiusDp: Int? = null
   /** Protected list container for subclasses that need to append host-only rows. */
   protected val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
   /** The fixed navigation/search chrome is outside this protected scroll view. */
@@ -1043,12 +1073,7 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
       gravity = Gravity.CENTER_VERTICAL
       setPadding(dp(20), dp(9), dp(20), dp(8))
       setBackgroundColor(palette.background)
-      val avatar = FrameLayout(context)
-      avatar.addView(TextView(context).apply {
-        text = item.avatarText.take(1).uppercase(); gravity = Gravity.CENTER; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
-        background = circle(item.avatarColor ?: avatarColor(item.conversationId))
-      }, FrameLayout.LayoutParams(dp(44), dp(44)))
-      if (item.isOnline) avatar.addView(View(context).apply { background = circle(Color.rgb(25, 205, 91)) }, FrameLayout.LayoutParams(dp(10), dp(10), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(1); bottomMargin = dp(1) })
+      val avatar = PteIMUIAvatarView(context).apply { cornerRadiusDp = this@PteIMUIConversationListView.avatarCornerRadiusDp; bind(item.avatarText, item.avatarColor ?: avatarColor(item.conversationId), item.avatarUrl, item.isOnline) }
       avatar.setOnClickListener { onAvatarTapped?.invoke(item) }
       addView(avatar, LinearLayout.LayoutParams(dp(44), dp(44)))
       addView(LinearLayout(context).apply {
@@ -1086,7 +1111,7 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
   }
   open fun presentation(conversationId: String, preview: String, updatedAt: Long, remote: PteIMRemoteConversation?): PteIMUIConversationPresentation {
     val title = remote?.title?.takeIf { it.isNotBlank() } ?: conversationId
-    return PteIMUIConversationPresentation(conversationId, title, preview, relativeTime(updatedAt), remote?.unreadCount ?: 0, title.take(1), isOnline = false)
+    return PteIMUIConversationPresentation(conversationId, title, preview, relativeTime(updatedAt), remote?.unreadCount ?: 0, title.take(1), isOnline = false, avatarUrl = remote?.avatar)
   }
   /** Override to replace fixed search chrome while retaining local filtering. */
   protected open fun searchBar(): View = FrameLayout(context).apply {
@@ -1134,6 +1159,8 @@ open class PteIMUIContactListView(
   protected val onConversationClick: (String, String) -> Unit,
   var uiTheme: PteIMUITheme = PteIMUITheme(),
 ) : ScrollView(context) {
+  /** Null is a circle; set dp to override the avatar radius in every row. */
+  var avatarCornerRadiusDp: Int? = null
   protected val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
   var onAvatarTapped: ((PteIMUIContactPresentation) -> Unit)? = null
   var onLoadError: ((Throwable) -> Unit)? = null
@@ -1180,13 +1207,17 @@ open class PteIMUIContactListView(
   }
   open fun presentation(contact: PteIMContact): PteIMUIContactPresentation {
     val title = contact.remark.ifBlank { contact.nickname.ifBlank { contact.userId } }
-    return PteIMUIContactPresentation(contact.userId, title, if (contact.remark.isBlank()) "" else contact.nickname)
+    return PteIMUIContactPresentation(contact.userId, title, if (contact.remark.isBlank()) "" else contact.nickname, avatarUrl = contact.avatar)
   }
   /** Replace this to use remote avatars, custom typography or a bespoke cell View. */
   open fun contactRow(item: PteIMUIContactPresentation): View = LinearLayout(context).apply {
     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(12), dp(20), dp(12)); setBackgroundColor(resolvePalette().background)
     val palette = resolvePalette()
-    addView(Button(context).apply { text = item.avatarText; textSize = 14f; isAllCaps = false; setTextColor(palette.outgoingText); background = avatarBackground(palette); setOnClickListener { onAvatarTapped?.invoke(item) } }, LinearLayout.LayoutParams(dp(44), dp(44)))
+    addView(PteIMUIAvatarView(context).apply {
+      cornerRadiusDp = this@PteIMUIContactListView.avatarCornerRadiusDp
+      bind(item.avatarText, palette.outgoingEnd, item.avatarUrl)
+      setOnClickListener { onAvatarTapped?.invoke(item) }
+    }, LinearLayout.LayoutParams(dp(44), dp(44)))
     addView(LinearLayout(context).apply {
       orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0)
       addView(TextView(context).apply { text = item.title; textSize = 16f; setTextColor(resolvePalette().primaryText) })
@@ -1225,7 +1256,7 @@ open class PteIMUIContactListView(
     result.onSuccess { page -> applyPage(page.list.map(::presentation), page.nextCursor, page.hasMore, replacing) }.onFailure { finishFailure(it) }
   }
   private fun receiveGroups(result: Result<PteIMGroupPage>, replacing: Boolean) = post {
-    result.onSuccess { page -> applyPage(page.list.map { group -> PteIMUIContactPresentation(group.id.toString(), group.title.ifBlank { group.id.toString() }, isGroup = true) }, page.nextCursor, page.hasMore, replacing) }.onFailure { finishFailure(it) }
+    result.onSuccess { page -> applyPage(page.list.map { group -> PteIMUIContactPresentation(group.id.toString(), group.title.ifBlank { group.id.toString() }, isGroup = true, avatarUrl = group.avatar) }, page.nextCursor, page.hasMore, replacing) }.onFailure { finishFailure(it) }
   }
   private fun applyPage(values: List<PteIMUIContactPresentation>, nextCursor: String, more: Boolean, replacing: Boolean) {
     contacts = if (replacing) values else (contacts + values).distinctBy { "${it.isGroup}:${it.identifier}" }

@@ -1,6 +1,7 @@
 import { PteIMContact, PteIMContactPage, PteIMGroupPage, PteIMSDK } from '@ptelive/pte-im-sdk'
 import { PteIMUIAvatarHandler, PteIMUIContactHandler, PteIMUIContactListMode, PteIMUILoadErrorHandler } from './PteIMUIKit'
 import { PteIMUITheme, PteIMUIThemePalette } from './PteIMUITheme'
+import { PteIMUIAvatar } from './PteIMUIAvatar'
 
 /** A normalised display row lets the host use one custom route for people and groups. */
 export class PteIMUIContactPresentation {
@@ -8,6 +9,8 @@ export class PteIMUIContactPresentation {
   title: string = ''
   subtitle: string = ''
   avatarText: string = ''
+  /** Remote avatar URL, displayed with cover crop inside the circular cell. */
+  avatarURL: string = ''
   isGroup: boolean = false
 }
 
@@ -29,6 +32,8 @@ export struct PteIMUIContactList {
   @Prop avatarHandler: PteIMUIAvatarHandler = new PteIMUIAvatarHandler()
   @Prop errorHandler: PteIMUILoadErrorHandler = new PteIMUILoadErrorHandler()
   @Prop presentationTransformer: PteIMUIContactPresentationTransformer = new PteIMUIContactPresentationTransformer()
+  /** Negative keeps the default circle; set vp to customise list avatars. */
+  @Prop avatarCornerRadius: number = -1
   @Prop theme: PteIMUITheme = new PteIMUITheme()
   @StorageProp('colorMode') systemColorMode: string = 'light'
   @State contacts: PteIMUIContactPresentation[] = []
@@ -49,7 +54,7 @@ export struct PteIMUIContactList {
       ForEach(this.contacts, (item: PteIMUIContactPresentation) => {
         ListItem() {
           Row({ space: 12 }) {
-            Text(item.avatarText).width(42).height(42).textAlign(TextAlign.Center).fontColor(Color.White).fontSize(15).linearGradient({ angle: 90, colors: [[this.palette().outgoingStart, 0.0], [this.palette().outgoingEnd, 1.0]] }).borderRadius(21).onClick(() => this.avatarHandler.tap(item.identifier, item.isGroup))
+            PteIMUIAvatar({ url: item.avatarURL, label: item.avatarText, avatarSize: 42, cornerRadius: this.avatarCornerRadius, fillColor: this.palette().outgoingEnd }).onClick(() => this.avatarHandler.tap(item.identifier, item.isGroup))
             Column({ space: 4 }) {
               Text(item.title).fontSize(16).fontColor(this.palette().text)
               if (item.subtitle.length > 0) Text(item.subtitle).fontSize(13).fontColor(this.palette().muted)
@@ -97,13 +102,14 @@ export struct PteIMUIContactList {
       value.title = contact.remark.length > 0 ? contact.remark : (contact.nickname.length > 0 ? contact.nickname : contact.userId)
       value.subtitle = contact.remark.length > 0 ? contact.nickname : ''
       value.avatarText = value.title.substring(0, 1)
+      value.avatarURL = contact.avatar
       return this.presentationTransformer.transform(value)
     })
   }
   private groupPresentations(page: PteIMGroupPage): PteIMUIContactPresentation[] {
     return page.list.map((group): PteIMUIContactPresentation => {
       const value = new PteIMUIContactPresentation()
-      value.identifier = group.id.toString(); value.title = group.title.length > 0 ? group.title : value.identifier; value.avatarText = value.title.substring(0, 1); value.isGroup = true
+      value.identifier = group.id.toString(); value.title = group.title.length > 0 ? group.title : value.identifier; value.avatarText = value.title.substring(0, 1); value.avatarURL = group.avatar; value.isGroup = true
       return this.presentationTransformer.transform(value)
     })
   }

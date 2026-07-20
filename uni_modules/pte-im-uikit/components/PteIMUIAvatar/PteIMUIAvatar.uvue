@@ -1,0 +1,23 @@
+<template>
+  <view class="pte-im-ui-avatar-component" :style="containerStyle">
+    <image v-if="src.length > 0" :src="src" mode="aspectFill" :style="imageStyle" />
+    <text v-else>{{ label }}</text>
+    <view v-if="online" class="pte-im-ui-avatar-online"></view>
+  </view>
+</template>
+
+<script lang="uts">
+/** Shared H5/WeChat avatar. `cornerRadius` defaults to half of `size` (circle). */
+export default {
+  props: { src: { type: String, default: '' }, label: { type: String, default: '?' }, size: { type: Number, default: 44 }, cornerRadius: { type: Number, default: -1 }, backgroundColor: { type: String, default: '#8757F6' }, online: { type: Boolean, default: false } },
+  computed: {
+    radius(): number { const size = Number(this.size); const custom = Number(this.cornerRadius); return Math.max(0, Math.min(custom >= 0 ? custom : size / 2, size / 2)) },
+    containerStyle(): any { const size = Number(this.size) + 'px'; return { width: size, height: size, borderRadius: this.radius + 'px', backgroundColor: this.backgroundColor } },
+    imageStyle(): any { const size = Number(this.size) + 'px'; return { width: size, height: size, borderRadius: this.radius + 'px' } },
+  },
+}
+</script>
+
+<style>
+.pte-im-ui-avatar-component { position:relative; display:flex; flex:none; align-items:center; justify-content:center; overflow:visible; color:#FFF; font-size:15px; font-weight:700; }.pte-im-ui-avatar-component image { display:block; object-fit:cover; overflow:hidden; }.pte-im-ui-avatar-online { position:absolute; right:0; bottom:0; width:10px; height:10px; border:2px solid var(--pte-im-ui-background,#FFF); border-radius:8px; box-sizing:border-box; background:#12C96B; }
+</style>

@@ -8,6 +8,8 @@ import UIKit
 @MainActor public final class PteIMUIChatNavigationBar: UIView {
   public var onBack: (() -> Void)?
   public var onMore: (() -> Void)?
+  /** Nil keeps the 36pt header avatar circular; set a value for host styling. */
+  public var avatarCornerRadius: CGFloat? { didSet { applyAvatarShape() } }
 
   private let backButton = UIButton(type: .system)
   private let moreButton = UIButton(type: .system)
@@ -70,7 +72,7 @@ import UIKit
         }
     backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
     moreButton.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
-    avatar.textAlignment = .center; avatar.textColor = .white; avatar.font = .systemFont(ofSize: 17, weight: .bold); avatar.layer.cornerRadius = 18; avatar.clipsToBounds = true
+    avatar.textAlignment = .center; avatar.textColor = .white; avatar.font = .systemFont(ofSize: 17, weight: .bold); avatar.clipsToBounds = true; applyAvatarShape()
     titleLabel.font = .systemFont(ofSize: 17, weight: .bold); titleLabel.numberOfLines = 1
     subtitleLabel.font = .systemFont(ofSize: 12, weight: .medium); subtitleLabel.numberOfLines = 1
 
@@ -107,6 +109,7 @@ import UIKit
     (singleStack.viewWithTag(2) as? UILabel)?.text = subtitle
     (singleStack.viewWithTag(2) as? UILabel)?.textColor = palette.outgoingGradientStartColor
   }
+  private func applyAvatarShape() { avatar.layer.cornerRadius = min(max(0, avatarCornerRadius ?? 18), 18) }
   private func buttonFillingImage(_ image: UIImage?) -> UIImage? {
     guard let image, let cgImage = image.cgImage else { return image }
     let scale = max(CGFloat(cgImage.width), CGFloat(cgImage.height)) / 44

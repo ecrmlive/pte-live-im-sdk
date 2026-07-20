@@ -20,6 +20,8 @@ import UIKit
   public var rowHeight: CGFloat = 73
   public var horizontalInset: CGFloat = 20
   public var avatarSize: CGFloat = 40
+  /** Nil keeps the default circular avatar; set a value for a rounded square. */
+  public var avatarCornerRadius: CGFloat?
   public var avatarFont: UIFont = .systemFont(ofSize: 14, weight: .bold)
   public var titleFont: UIFont = .systemFont(ofSize: 14, weight: .semibold)
   public var subtitleFont: UIFont = .systemFont(ofSize: 11, weight: .regular)
@@ -56,6 +58,8 @@ import UIKit
   public var messageMetaColor: UIColor?
   public var incomingBubbleColor: UIColor?
   public var avatarSize: CGFloat = 30
+  /** Nil keeps the default circular message avatar. */
+  public var avatarCornerRadius: CGFloat?
   public var bubbleCornerRadius: CGFloat = 16
   public var messageHorizontalInset: CGFloat = 16
   public var messageVerticalInset: CGFloat = 6

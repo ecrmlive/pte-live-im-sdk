@@ -1,14 +1,14 @@
 <template>
   <view class="pte-im-ui-chat" :class="themeClass" :style="themeStyle">
     <view class="pte-im-ui-navigation" :style="{ paddingRight: rightInset + 'px' }">
-      <button class="pte-im-ui-navigation-button" @click="$emit('back')"><image v-if="isDark" src="../../static/chat/nav-back-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/nav-back-light.svg" mode="aspectFit" /></button><view class="pte-im-ui-navigation-avatar"><image v-if="avatarURLForId(headerAvatarId).length > 0" :src="avatarURLForId(headerAvatarId)" mode="aspectFill" /><text v-else>{{ title.indexOf('Team') >= 0 || title.indexOf('群') >= 0 ? '#' : 'A' }}</text></view>
+      <button class="pte-im-ui-navigation-button" @click="$emit('back')"><image v-if="isDark" src="../../static/chat/nav-back-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/nav-back-light.svg" mode="aspectFit" /></button><PteIMUIAvatar :src="avatarURLForId(headerAvatarId)" :label="title.indexOf('Team') >= 0 || title.indexOf('群') >= 0 ? '#' : 'A'" :size="34" :corner-radius="avatarCornerRadius" background-color="#8757F6" />
       <view class="pte-im-ui-navigation-title-wrap"><text class="pte-im-ui-title">{{ title || conversationId }}</text><text class="pte-im-ui-subtitle">{{ subtitle || (language === 'en-US' ? 'Online' : '在线') }}</text></view>
       <view class="pte-im-ui-navigation-actions"><button class="pte-im-ui-navigation-button" @click="$emit('more')"><image v-if="isDark" src="../../static/chat/nav-more-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/nav-more-light.svg" mode="aspectFit" /></button></view>
     </view>
 
     <scroll-view class="pte-im-ui-messages" scroll-y="true" :enhanced="true" :show-scrollbar="true" :scroll-into-view="latestMessageId" :refresher-enabled="true" :refresher-triggered="historyLoading" :refresher-default-style="isDark ? 'white' : 'black'" refresher-background="transparent" @refresherrefresh="loadOlderMessages" @click="dismissTransientUI" @touchmove="dismissTransientUI"><view v-if="messages.length > 0" class="pte-im-ui-day-divider"><view></view><text>{{ language === 'en-US' ? 'Today' : '今天' }}</text><view></view></view>
       <view v-for="message in messages" :id="message.clientMsgId" :key="message.clientMsgId" class="pte-im-ui-message-row" :class="isOutgoing(message) ? 'pte-im-ui-outgoing-row' : 'pte-im-ui-incoming-row'">
-        <view class="pte-im-ui-avatar"><image v-if="avatarURLForId(message.senderId ?? '').length > 0" :src="avatarURLForId(message.senderId ?? '')" mode="aspectFill" /><text v-else>{{ avatar(message) }}</text></view>
+        <PteIMUIAvatar :src="avatarURLForId(message.senderId ?? '')" :label="avatar(message)" :size="28" :corner-radius="avatarCornerRadius" background-color="#8757F6" />
         <view class="pte-im-ui-message-stack" :class="isOutgoing(message) ? 'pte-im-ui-stack-outgoing' : 'pte-im-ui-stack-incoming'">
           <view v-if="selectedMessageId === message.clientMsgId" class="pte-im-ui-message-actions"><button v-for="emoji in quickReactions" :key="emoji" :class="reactionSelected(message, emoji) ? 'is-selected' : ''" @click="toggleReaction(message, emoji)">{{ emoji }}</button></view>
           <view v-if="selectedMessageId === message.clientMsgId" class="pte-im-ui-message-actions pte-im-ui-message-tools"><button @click="performMessageAction('quote', message)"><image v-if="isDark" src="../../static/chat/quote-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/quote-light.png" mode="aspectFit" /><text>{{ copy('quote') }}</text></button><button @click="performMessageAction('copy', message)"><image v-if="isDark" src="../../static/chat/copy-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/copy-light.png" mode="aspectFit" /><text>{{ copy('copy') }}</text></button><button v-if="isOutgoing(message)" @click="performMessageAction('revoke', message)"><image v-if="isDark" src="../../static/chat/revoke-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/revoke-light.png" mode="aspectFit" /><text>{{ copy('revoke') }}</text></button><button class="pte-im-ui-message-delete" @click="performMessageAction('delete', message)"><image v-if="isDark" src="../../static/chat/delete-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/delete-light.png" mode="aspectFit" /><text>{{ copy('delete') }}</text></button></view>
@@ -46,13 +46,14 @@ import { PteIMUIAction, PteIMUICustomAction, PteIMUIEmoji, PteIMUIInputAction, P
 import PteIMUIInputBar from '../PteIMUIInputBar/PteIMUIInputBar.uvue'
 import PteIMUIImagePreview from '../PteIMUIImagePreview/PteIMUIImagePreview.uvue'
 import PteIMUIVideoPreview from '../PteIMUIVideoPreview/PteIMUIVideoPreview.uvue'
+import PteIMUIAvatar from '../PteIMUIAvatar/PteIMUIAvatar.uvue'
 import { PteIMUIMediaPlayback } from '../../utssdk/PteIMUIMediaPlayback.uts'
 
 export default {
-  components: { PteIMUIInputBar, PteIMUIImagePreview, PteIMUIVideoPreview },
+  components: { PteIMUIInputBar, PteIMUIImagePreview, PteIMUIVideoPreview, PteIMUIAvatar },
   props: {
     client: { type: Object, required: true }, conversationId: { type: String, required: true }, title: { type: String, default: '' }, subtitle: { type: String, default: '' }, theme: { type: Object, default: null }, reactionProvider: { type: Object, default: null }, readReceiptProvider: { type: Object, default: null },
-    emojis: { type: Array, default: () => [] as PteIMUIEmoji[] }, customActions: { type: Array, default: () => [] as PteIMUICustomAction[] }, rightInset: { type: Number, default: 20 }, mediaResolver: { type: Function, default: null }, mapNavigationHandler: { type: Object, default: null }, avatarUrls: { type: Object, default: null }, headerAvatar: { type: String, default: '' },
+    emojis: { type: Array, default: () => [] as PteIMUIEmoji[] }, customActions: { type: Array, default: () => [] as PteIMUICustomAction[] }, rightInset: { type: Number, default: 20 }, mediaResolver: { type: Function, default: null }, mapNavigationHandler: { type: Object, default: null }, avatarUrls: { type: Object, default: null }, headerAvatar: { type: String, default: '' }, avatarCornerRadius: { type: Number, default: -1 },
   },
   emits: ['action', 'back', 'more', 'voice-call', 'video-call', 'voice-recording', 'message-action', 'business-action', 'location-navigation', 'error'],
   data() { return { messages: [] as PteIMIncomingMessage[], draft: '', language: 'zh-CN', currentUserId: '', themeClass: '', themeStyle: {} as any, latestMessageId: '', isDark: false, controller: null as PteIMUIChatController | null, quotedMessage: null as PteIMIncomingMessage | null, selectedMessageId: '', localReactionStates: {} as any, quickReactions: ['👍', '❤️', '😂', '😮', '😭', '🙏'], previewMessage: null as PteIMIncomingMessage | null, recorder: null as any, recordingCancelled: false, recordingRequested: false, recordingStopTimer: null as any, composerDismissRevision: 0, historyLoading: false, headerAvatarId: '' } },
@@ -219,8 +220,8 @@ function copyText(language: string, key: string): string { const en = language =
 .pte-im-ui-navigation { min-height: 44px; padding: 0 10px; }
 .pte-im-ui-navigation-button { width: 44px; min-width: 44px; height: 44px; padding: 0; }
 .pte-im-ui-navigation-button image { width: 44px; height: 44px; }
-.pte-im-ui-navigation-avatar { display: flex; width: 34px; height: 34px; align-items: center; justify-content: center; margin: 0 9px 0 4px; border-radius: 17px; color: #FFFFFF; background: linear-gradient(90deg, var(--pte-im-ui-outgoing-start), var(--pte-im-ui-outgoing-end)); font-size: 21px; font-weight: 500; }
-.pte-im-ui-navigation-avatar image { width:34px; height:34px; border-radius:17px; }
+.pte-im-ui-navigation-avatar, .pte-im-ui-navigation .pte-im-ui-avatar-component { margin: 0 9px 0 4px; }
+.pte-im-ui-navigation-avatar image { display:block; width:34px; height:34px; overflow:hidden; border-radius:17px; object-fit:cover; }
 .pte-im-ui-navigation-title-wrap { min-height: 44px; }
 .pte-im-ui-title { font-size: 15px; font-weight: 700; }
 .pte-im-ui-subtitle { margin-top: 1px; font-size: 10px; }
@@ -231,7 +232,8 @@ function copyText(language: string, key: string): string { const en = language =
 .pte-im-ui-day-divider text { margin: 0 14px; }
 .pte-im-ui-message-row { margin: 8px 0; }
 .pte-im-ui-avatar { background-color: #8757F6; }
-.pte-im-ui-avatar image { width:28px; height:28px; border-radius:14px; }
+.pte-im-ui-message-row > .pte-im-ui-avatar-component { min-width: 28px; }
+.pte-im-ui-avatar image { display:block; width:28px; height:28px; overflow:hidden; border-radius:14px; object-fit:cover; }
 .pte-im-ui-message { padding: 11px 14px; border-radius: 15px; }
 .pte-im-ui-incoming { background-color: #FFFFFF; }
 .pte-im-ui-rich-location { padding: 0; overflow: hidden; background-color: #FFFFFF; }

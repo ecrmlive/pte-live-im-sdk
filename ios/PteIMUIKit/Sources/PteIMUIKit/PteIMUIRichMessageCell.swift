@@ -223,7 +223,7 @@ open class PteIMUIRichMessageCell: UITableViewCell {
     let seed = message.senderId ?? "?"
     avatar.text = PteIMUIMessageText.avatarText(for: seed); avatar.font = .systemFont(ofSize: max(11, style.avatarSize * 0.36), weight: .bold)
     avatar.textColor = outgoing ? .white : palette.outgoingGradientStartColor; avatar.backgroundColor = outgoing ? palette.outgoingGradientEndColor : palette.surfaceColor
-    avatar.layer.cornerRadius = style.avatarSize / 2
+    avatar.layer.cornerRadius = min(max(0, style.avatarCornerRadius ?? style.avatarSize / 2), style.avatarSize / 2)
     avatar.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
     representedMessageId = message.clientMsgId
     artworkTask?.cancel(); artworkTask = nil

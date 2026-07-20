@@ -5,6 +5,7 @@ import { PteIMUIInputBar, PteIMUIInputCallbacks } from './PteIMUIInputBar'
 import { PteIMUICustomAction, PteIMUIEmojiDataSource } from './PteIMUIKit'
 import { PteIMUIFilePreview, PteIMUIImagePreview, PteIMUIVideoPreview } from './PteIMUIMediaPreview'
 import { PteIMUIMediaPlayback } from './PteIMUIMediaPlayback'
+import { PteIMUIAvatar } from './PteIMUIAvatar'
 import photoAccessHelper from '@ohos.file.photoAccessHelper'
 import picker from '@ohos.file.picker'
 import cameraPicker from '@ohos.multimedia.cameraPicker'
@@ -85,6 +86,8 @@ export struct PteIMUIChat {
   @Prop client: PteIMSDK | null = null
   @Prop conversationId: string
   @Prop title: string = ''
+  /** Negative keeps the default circle; set vp to customise header and message avatars. */
+  @Prop avatarCornerRadius: number = -1
   /** Explicit conversation type supplied by the host; the title fallback keeps older integrations compatible. */
   @Prop groupConversation: boolean = false
   @Prop actionHandler: PteIMUIActionHandler = new PteIMUIActionHandler()
@@ -217,9 +220,7 @@ export struct PteIMUIChat {
       Button() {
         Image(this.isDark() ? $r('app.media.PteIMUIChatNavBackDark') : $r('app.media.PteIMUIChatNavBackLight')).width(44).height(44).objectFit(ImageFit.Fill)
       }.width(44).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => this.navigationHandler.back())
-      Stack({ alignContent: Alignment.Center }) {
-        Text(this.isGroup() ? '#' : this.avatarForTitle()).fontSize(this.isGroup() ? 21 : 15).fontWeight(FontWeight.Medium).fontColor(Color.White).textAlign(TextAlign.Center).width(34).height(34).linearGradient({ direction: GradientDirection.Right, colors: [[this.palette().outgoingStart, 0.0], [this.palette().outgoingEnd, 1.0]] }).borderRadius(17)
-      }.width(34).height(34).margin({ left: 4, right: 9 })
+      PteIMUIAvatar({ label: this.isGroup() ? '#' : this.avatarForTitle(), avatarSize: 34, cornerRadius: this.avatarCornerRadius, fillColor: this.palette().outgoingEnd }).margin({ left: 4, right: 9 })
       Column({ space: 2 }) {
         Text(this.title.length > 0 ? this.title : this.conversationId).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.palette().text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         Text(this.navigationSubtitleText.length > 0 ? this.navigationSubtitleText : (this.isGroup() ? (this.isEnglish() ? '8 members' : '8位成员') : (this.isEnglish() ? 'Online' : '在线'))).fontSize(10).fontColor('#17B979')
@@ -251,9 +252,7 @@ export struct PteIMUIChat {
     }.width('100%').justifyContent(this.isOutgoing(message) ? FlexAlign.End : FlexAlign.Start).alignItems(VerticalAlign.Top)
   }
 
-  @Builder private avatar(label: string) {
-    Text(label).width(26).height(26).fontSize(11).fontWeight(FontWeight.Medium).fontColor(Color.White).textAlign(TextAlign.Center).backgroundColor('#8650F2').borderRadius(13)
-  }
+  @Builder private avatar(label: string) { PteIMUIAvatar({ label: label, avatarSize: 26, cornerRadius: this.avatarCornerRadius, fillColor: '#8650F2' }) }
 
   @Builder private messageContent(message: PteIMMessage, presentation: PteIMUIMessagePresentation, outgoing: boolean) {
     if (message.type === PteIMMessageType.VOICE) this.voiceBubble(message, outgoing)

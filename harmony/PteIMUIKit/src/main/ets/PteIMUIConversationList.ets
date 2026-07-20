@@ -1,5 +1,6 @@
-import { PteIMConversation, PteIMListener, PteIMMessage, PteIMSendState, PteIMSDK } from '@ptelive/pte-im-sdk'
+import { PteIMConversation, PteIMListener, PteIMMessage, PteIMRemoteConversation, PteIMSendState, PteIMSDK } from '@ptelive/pte-im-sdk'
 import { PteIMUIConversationHandler } from './PteIMUIKit'
+import { PteIMUIAvatar } from './PteIMUIAvatar'
 
 class PteIMUIConversationListener extends PteIMListener {
   private readonly changed: () => void
@@ -18,8 +19,10 @@ export class PteIMUIConversationPresentation {
   color: string
   unread: number
   online: boolean
+  /** Remote avatar URL. It is rendered with ImageFit.Cover inside the circular clip. */
+  avatarURL: string
 
-  constructor(id: string, title: string, preview: string, time: string, avatar: string, color: string, unread: number = 0, online: boolean = false) {
+  constructor(id: string, title: string, preview: string, time: string, avatar: string, color: string, unread: number = 0, online: boolean = false, avatarURL: string = '') {
     this.id = id
     this.title = title
     this.preview = preview
@@ -28,6 +31,7 @@ export class PteIMUIConversationPresentation {
     this.color = color
     this.unread = unread
     this.online = online
+    this.avatarURL = avatarURL
   }
 }
 
@@ -47,8 +51,11 @@ export struct PteIMUIConversationList {
   @Prop conversationHandler: PteIMUIConversationHandler = new PteIMUIConversationHandler()
   @Prop dark: boolean = false
   @Prop english: boolean = true
+  /** Negative keeps the default circle; set vp to customise list avatars. */
+  @Prop avatarCornerRadius: number = -1
   @Prop presentationTransformer: PteIMUIConversationPresentationTransformer = new PteIMUIConversationPresentationTransformer()
   @State conversations: PteIMConversation[] = []
+  @State remoteConversations: PteIMRemoteConversation[] = []
   @State query: string = ''
   @State refreshing: boolean = false
   private listener: PteIMUIConversationListener | null = null
@@ -98,10 +105,7 @@ export struct PteIMUIConversationList {
   @Builder private conversationRow(item: PteIMUIConversationPresentation) {
     Column() {
       Row({ space: 12 }) {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          Text(item.avatar).width(44).height(44).textAlign(TextAlign.Center).fontSize(15).fontWeight(FontWeight.Medium).fontColor(Color.White).backgroundColor(item.color).borderRadius(22)
-          if (item.online) Circle({ width: 10, height: 10 }).fill('#12C96B')
-        }.width(44).height(44)
+        PteIMUIAvatar({ url: item.avatarURL, label: item.avatar, avatarSize: 44, cornerRadius: this.avatarCornerRadius, fillColor: item.color, online: item.online })
         Column({ space: 4 }) {
           Text(item.title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.textColor()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.Start)
           Text(item.preview).fontSize(12).fontColor(this.mutedColor()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.Start)
@@ -120,7 +124,11 @@ export struct PteIMUIConversationList {
     }.width('100%').height(73).backgroundColor(this.pageBg())
   }
 
-  private async load(): Promise<void> { this.conversations = this.client === null ? [] : await this.client.localConversations() }
+  private async load(): Promise<void> {
+    if (this.client === null) { this.conversations = []; this.remoteConversations = []; return }
+    this.conversations = await this.client.localConversations()
+    this.remoteConversations = await this.client.localRemoteConversations()
+  }
   private async refresh(): Promise<void> {
     this.refreshing = true
     try { await this.load() } finally { this.refreshing = false }
@@ -136,7 +144,11 @@ export struct PteIMUIConversationList {
 
   private localItems(): PteIMUIConversationPresentation[] {
     const colors = ['#8B4AF5', '#07A5C7', '#06A46F', '#ED8700', '#DB2972', '#7334EE']
-    return this.conversations.map((item: PteIMConversation, index: number) => new PteIMUIConversationPresentation(item.conversationId, item.conversationId, this.preview(item), this.time(item.updatedAt), this.avatarText(item.conversationId), colors[index % colors.length], 0, false))
+    return this.conversations.map((item: PteIMConversation, index: number) => {
+      const remote = this.remoteConversations.find((value: PteIMRemoteConversation) => value.id.toString() === item.conversationId)
+      const title = remote !== undefined && remote.title.length > 0 ? remote.title : item.conversationId
+      return new PteIMUIConversationPresentation(item.conversationId, title, this.preview(item), this.time(item.updatedAt), this.avatarText(title), colors[index % colors.length], remote?.unreadCount ?? 0, false, remote?.avatar ?? '')
+    })
   }
 
   private select(item: PteIMUIConversationPresentation): void { this.conversationHandler.select(item.id, item.title) }

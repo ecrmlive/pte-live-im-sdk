@@ -223,6 +223,7 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   /** Configures the fixed 44pt chat header directly below the status bar. */
   open func configureNavigationBar() {
     let palette = skin.theme.palette(for: traitCollection)
+    chatNavigationBar.avatarCornerRadius = skin.chat.avatarCornerRadius
     let isGroup = navigationAvatarText != nil || (title?.contains("群") ?? false) || (title?.localizedCaseInsensitiveContains("team") ?? false)
     let subtitle = navigationSubtitleText ?? (isGroup ? PteIMUILocalization.value("8 位成员", "8 members", language: language) : PteIMUILocalization.value("在线", "Online", language: language))
     chatNavigationBar.configure(

@@ -153,7 +153,7 @@ open class PteIMUIMessageCell: UITableViewCell {
     avatar.textColor = outgoing ? .white : palette.outgoingGradientStartColor
     avatar.backgroundColor = outgoing ? palette.outgoingGradientEndColor : palette.surfaceColor
     avatar.font = .systemFont(ofSize: max(11, style.avatarSize * 0.36), weight: .bold)
-    avatar.layer.cornerRadius = style.avatarSize / 2
+    avatar.layer.cornerRadius = min(max(0, style.avatarCornerRadius ?? style.avatarSize / 2), style.avatarSize / 2)
     avatar.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
     avatar.constraints.filter { $0.firstAttribute == .height }.first?.constant = style.avatarSize
 

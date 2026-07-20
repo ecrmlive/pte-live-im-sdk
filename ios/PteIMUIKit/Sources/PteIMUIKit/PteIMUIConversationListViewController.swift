@@ -170,9 +170,9 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
 open class PteIMUIConversationCell: UITableViewCell {
   public static let reuseIdentifier = "PteIMUIConversationCell"
   public var onAvatarTapped: (() -> Void)?
-  public let avatarButton = UIButton(type: .custom)
-  public let avatarImageView = UIImageView()
-  public let avatarLabel = UILabel()
+  public let avatarButton = PteIMUIAvatarView()
+  public var avatarImageView: UIImageView { avatarButton.imageView }
+  public var avatarLabel: UILabel { avatarButton.textLabel }
   public let titleLabel = UILabel()
   public let subtitleLabel = UILabel()
   public let timeLabel = UILabel()
@@ -184,14 +184,10 @@ open class PteIMUIConversationCell: UITableViewCell {
   public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier); selectionStyle = .none; backgroundColor = .clear
     [avatarButton, titleLabel, subtitleLabel, timeLabel, unreadLabel, conversationPresenceDot, separator, chevron].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview($0) }
-    avatarButton.addSubview(avatarImageView); avatarButton.addSubview(avatarLabel); avatarButton.addTarget(self, action: #selector(tapAvatar), for: .touchUpInside)
-    [avatarImageView, avatarLabel].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
-    avatarImageView.contentMode = .scaleAspectFill; avatarImageView.clipsToBounds = true; avatarLabel.textAlignment = .center
+    avatarButton.addTarget(self, action: #selector(tapAvatar), for: .touchUpInside)
     subtitleLabel.numberOfLines = 1; unreadLabel.textAlignment = .center; unreadLabel.clipsToBounds = true
     NSLayoutConstraint.activate([
       avatarButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), avatarButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor), avatarButton.widthAnchor.constraint(equalToConstant: 42), avatarButton.heightAnchor.constraint(equalTo: avatarButton.widthAnchor),
-      avatarImageView.leadingAnchor.constraint(equalTo: avatarButton.leadingAnchor), avatarImageView.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor), avatarImageView.topAnchor.constraint(equalTo: avatarButton.topAnchor), avatarImageView.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor),
-      avatarLabel.leadingAnchor.constraint(equalTo: avatarButton.leadingAnchor), avatarLabel.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor), avatarLabel.topAnchor.constraint(equalTo: avatarButton.topAnchor), avatarLabel.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor),
       titleLabel.leadingAnchor.constraint(equalTo: avatarButton.trailingAnchor, constant: 13), titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 15),
       subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor), subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4), subtitleLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -8),
       timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20), timeLabel.topAnchor.constraint(equalTo: titleLabel.topAnchor),
@@ -210,9 +206,9 @@ open class PteIMUIConversationCell: UITableViewCell {
     // that need card rows can still supply `cellBackgroundColor` explicitly.
     contentView.backgroundColor = style.cellBackgroundColor ?? palette.backgroundColor; contentView.layer.cornerRadius = style.cellCornerRadius
     avatarButton.constraints.filter { $0.firstAttribute == .width }.first?.constant = style.avatarSize
-    avatarButton.layer.cornerRadius = style.avatarSize / 2; avatarButton.clipsToBounds = true
-    avatarImageView.image = presentation.avatarImage; avatarImageView.isHidden = presentation.avatarImage == nil
-    avatarLabel.isHidden = presentation.avatarImage != nil; avatarLabel.text = presentation.avatarText; avatarLabel.font = style.avatarFont; avatarLabel.textColor = style.avatarTextColor; avatarLabel.backgroundColor = presentation.avatarBackgroundColor ?? palette.outgoingGradientEndColor
+    avatarButton.cornerRadius = style.avatarCornerRadius
+    avatarLabel.font = style.avatarFont
+    avatarButton.apply(image: presentation.avatarImage, text: presentation.avatarText, textColor: style.avatarTextColor, backgroundColor: presentation.avatarBackgroundColor ?? palette.outgoingGradientEndColor)
     titleLabel.text = presentation.title; titleLabel.font = style.titleFont; titleLabel.textColor = style.titleColor ?? palette.primaryTextColor
     subtitleLabel.text = presentation.subtitle; subtitleLabel.font = style.subtitleFont; subtitleLabel.textColor = style.subtitleColor ?? palette.secondaryTextColor
     timeLabel.text = presentation.updatedAt.map(Self.timeText); timeLabel.font = style.timeFont; timeLabel.textColor = style.timeColor ?? palette.secondaryTextColor

@@ -156,7 +156,7 @@ open class PteIMUIVoiceMessageCell: UITableViewCell {
     avatar.font = .systemFont(ofSize: max(11, style.avatarSize * 0.36), weight: .bold)
     avatar.textColor = outgoing ? .white : palette.outgoingGradientStartColor
     avatar.backgroundColor = outgoing ? palette.outgoingGradientEndColor : palette.surfaceColor
-    avatar.layer.cornerRadius = style.avatarSize / 2
+    avatar.layer.cornerRadius = min(max(0, style.avatarCornerRadius ?? style.avatarSize / 2), style.avatarSize / 2)
     avatarWidth.constant = style.avatarSize
     avatarHeight.constant = style.avatarSize
 

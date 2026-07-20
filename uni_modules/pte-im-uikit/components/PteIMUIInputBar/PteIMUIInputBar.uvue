@@ -6,7 +6,7 @@
       <button v-if="voiceMode" class="pte-im-ui-hold-to-talk" :class="{ 'is-recording': recording && !recordingCancelled, 'is-cancelled': recording && recordingCancelled }" @touchstart="beginVoice" @touchmove="moveVoice" @touchend="finishVoice" @touchcancel="cancelVoice" @touchleave="leaveVoice" @mousedown="beginVoice" @mousemove="moveVoice" @mouseup="finishVoice" @mouseleave="leaveVoice">
         {{ recording ? (recordingCancelled ? copy('releaseCancel') : copy('speaking')) : copy('hold') }}
       </button>
-      <view v-else class="pte-im-ui-text-input-shell" :style="{ height: textareaHeight + 'px' }"><textarea v-model="draftValue" class="pte-im-ui-textarea" :style="{ height: textareaHeight + 'px' }" :maxlength="maxLength" :placeholder="copy('message')" :auto-height="true" confirm-type="send" :show-confirm-bar="false" @linechange="onLineChange" @confirm="sendText" /></view>
+      <view v-else class="pte-im-ui-text-input-shell" :style="{ height: textareaHeight + 'px' }"><textarea v-model="draftValue" class="pte-im-ui-textarea" :style="{ height: textareaHeight + 'px' }" :maxlength="maxLength" :placeholder="copy('message')" confirm-type="send" :show-confirm-bar="false" @input="onTextInput" @confirm="sendText" /></view>
       <button v-if="!voiceMode" class="pte-im-ui-composer-icon" @click="toggleEmoji"><image v-if="mode === 'emoji' && dark" src="../../static/chat/keyboard-emoji-dark.png" mode="aspectFit" /><image v-else-if="mode === 'emoji'" src="../../static/chat/keyboard-emoji-light.png" mode="aspectFit" /><image v-else-if="dark" src="../../static/chat/emoji-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/emoji-light.png" mode="aspectFit" /></button>
       <button class="pte-im-ui-composer-icon" @click="toggleMore"><image v-if="mode === 'more' && dark" src="../../static/chat/close-dark.png" mode="aspectFit" /><image v-else-if="mode === 'more'" src="../../static/chat/close-light.png" mode="aspectFit" /><image v-else-if="dark" src="../../static/chat/more-dark.png" mode="aspectFit" /><image v-else src="../../static/chat/more-light.png" mode="aspectFit" /></button>
     </view>
@@ -71,7 +71,7 @@ export default {
   watch: { modelValue(value: string) { if (value !== this.draftValue) this.draftValue = value }, draftValue(value: string) { this.$emit('update:modelValue', value); if (value.length === 0) this.textareaHeight = 40 }, dismissRevision(_value: number) { this.dismissTransientUI() } },
   methods: {
     dismissTransientUI() { if (this.recording) this.emitVoiceState(false, true, Math.max(0, Date.now() - this.voiceStartedAt), false); this.mode = 'keyboard'; this.voiceMode = false; this.recording = false; this.recordingCancelled = false },
-    onLineChange(event: any) { const height = Number(event?.detail?.height ?? 40); this.textareaHeight = Math.min(100, Math.max(40, height)) },
+    onTextInput(event: any) { const value = String(event?.detail?.value ?? this.draftValue); const eventLines = Number(event?.detail?.lineCount ?? 0); const lineCount = eventLines > 0 ? eventLines : value.split('\n').length; this.textareaHeight = Math.min(100, Math.max(40, lineCount * 24 + 16)) },
     toggleVoice() { this.voiceMode = !this.voiceMode; this.mode = 'keyboard'; this.recording = false; this.recordingCancelled = false },
     toggleEmoji() { this.mode = this.mode === 'emoji' ? 'keyboard' : 'emoji'; this.voiceMode = false },
     toggleMore() { this.mode = this.mode === 'more' ? 'keyboard' : 'more'; this.voiceMode = false },
