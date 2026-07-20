@@ -68,7 +68,20 @@ PteIMLoginConfig(sdkAppId, userId, userSig, userSigExpireAt?, userSigProvider?)
 val im = PteIMSDK.configure(
   applicationContext,
   PteIMBaseConfig(apiDomain, imDomain, cosDomain)
-).login(PteIMLoginConfig(sdkAppId, userId, userSig))
+).login(
+  PteIMLoginConfig(
+    sdkAppId = session.sdkAppId,
+    userId = session.userId,
+    userSig = session.userSig,
+    userSigExpireAt = session.expireAt,
+    userSigProvider = PteIMUserSigProvider { callback ->
+      // 用宿主保存的 refresh session 调用业务接口；不要生成或记录签名。
+      businessApi.refreshIMSession { result ->
+        callback(result.map { PteIMUserSigRefreshResult(it.userSig, it.expireAt) })
+      }
+    },
+  ),
+)
 
 im.openSingleConversation(peerUserId) { result ->
   result.onSuccess { conversation ->
@@ -100,6 +113,17 @@ im.commerce.sendGift(
 ```swift
 import PteIMUIKit
 
+let loginConfig = try PteIMLoginConfig(
+  sdkAppId: session.sdkAppId,
+  userId: session.userId,
+  userSig: session.userSig,
+  userSigExpireAt: session.expireAt,
+  userSigProvider: {
+    // 仅使用宿主保存的 refresh session 调用业务接口。
+    let renewed = try await businessAPI.refreshIMSession()
+    return PteIMUserSigRefreshResult(userSig: renewed.userSig, expireAt: renewed.expireAt)
+  }
+)
 let im = try PteIMSDK.configure(baseConfig).login(loginConfig)
 Task {
   let conversation = try await im.openSingleConversation(peerUserId: peerUserId)
@@ -112,6 +136,16 @@ Task {
 添加本地 `@ptelive/pte-im-sdk` 与 `@ptelive/pte-im-uikit` HAR：
 
 ```ts
+const provider: PteIMUserSigProvider = {
+  refreshUserSig: async (): Promise<PteIMUserSigRefreshResult> => {
+    // 仅使用宿主保存的 refresh session 调用业务接口。
+    const renewed = await businessApi.refreshIMSession()
+    return new PteIMUserSigRefreshResult(renewed.userSig, renewed.expireAt)
+  },
+}
+const loginConfig = new PteIMLoginConfig(
+  session.sdkAppId, session.userId, session.userSig, session.expireAt, provider,
+)
 const im = await PteIMSDK.configure(this.context, baseConfig).login(loginConfig)
 const conversation = await im.openSingleConversation(peerUserId)
 PteIMUIChat({ client: im, conversationId: conversation.id.toString() })
@@ -140,7 +174,7 @@ im.start()
 
 ## 运行 PteIMUIDemo
 
-每个 Demo 都通过 `api-im` 的真实演示业务流程登录：注册使用手机号、唯一昵称、密码与一次性图形验证码；登录使用手机号、密码与图形验证码。中国大陆手机号可直接输入 11 位号码，国际号码使用 E.164 格式（例如 `+14155552671`）。后端绑定默认 IM App 并返回 `userId`、短期 `userSig` 与轮换 refresh session；客户端仅在内存中使用 UserSig，不保存密码或验证码，应用恢复时由业务层先用 refresh session 换取新 UserSig。生产宿主必须将 refresh session 放入平台安全存储，不能交给 Core SDK 或写入源码。登录后可从“联系人 → 添加好友”进入已注册演示用户列表，完成真实的双向好友关系创建。
+每个 Demo 都通过 `api-im` 的真实演示业务流程登录：注册使用手机号、唯一昵称、密码与一次性图形验证码；登录只使用手机号、密码与图形验证码。中国大陆手机号可直接输入 11 位号码，国际号码使用 E.164 格式（例如 `+14155552671`）。注册、登录是独立页面；从登录页点击“创建演示账号”才进入注册页。后端绑定默认 IM App，并返回 `userId`、短期 `userSig`、`expireAt` 与轮换 refresh session；客户端不保存密码、验证码或 UserSig。Demo 将 refresh session 接入 `userSigProvider`，由 Core 自动续签。生产宿主必须将 refresh session 放入平台安全存储，不能交给 Core SDK 或写入源码。登录后可从“联系人 → 添加好友”进入已注册演示用户列表，完成真实的双向好友关系创建。
 
 ```sh
 # Android（仓库已固定 Gradle Wrapper 9.5.0）
@@ -159,14 +193,20 @@ cd harmony/PteIMUIDemo && hvigorw --mode module -p module=entry@default -p produ
 
 Android `PteIMUIDemo` 默认在本地时间 07:00（含）至 19:00（不含）使用亮色，其余时间使用暗色；语言默认跟随系统。用户在 Demo 中手动选择主题或语言后，该选择会持久化并覆盖自动规则；语言选择“跟随系统”会清除手动语言覆盖。
 
-登录完成后无需刷新 UserSig 或重连：
+主题或语言切换不刷新 UserSig，也不重连：
 
 ```text
 updateAppearance(themeMode: dark, language: en-US)
 updateAppearance(themeMode: system, language: system)
 ```
 
-Core 使用可并行注册的 `PteIMListener` 发出外观、消息、发送状态、UserSig 和错误事件；业务层与多个 PteIMUIKit 页面不会互相覆盖回调。页面/宿主对象销毁时必须注销自己的 listener。更多协议、存储与安全约束见 [架构说明](docs/architecture.md) 和 [安全说明](docs/security.md)。
+## UserSig 自动续签
+
+在三端登录配置中同时传入 `userSigExpireAt` 和 `userSigProvider`。Core 会在到期前 5 分钟、IM HTTP `401`，以及 WSS 的 `user_sig_will_expire` / `user_sig_expired` 事件后自动调用 provider；续签成功后更新连接凭证并同步会话和消息。业务页面不应自行维护过期定时器或重复发送续签请求。
+
+provider 失败、返回空 UserSig 或已过期时间时，Core 只发出 `onUserSigRefreshFailed`；宿主应清理本地 refresh session 并回到业务登录页。Core 不保存 refresh token，也不接触账号密码、验证码和 UserSig 签名密钥。
+
+Core 使用可并行注册的 `PteIMListener` 发出外观、消息、发送状态、UserSig 续签失败和错误事件；业务层与多个 PteIMUIKit 页面不会互相覆盖回调。页面/宿主对象销毁时必须注销自己的 listener。更多协议、存储与安全约束见 [架构说明](docs/architecture.md) 和 [安全说明](docs/security.md)。
 
 ## 离线推送（U-Push）
 

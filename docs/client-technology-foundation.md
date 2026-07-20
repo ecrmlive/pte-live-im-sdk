@@ -1,6 +1,6 @@
 # PteIM 客户端技术基线
 
-PteIMSDK 是 Core SDK，PteIMUIKit 提供会话、联系人和聊天界面，PteIMUIDemo 展示业务登录后获取 UserSig 并进入 IM 的完整流程。所有端使用 `PteIMBaseConfig` 完成域名、皮肤和语言初始化，再使用 `PteIMLoginConfig` 登录。
+PteIMSDK 是 Core SDK，PteIMUIKit 提供会话、联系人和聊天界面，PteIMUIDemo 展示业务注册/登录后获取 UserSig 并进入 IM 的完整流程。所有端使用 `PteIMBaseConfig` 完成域名、皮肤和语言初始化，再使用 `PteIMLoginConfig` 登录。后端返回短期 `userSig`、`expireAt` 和宿主保存的 refresh session；宿主将后者封装为 `userSigProvider`。Core 在到期前 5 分钟、IM HTTP `401` 和 WSS 过期事件后自动续签，失败时通过 `onUserSigRefreshFailed` 让宿主返回业务登录。Core 不保存 refresh session、密码、验证码或签名密钥。
 
 ## iOS
 

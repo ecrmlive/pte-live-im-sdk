@@ -4,7 +4,7 @@
 
 `PteIMUIKit` receives an already-logged-in Core client. It contains only IM-generic surfaces: conversation lists, contact/group lists, one-to-one/group chat, composer, media preview and reusable notice presentation. It tracks Core message and appearance callbacks, and asks the host to supply permission-sensitive media, location and business workflows. It never generates a UserSig, stores credentials, or owns a business route.
 
-`PteIMUIDemo` is not a UI kit alias. It is a separate application-level example: business login → backend response (`userId`, short-lived `userSig`) → PteIMSDK login → embedded PteIMUIKit conversation/contact/chat screens. Login, registration, Demo navigation, TabBar, profile, settings, language choice, registered-demo-user list, add-friend/group workflow, demo fixtures and their image assets belong exclusively to this layer.
+`PteIMUIDemo` is not a UI kit alias. It is a separate application-level example: business registration/login → backend response (`userId`, short-lived `userSig`, `expireAt`, host-owned refresh session) → PteIMSDK login → embedded PteIMUIKit conversation/contact/chat screens. The Demo maps that refresh session into `userSigProvider`; Core, rather than a page timer, owns UserSig renewal. Login, registration, Demo navigation, TabBar, profile, settings, language choice, registered-demo-user list, add-friend/group workflow, demo fixtures and their image assets belong exclusively to this layer.
 
 | Platform | PteIMSDK | PteIMUIKit | PteIMUIDemo |
 | --- | --- | --- | --- |
@@ -24,6 +24,6 @@
 
 An application can replace `PteIMUIDemo` entirely. `PteIMUIKit` remains usable with any host navigation and business UI.
 
-`PteIMBaseConfig` carries `apiDomain`, `imDomain`, `cosDomain`, `themeMode` and `language`. `updateAppearance(themeMode, language)` updates light/dark/system and Chinese/English/system without reconnecting or changing UserSig. Core uses independently registered `PteIMListener` instances, so the business layer plus conversation, contact and chat UIKit surfaces can receive events concurrently; owners unregister their listener when disposed. `PteIMUIKit` consumes the corresponding events to redraw immediately.
+`PteIMBaseConfig` carries `apiDomain`, `imDomain`, `cosDomain`, `themeMode` and `language`. `updateAppearance(themeMode, language)` updates light/dark/system and Chinese/English/system without reconnecting or changing UserSig. When login includes both `userSigExpireAt` and `userSigProvider`, Core renews UserSig five minutes before expiry and after IM HTTP `401` or WSS expiry events, then updates its connection and syncs. A failure is reported once through `onUserSigRefreshFailed`, at which point the host returns to business login; the SDK neither stores nor refreshes the business session itself. Core uses independently registered `PteIMListener` instances, so the business layer plus conversation, contact and chat UIKit surfaces can receive events concurrently; owners unregister their listener when disposed. `PteIMUIKit` consumes the corresponding events to redraw immediately.
 
 The COS flow is: API returns a signed PUT target and object key → client uploads bytes to COS → client stores/sends only the key → host resolves file access under `cosDomain`. The backend, not the client, owns COS secrets and UserSig generation.

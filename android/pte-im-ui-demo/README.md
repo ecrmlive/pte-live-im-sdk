@@ -7,11 +7,17 @@ cd android
 ./gradlew :pte-im-ui-demo:installDebug
 ```
 
-`PteIMUIDemoApplication` configures `apiDomain`、`imDomain`、`cosDomain` once at application startup. The deployable Demo flow registers with a mobile number, unique nickname, password and one-time graphical captcha; it logs in with mobile number, password and captcha. `api-im` validates China and E.164 international mobile numbers, binds the user to the default IM app, and returns the numeric SDK App ID, user ID and short-lived UserSig. The app never persists the password, captcha or UserSig.
+`PteIMUIDemoApplication` configures `apiDomain`、`imDomain`、`cosDomain` once at application startup. The deployable Demo keeps login and registration as independent pages: “Create Demo Account” pushes the registration page, where mobile number, unique nickname, password and one-time graphical captcha are required; the login page requires only mobile number, password and captcha. `api-im` validates China and E.164 international mobile numbers, binds the user to the default IM app, and returns the numeric SDK App ID, user ID, short-lived UserSig, `expireAt`, and a rotating refresh session. The app never persists the password, captcha or UserSig.
 
 应用从 `PteIMUIDemoSplashActivity` 进入：Android 12+ 使用深紫色系统启动窗口与 Android 专用应用图标，随后显示设计稿提供的「PTE Live IM / PTE LIVE」全屏启动图，再进入业务登录。启动图与 Android 图标仅打包在 `PteIMUIDemo`，不会进入 `PteIMSDK` 或 `PteIMUIKit`。
 
-Debug builds connect to the local `pte-live-im` Docker stack through `127.0.0.1` after the user registers or logs in through the complete Demo business-login form. In Contacts, “Add Friend” opens the registered Demo-user list and creates a real bidirectional IM friendship. Release builds retain HTTPS/WSS validation and use the same mobile/password/captcha flow.
+Debug builds connect to the local `pte-live-im` Docker stack through `127.0.0.1` after the user registers or logs in through the complete Demo business-login form. In Contacts, “Add Friend” opens the registered Demo-user list and creates a real bidirectional IM friendship. Release builds retain HTTPS/WSS validation and use the same mobile/password/captcha flow. Tapping the graphical captcha requests a fresh server-issued image; the business server, rather than the client, verifies and invalidates it.
+
+## UserSig 自动续签
+
+登录时将后端的 `expireAt` 和一个 `PteIMUserSigProvider` 一并传给 `PteIMLoginConfig`。provider 只用 Demo 的 refresh session 调用业务刷新接口，并返回 `PteIMUserSigRefreshResult(userSig, expireAt)`；它不保存或生成 UserSig。SDK Core 会在过期前 5 分钟、IM HTTP `401` 及 WSS 过期事件后统一续签、更新连接并同步数据，因此 Activity、Fragment 和 `PteIMUIKit` 页面都不应额外维护续签定时器。
+
+Demo 的 refresh session 仅用于演示；正式 Android 宿主应使用 Android Keystore/加密存储保存它。监听 `onUserSigRefreshFailed` 后清除失效 refresh session 并返回登录页；不要把密码、验证码、UserSig 或签名密钥写入本地日志和持久化存储。
 
 Appearance is intentionally independent of login state. Without a manual preference, the demo uses light mode from local 07:00 (inclusive) to 19:00 (exclusive), and dark mode at all other times. Language follows the Android system locale by default. Choosing a theme or `简体中文`/`English` creates a persisted manual override; choosing `跟随系统` clears the language override. Neither preference stores UserSig or any deployment secret.
 
