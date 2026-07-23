@@ -15,7 +15,7 @@ data class PteIMBaseConfig(
   /** Optional HTTPS Commerce extension origin. It reuses this IM session's UserSig. */
   val commerceDomain: String? = null,
   val themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM,
-  val language: PteIMLanguage = PteIMLanguage.SYSTEM,
+  val language: PteIMLanguage = PteIMLanguage.ZH_CN,
   /**
    * Explicit development-only opt-in for a local IM stack. Production must
    * keep this false, which enforces HTTPS/WSS for every configured endpoint.

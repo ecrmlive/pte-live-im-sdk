@@ -19,6 +19,14 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
   public var hostPresentations: [PteIMUIConversationPresentation]? {
     didSet { guard isViewLoaded else { return }; reloadConversations() }
   }
+  /// When false, hides the SDK title row (logo + create). Host owns navigation.
+  public var showsHeader: Bool = true {
+    didSet { applyHeaderVisibility() }
+  }
+  /// Centered empty-state copy when there are no conversations; nil keeps the list blank.
+  public var emptyText: String? {
+    didSet { guard isViewLoaded else { return }; updateEmptyState() }
+  }
   private var conversations: [PteIMConversation] = []
   private var visiblePresentations: [PteIMUIConversationPresentation] = []
   private var filteredPresentations: [PteIMUIConversationPresentation] = []
@@ -26,7 +34,9 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
   private let tableView = UITableView(frame: .zero, style: .plain)
   private let refreshControl = UIRefreshControl()
   private let statusBarSurface = UIView()
+  private let emptyLabel = UILabel()
   private lazy var chrome = PteIMUIListChrome(title: title ?? "Chats")
+  private var chromeHeightConstraint: NSLayoutConstraint?
   private lazy var appearanceController = PteIMUIAppearanceController(client: client, viewController: self)
 
   public init(client: PteIMSDK, skin: PteIMUISkin = .default) {
@@ -42,9 +52,17 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
     view.addSubview(statusBarSurface)
     view.addSubview(chrome)
     view.addSubview(tableView)
+    view.addSubview(emptyLabel)
     statusBarSurface.translatesAutoresizingMaskIntoConstraints = false
     chrome.translatesAutoresizingMaskIntoConstraints = false
     tableView.translatesAutoresizingMaskIntoConstraints = false
+    emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+    emptyLabel.textAlignment = .center
+    emptyLabel.numberOfLines = 0
+    emptyLabel.font = .systemFont(ofSize: 14, weight: .regular)
+    emptyLabel.isHidden = true
+    let chromeHeight = chrome.heightAnchor.constraint(equalToConstant: chrome.preferredHeight)
+    chromeHeightConstraint = chromeHeight
     NSLayoutConstraint.activate([
       statusBarSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       statusBarSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -53,11 +71,15 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
       chrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       chrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       chrome.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-      chrome.heightAnchor.constraint(equalToConstant: 110),
+      chromeHeight,
       tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       tableView.topAnchor.constraint(equalTo: chrome.bottomAnchor),
-      tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+      tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+      emptyLabel.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
+      emptyLabel.topAnchor.constraint(equalTo: tableView.topAnchor, constant: 80),
+      emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
+      emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24)
     ])
     registerConversationCells(in: tableView)
     tableView.separatorStyle = .none
@@ -67,12 +89,15 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
     chrome.onAddTapped = { [weak self] in guard let self else { return }; self.onAddRequested?(self) }
     refreshControl.addTarget(self, action: #selector(refresh), for: .valueChanged)
     tableView.refreshControl = refreshControl
-    bindClient(); appearanceController.start(); reloadConversations(); applySkin()
+    bindClient(); appearanceController.start(); applyHeaderVisibility(); reloadConversations(); applySkin()
   }
   open override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     appearanceController.refresh()
-    navigationController?.setNavigationBarHidden(true, animated: animated)
+    // Host owns the nav bar when SDK header is hidden (Android `showHeader = false`).
+    if showsHeader {
+      navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
   }
   @objc open func refresh() { client.syncNow(); reloadConversations(); refreshControl.endRefreshing() }
   open func reloadConversations() {
@@ -81,12 +106,14 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
       visiblePresentations = hostPresentations
       filteredPresentations = hostPresentations
       tableView.reloadData()
+      updateEmptyState()
       return
     }
     conversations = (try? client.localConversations(limit: 100)) ?? []
     visiblePresentations = conversations.map { presentation(for: $0) }
     filteredPresentations = visiblePresentations
     tableView.reloadData()
+    updateEmptyState()
   }
 
   /** Override to use your member/group directory for nickname, avatar and unread count. */
@@ -141,11 +168,27 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
     guard isViewLoaded else { return }
     let palette = skin.theme.palette(for: traitCollection)
     view.backgroundColor = palette.backgroundColor
-    statusBarSurface.backgroundColor = palette.surfaceColor
+    statusBarSurface.backgroundColor = showsHeader ? palette.surfaceColor : palette.backgroundColor
+    statusBarSurface.isHidden = !showsHeader
     tableView.backgroundColor = palette.backgroundColor; tableView.rowHeight = skin.list.rowHeight
     refreshControl.tintColor = palette.outgoingGradientStartColor; navigationController?.navigationBar.tintColor = palette.iconColor
     chrome.apply(palette: palette, title: title ?? "Chats", language: client.appearance.language, icons: skin.icons)
+    emptyLabel.textColor = palette.secondaryTextColor
     tableView.reloadData()
+    updateEmptyState()
+  }
+  private func applyHeaderVisibility() {
+    chrome.showsTitleRow = showsHeader
+    chromeHeightConstraint?.constant = chrome.preferredHeight
+    statusBarSurface.isHidden = !showsHeader
+    guard isViewLoaded else { return }
+    applySkin()
+  }
+  private func updateEmptyState() {
+    let placeholder = emptyText?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let show = (placeholder?.isEmpty == false) && filteredPresentations.isEmpty
+    emptyLabel.text = placeholder
+    emptyLabel.isHidden = !show
   }
   open override func traitCollectionDidChange(_ previous: UITraitCollection?) { super.traitCollectionDidChange(previous); if previous?.userInterfaceStyle != traitCollection.userInterfaceStyle { applySkin() } }
   public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredPresentations.count }
@@ -164,6 +207,7 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
       $0.title.localizedCaseInsensitiveContains(trimmed) || ($0.subtitle?.localizedCaseInsensitiveContains(trimmed) ?? false)
     }
     tableView.reloadData()
+    updateEmptyState()
   }
 }
 

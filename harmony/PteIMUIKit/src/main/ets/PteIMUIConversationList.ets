@@ -51,6 +51,10 @@ export struct PteIMUIConversationList {
   @Prop conversationHandler: PteIMUIConversationHandler = new PteIMUIConversationHandler()
   @Prop dark: boolean = false
   @Prop english: boolean = true
+  /** When false, host owns the page title (e.g. Qixi 「聊一聊」nav). */
+  @Prop showHeader: boolean = true
+  /** Empty-state copy; default follows english. */
+  @Prop emptyText: string = ''
   /** Negative keeps the default circle; set vp to customise list avatars. */
   @Prop avatarCornerRadius: number = -1
   @Prop presentationTransformer: PteIMUIConversationPresentationTransformer = new PteIMUIConversationPresentationTransformer()
@@ -71,16 +75,37 @@ export struct PteIMUIConversationList {
     if (this.listener !== null && this.client !== null) this.client.removeListener(this.listener)
   }
 
+  private resolvedEmptyText(): string {
+    if (this.emptyText.length > 0) {
+      return this.emptyText
+    }
+    return this.english ? 'No conversations' : '暂无会话'
+  }
+
   build() {
     Column() {
-      this.navigationBar()
+      if (this.showHeader) {
+        this.navigationBar()
+      }
       this.searchBox()
       Refresh({ refreshing: $$this.refreshing, offset: 64, friction: 62 }) {
-        List() {
-          ForEach(this.items(), (item: PteIMUIConversationPresentation) => {
-            ListItem() { this.conversationRow(item) }.onClick(() => this.select(item))
-          }, (item: PteIMUIConversationPresentation) => item.id)
-        }.height('100%').width('100%').backgroundColor(this.pageBg()).scrollBar(BarState.Off)
+        if (this.items().length === 0) {
+          Column() {
+            Text(this.resolvedEmptyText())
+              .fontSize(14)
+              .fontColor(this.mutedColor())
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.pageBg())
+        } else {
+          List() {
+            ForEach(this.items(), (item: PteIMUIConversationPresentation) => {
+              ListItem() { this.conversationRow(item) }.onClick(() => this.select(item))
+            }, (item: PteIMUIConversationPresentation) => item.id)
+          }.height('100%').width('100%').backgroundColor(this.pageBg()).scrollBar(BarState.Off)
+        }
       }.layoutWeight(1).width('100%').backgroundColor(this.pageBg()).onRefreshing(() => this.refresh())
     }.width('100%').height('100%').backgroundColor(this.pageBg())
   }

@@ -43,12 +43,24 @@ object PteIMUIKitCompose {
     client: PteIMSDK,
     modifier: Modifier = Modifier,
     theme: PteIMUITheme = PteIMUITheme(),
+    showHeader: Boolean = true,
+    emptyText: String? = null,
     onConversationClick: (String) -> Unit,
   ) {
     AndroidView(
       modifier = modifier,
-      factory = { context -> PteIMUIKit.createConversationListView(context, client, theme, onConversationClick) },
-      update = { view -> view.setTheme(theme) },
+      factory = { context ->
+        PteIMUIKit.createConversationListView(context, client, theme, onConversationClick).apply {
+          this.showHeader = showHeader
+          this.emptyText = emptyText
+          setTheme(theme)
+        }
+      },
+      update = { view ->
+        view.showHeader = showHeader
+        view.emptyText = emptyText
+        view.setTheme(theme)
+      },
     )
   }
 

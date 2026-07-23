@@ -965,6 +965,10 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
   var maxVisibleConversations: Int? = null
   /** Receives the avatar tap without preventing the row's normal C2C/group route. */
   var onAvatarTapped: ((PteIMUIConversationPresentation) -> Unit)? = null
+  /** When false, hides the fixed "Chats / 会话" chrome row (logo + create). */
+  var showHeader: Boolean = true
+  /** Centered empty-state copy when there are no conversations; null keeps the list blank. */
+  var emptyText: String? = null
   private val listener = object : PteIMListener {
     override fun onMessage(message: PteIMMessage) { post { refresh() } }
     override fun onMessageUpdated(message: PteIMMessage) { post { refresh() } }
@@ -1012,8 +1016,12 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
     refreshIndicator.indeterminateDrawable?.setTint(palette.outgoingEnd)
     headerView?.let(::removeView)
     searchView?.let(::removeView)
-    headerView = conversationHeader().also { addView(it, 0, LayoutParams(-1, dp(44))) }
-    searchView = searchBar().also { addView(it, 1, LayoutParams(-1, dp(62))) }
+    headerView = null
+    var nextIndex = 0
+    if (showHeader) {
+      headerView = conversationHeader().also { addView(it, nextIndex++, LayoutParams(-1, dp(44))) }
+    }
+    searchView = searchBar().also { addView(it, nextIndex, LayoutParams(-1, dp(62))) }
     refresh()
   }
   /** Begins a fixed-chrome pull refresh programmatically. */
@@ -1054,11 +1062,28 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
           ?: if (item.type.equals("group", ignoreCase = true)) "[群聊] Group conversation" else "Start a conversation"
         presentations += presentation(item.id.toString(), preview, item.lastMessageAt, item)
       }
-    presentations
+    val visible = presentations
       .mapIndexed { index, item -> presentationTransformer?.invoke(item, index) ?: item }
       .filter { item -> query.isBlank() || item.title.contains(query, ignoreCase = true) || item.preview.contains(query, ignoreCase = true) }
       .let { items -> maxVisibleConversations?.let(items::take) ?: items }
-      .forEach { item -> content.addView(createConversationCell(item), LayoutParams(-1, -2)) }
+    if (visible.isEmpty()) {
+      val placeholder = emptyText?.takeIf { it.isNotBlank() }
+      if (placeholder != null) {
+        val palette = resolvePalette()
+        content.addView(
+          TextView(context).apply {
+            text = placeholder
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(palette.secondaryText)
+            setPadding(dp(24), dp(80), dp(24), dp(24))
+          },
+          LayoutParams(-1, -2),
+        )
+      }
+    } else {
+      visible.forEach { item -> content.addView(createConversationCell(item), LayoutParams(-1, -2)) }
+    }
   }
   /**
    * Primary cell factory for inherited list views. Override this for a wholly

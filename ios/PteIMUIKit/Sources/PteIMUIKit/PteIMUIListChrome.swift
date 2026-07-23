@@ -10,7 +10,7 @@ import UIKit
   public var onAddTapped: (() -> Void)?
   /// The header's fixed height.  The visible navigation row is always 44pt;
   /// quick actions extend the body below it without changing that row.
-  public let preferredHeight: CGFloat
+  public private(set) var preferredHeight: CGFloat
 
   private let mark = UIImageView()
   private let topSurface = UIView()
@@ -21,8 +21,18 @@ import UIKit
   private let searchField = UITextField()
   private let quickActions = UIStackView()
   private var quickActionButtons = [(button: UIButton, icon: PteIMUIIconKey)]()
+  private let showsQuickActions: Bool
+  private var topRow: UIStackView?
+  private var topRowHeight: NSLayoutConstraint?
+  private var topSurfaceBottomToSearch: NSLayoutConstraint?
+
+  /// When false, hides the logo/title/add row (host owns navigation). Search stays.
+  public var showsTitleRow: Bool = true {
+    didSet { applyTitleRowVisibility() }
+  }
 
   public init(title: String, showsQuickActions: Bool = false) {
+    self.showsQuickActions = showsQuickActions
     preferredHeight = showsQuickActions ? 164 : 110
     super.init(frame: .zero)
     // A tableHeaderView is frame-driven by UITableView. Its internal content
@@ -31,6 +41,14 @@ import UIKit
     setup(title: title, showsQuickActions: showsQuickActions)
   }
   required public init?(coder: NSCoder) { nil }
+
+  public func preferredHeight(showsTitleRow: Bool) -> CGFloat {
+    let searchBlock: CGFloat = 42 + 12
+    if showsTitleRow {
+      return showsQuickActions ? 164 : (44 + searchBlock)
+    }
+    return searchBlock
+  }
 
   public func apply(palette: PteIMUIThemePalette, title: String, language: PteIMLanguage, icons: PteIMUIIconProvider = PteIMUISystemIconProvider()) {
     backgroundColor = palette.backgroundColor
@@ -76,6 +94,7 @@ import UIKit
 
     let top = UIStackView(arrangedSubviews: [mark, titleLabel, UIView(), addButton])
     top.alignment = .center; top.spacing = 10
+    topRow = top
     [mark, addButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
     mark.widthAnchor.constraint(equalToConstant: 30).isActive = true; mark.heightAnchor.constraint(equalTo: mark.widthAnchor).isActive = true
     addButton.widthAnchor.constraint(equalToConstant: 24).isActive = true
@@ -103,14 +122,26 @@ import UIKit
     insertSubview(topSurface, at: 0)
     addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
     topSurface.translatesAutoresizingMaskIntoConstraints = false
+    let topHeight = top.heightAnchor.constraint(equalToConstant: 44)
+    topRowHeight = topHeight
+    let surfaceBottom = topSurface.bottomAnchor.constraint(equalTo: searchContainer.topAnchor, constant: -12)
+    topSurfaceBottomToSearch = surfaceBottom
     NSLayoutConstraint.activate([
-      topSurface.leadingAnchor.constraint(equalTo: leadingAnchor), topSurface.trailingAnchor.constraint(equalTo: trailingAnchor), topSurface.topAnchor.constraint(equalTo: topAnchor), topSurface.bottomAnchor.constraint(equalTo: searchContainer.topAnchor, constant: -12),
+      topSurface.leadingAnchor.constraint(equalTo: leadingAnchor), topSurface.trailingAnchor.constraint(equalTo: trailingAnchor), topSurface.topAnchor.constraint(equalTo: topAnchor), surfaceBottom,
       content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20), content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
       content.topAnchor.constraint(equalTo: topAnchor), content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-      top.heightAnchor.constraint(equalToConstant: 44),
+      topHeight,
       searchContainer.heightAnchor.constraint(equalToConstant: 42)
     ])
     if showsQuickActions { quickActions.heightAnchor.constraint(equalToConstant: 42).isActive = true }
+    applyTitleRowVisibility()
+  }
+
+  private func applyTitleRowVisibility() {
+    topRow?.isHidden = !showsTitleRow
+    topRowHeight?.constant = showsTitleRow ? 44 : 0
+    topSurfaceBottomToSearch?.constant = showsTitleRow ? -12 : 0
+    preferredHeight = preferredHeight(showsTitleRow: showsTitleRow)
   }
 
   private func configure(button: UIButton, image: String) {
