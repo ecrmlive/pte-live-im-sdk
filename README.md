@@ -33,10 +33,13 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 | iOS 原生 | [ios/PteIMSDK](ios/PteIMSDK) | [ios/PteIMUIKit](ios/PteIMUIKit) | [ios/PteIMUIDemo](ios/PteIMUIDemo) | iOS 16.0 |
 | HarmonyOS 原生 | [harmony/PteIMSDK](harmony/PteIMSDK) | [harmony/PteIMUIKit](harmony/PteIMUIKit) | [harmony/PteIMUIDemo](harmony/PteIMUIDemo) | OpenHarmony API 23 |
 | uni-app x UTS | [uni_modules/pte-im-sdk](uni_modules/pte-im-sdk) | [uni_modules/pte-im-uikit](uni_modules/pte-im-uikit) | [uniapp-x/PteIMUIDemo](uniapp-x/PteIMUIDemo) | HBuilderX 5.0+；H5/Web、微信小程序 |
+| Browser（独立） | [packages/im-web-sdk](packages/im-web-sdk)（`@pte-live/im-web-sdk`） | — | — | 现代浏览器；聊一聊 E2EE + 直播 `live` 补漏辅助 |
 
 Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 版本面向 H5/Web 和微信小程序，不包装原生 SDK。所有 UI 源文件以 `PteIMUI` 开头。
 
-客户端技术选型、版本基线和三端职责见[客户端技术基础](docs/client-technology-foundation.md)。本地缓存的加密、分页和容量边界见[四端本地存储基线](docs/local-storage-contract.md)。
+独立 Browser 包 `@pte-live/im-web-sdk` 提供 `PteLiveIMWebClient`（聊一聊）与 `@pte-live/im-web-sdk/live`（直播房间 `roomSeq` 补漏辅助），不包含 UIKit。用法见 [packages/im-web-sdk/README.md](packages/im-web-sdk/README.md)；直播客户端约定见 [直播房间事件](docs/live-event-protocol.md)。
+
+客户端技术选型、版本基线和各端职责见[客户端技术基础](docs/client-technology-foundation.md)。本地缓存的加密、分页和容量边界见[四端本地存储基线](docs/local-storage-contract.md)。
 
 ## 支持范围
 
@@ -171,6 +174,30 @@ im.start()
 ```
 
 微信小程序使用同路径下的 `mp-weixin/index.uts`。H5 配置 CORS 和 WebSocket Origin；微信配置 HTTPS/WSS 域名白名单。
+
+### Browser（`@pte-live/im-web-sdk`）
+
+与四端 `PteIMSDK` 并列的独立 Web Core，面向现代浏览器（安全上下文）。不提供 UI，也不走 uni-app x UTS 路径。
+
+```ts
+import { PteLiveIMWebClient } from '@pte-live/im-web-sdk'
+import { LiveRoomSeqTracker, eventTypeFromFrame } from '@pte-live/im-web-sdk/live'
+
+const chat = new PteLiveIMWebClient({
+  apiUrl, wsUrl, sdkAppId, identifier: userId, userId, userSig, expireAt,
+})
+chat.addListener({
+  onMessage: (m) => { /* 已解密 */ },
+  onUserSigWillExpire: () => { /* 宿主换签后 chat.renewUserSig(…) */ },
+})
+await chat.start()
+
+// 直播房间：宿主自建 WSS + scene.enter；本包只做序号/去重/补漏辅助
+const tracker = new LiveRoomSeqTracker(0)
+await tracker.catchUp(catchUpSource, applyLiveEvent)
+```
+
+直播进房、信封与补漏顺序见 [直播房间事件](docs/live-event-protocol.md)。
 
 ## 运行 PteIMUIDemo
 

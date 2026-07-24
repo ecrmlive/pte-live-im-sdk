@@ -67,3 +67,18 @@ RDB 以账号命名空间存放会话、消息、Outbox 和同步游标，并启
 | UI | `uni_modules/pte-im-uikit` |
 
 UTS 模块使用宿主提供的 HTTPS、WSS 与本地安全存储能力。H5 必须运行在安全上下文；微信小程序必须配置 API 与 WSS 域名白名单。
+
+## Browser（独立 Web Core）
+
+| 项目 | 标准 |
+| --- | --- |
+| 运行环境 | 现代浏览器安全上下文（HTTPS / localhost） |
+| 语言 | TypeScript（ESM） |
+| 包名 | `@pte-live/im-web-sdk` |
+| 路径 | `packages/im-web-sdk` |
+| 聊一聊 | `PteLiveIMWebClient`：加密 REST、`/ws`、E2EE 收发 |
+| 直播辅助 | `@pte-live/im-web-sdk/live`：`LiveRoomSeqTracker`、帧解析与补漏 |
+| 密码学 | `@noble/ciphers` / `@noble/curves` / `@noble/hashes`（与 UTS 同版本） |
+| 设备身份 | IndexedDB + 不可导出 AES-GCM 包装；隐私模式失败时不阻断会话 |
+
+Browser 包不包含 UIKit，也不替代 uni-app x UTS。直播房间进房与 `scene.enter` 由宿主完成；协议摘要见 [live-event-protocol.md](live-event-protocol.md)。

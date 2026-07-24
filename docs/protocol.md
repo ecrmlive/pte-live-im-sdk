@@ -99,3 +99,16 @@ For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authoriz
 2. It requests all deltas after that cursor, writes each page in one platform-store transaction, and advances the cursor only after commit.
 3. Realtime events are committed before their ACK is sent. A missing `serverSeq` triggers an incremental sync.
 4. A server `cursor_expired` response triggers a controlled snapshot sync.
+
+## Browser Web client
+
+Standalone package `@pte-live/im-web-sdk` (`packages/im-web-sdk`) implements the same chat wire contract in the browser via `PteLiveIMWebClient`:
+
+- Credentials: `apiUrl`, `wsUrl`, `sdkAppId`, `identifier` / `userId`, `userSig`, `expireAt`
+- REST: `POST` to `/v1/im/*` with `Authorization: Bearer <userSig>`, `X-Pte-Sdk-AppId`, `X-Pte-User-Id`, and optional `X-Pte-Response-Public-Key` for encrypted responses
+- WSS: append `sdkAppID`, `identifier`, `userSig` to `wsUrl`; envelopes use `protocolVersion: 1` and actions such as `login`, `send_message`, `ack`, `renew_user_sig`
+- E2EE: register at `/api/v1/chat/e2ee/device/register`; outbound `send_message` carries only routing fields plus `e2ee` (no plain `content`)
+
+Host renews UserSig through business auth, then calls `renewUserSig({ userSig, expireAt })`. This package does not ship UIKit.
+
+Live-room fan-out (`sports.*` / `shop.*` / `scene.*`) is a separate path: hosts own WSS `scene.enter` and business catch-up HTTP; use `@pte-live/im-web-sdk/live` for `eventType` / `roomSeq` helpers. See [live-event-protocol.md](live-event-protocol.md).

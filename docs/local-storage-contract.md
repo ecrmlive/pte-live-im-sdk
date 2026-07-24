@@ -6,6 +6,7 @@
 | Android | Room | 消息、会话、Outbox、同步游标、设备 E2EE 状态 | Android Keystore 密钥、AES-256-GCM 内容加密 |
 | OpenHarmony | ArkData RDB | 消息、会话、Outbox、同步游标、设备 E2EE 状态 | RDB 加密、系统安全等级 |
 | uni-app x UTS | 宿主安全存储 | 加密热缓存与同步游标 | `localStorageCipher` 由宿主提供；UserSig 不落盘 |
+| Browser（`@pte-live/im-web-sdk`） | IndexedDB | 仅 E2EE 设备身份（私钥 + `device_id`） | 同源不可导出 AES-GCM 包装；不持久化消息/Outbox/游标；UserSig 不落盘 |
 
 每个账号使用独立的缓存命名空间。会话与消息的读取均限制分页大小为 1–200；同步按服务器游标逐页提交；Outbox 保存重试计数和下一次重试时间。SDK 不保存 UserSig、业务登录密码、COS 临时凭据或推送平台主密钥。
 
