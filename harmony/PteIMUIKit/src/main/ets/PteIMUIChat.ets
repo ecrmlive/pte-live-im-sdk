@@ -152,7 +152,6 @@ export struct PteIMUIChat {
         this.navigationBar()
         Scroll() {
           Column({ space: 10 }) {
-            this.dayDivider()
             ForEach(this.messages, (message: PteIMMessage) => this.messageRow(message), (message: PteIMMessage) => message.clientMsgId)
           }.width('100%').padding({ left: 12, right: 12, top: 14, bottom: 14 })
         }.layoutWeight(1).scrollBar(BarState.Off).backgroundColor(this.palette().background)
@@ -218,16 +217,34 @@ export struct PteIMUIChat {
 
   @Builder private navigationBar() {
     Row() {
+      // Hit area 44×44, glyph 22×22 (host / product convention)
       Button() {
-        Image(this.isDark() ? $r('app.media.PteIMUIChatNavBackDark') : $r('app.media.PteIMUIChatNavBackLight')).width(44).height(44).objectFit(ImageFit.Fill)
-      }.width(44).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => this.navigationHandler.back())
+        Image(this.isDark() ? $r('app.media.PteIMUIChatNavBackDark') : $r('app.media.PteIMUIChatNavBackLight'))
+          .width(22)
+          .height(22)
+          .objectFit(ImageFit.Contain)
+      }
+        .width(44)
+        .height(44)
+        .padding(0)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.navigationHandler.back())
       PteIMUIAvatar({ label: this.isGroup() ? '#' : this.avatarForTitle(), avatarSize: 34, cornerRadius: this.avatarCornerRadius, fillColor: this.palette().outgoingEnd }).margin({ left: 4, right: 9 })
       Column({ space: 2 }) {
-        Text(this.title.length > 0 ? this.title : this.conversationId).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.palette().text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        Text(this.displayTitle()).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.palette().text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         Text(this.navigationSubtitleText.length > 0 ? this.navigationSubtitleText : (this.isGroup() ? (this.isEnglish() ? '8 members' : '8位成员') : (this.isEnglish() ? 'Online' : '在线'))).fontSize(10).fontColor('#17B979')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-      Button() { Image(this.isDark() ? $r('app.media.PteIMUIChatNavMoreDark') : $r('app.media.PteIMUIChatNavMoreNativeLight')).width(44).height(44).objectFit(ImageFit.Fill) }
-        .width(44).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => this.navigationHandler.more())
+      Button() {
+        Image(this.isDark() ? $r('app.media.PteIMUIChatNavMoreDark') : $r('app.media.PteIMUIChatNavMoreNativeLight'))
+          .width(22)
+          .height(22)
+          .objectFit(ImageFit.Contain)
+      }
+        .width(44)
+        .height(44)
+        .padding(0)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.navigationHandler.more())
     }.width('100%').height(44).flexShrink(0).padding({ left: 10, right: 9 }).backgroundColor(this.palette().surface).border({ width: { bottom: 1 }, color: this.palette().divider })
   }
 
@@ -604,7 +621,21 @@ export struct PteIMUIChat {
     return this.isEnglish() ? '✦ Received ✦' : '✦ 已领取 ✦'
   }
   private isGroup(): boolean { return this.groupConversation || this.title.includes('Team') || this.title.includes('群') }
-  private avatarForTitle(): string { const value = this.title.length > 0 ? this.title : this.conversationId; return value.substring(0, 1).toUpperCase() }
+  /** Never show raw conversation id as the chat nickname. */
+  private displayTitle(): string {
+    const value = (this.title ?? '').trim()
+    if (value.length === 0) {
+      return this.isEnglish() ? 'Chat' : '聊天'
+    }
+    if (value === this.conversationId || /^\d+$/.test(value)) {
+      return this.isEnglish() ? 'Chat' : '聊天'
+    }
+    return value
+  }
+  private avatarForTitle(): string {
+    const value = this.displayTitle()
+    return value.substring(0, 1).toUpperCase()
+  }
   private selectMessage(clientMsgId: string): void { this.selectedMessageId = this.selectedMessageId === clientMsgId ? '' : clientMsgId }
   /** A second tap on the same reaction cancels the local vote; the count cell vanishes at zero. */
   private toggleReaction(message: PteIMMessage, emoji: string): void {
@@ -678,7 +709,7 @@ export struct PteIMUIChat {
   }
   private presentation(message: PteIMMessage, outgoing: boolean): PteIMUIMessagePresentation {
     const time = `${new Date(message.createdAt).getHours().toString().padStart(2, '0')}:${new Date(message.createdAt).getMinutes().toString().padStart(2, '0')}`
-    const value = new PteIMUIMessagePresentation(this.messageText(message), time, outgoing ? 'M' : this.avatarForTitle(), outgoing ? (this.isEnglish() ? 'Me' : '我') : (this.title.length > 0 ? this.title : this.conversationId))
+    const value = new PteIMUIMessagePresentation(this.messageText(message), time, outgoing ? 'M' : this.avatarForTitle(), outgoing ? (this.isEnglish() ? 'Me' : '我') : this.displayTitle())
     return this.presentationTransformer.transform(message, outgoing, value)
   }
   private isRich(message: PteIMMessage): boolean { return message.type === PteIMMessageType.IMAGE || message.type === PteIMMessageType.VIDEO || message.type === PteIMMessageType.LOCATION || message.type === PteIMMessageType.GIFT || message.type === PteIMMessageType.RED_PACKET || message.type === PteIMMessageType.ORDER || message.type === PteIMMessageType.FILE || message.type === PteIMMessageType.CUSTOM }

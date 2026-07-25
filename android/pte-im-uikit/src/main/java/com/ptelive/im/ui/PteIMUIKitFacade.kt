@@ -183,6 +183,21 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   /** Supplies business/server receipt state for outgoing messages. */
   var receiptStatusProvider: ((PteIMMessage) -> PteIMUIReceiptStatus)? = null
   var navigationSubtitleText: String? = null
+  /** When false (default), the timeline omits the "今天 / Today" separator row. */
+  var showDayDivider: Boolean = false
+  /** Host-owned chat peer title shown in the 44 dp navigation bar. */
+  var navigationTitleText: String = title
+  /** Host-owned chat peer avatar URL for the navigation bar. */
+  var navigationAvatarUrl: String? = null
+  /** Fallback initials when [navigationAvatarUrl] is blank. */
+  var navigationAvatarText: String = title.take(1).ifBlank { "#" }
+  /** Drawable resource for the default back button; hosts may swap branding icons. */
+  var backIconResource: Int = R.drawable.pte_im_ui_chat_back
+  /**
+   * Full replacement for the navigation back control. When set, [backIconResource]
+   * is ignored and the factory owns the 44 dp touch target.
+   */
+  var backButtonFactory: (() -> View)? = null
   protected val messages = LinearLayout(context).apply { orientation = VERTICAL }
   protected val scroll = ScrollView(context)
   protected val header = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, dp(8), 0) }
@@ -236,7 +251,7 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
 
   init {
     orientation = VERTICAL
-    buildHeader(title)
+    buildHeader(navigationTitleText)
     addView(header, LayoutParams(-1, dp(44)))
     header.setOnClickListener { collapseTransientUi() }
     scroll.isFillViewport = true
@@ -311,7 +326,9 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
   open fun render() {
     dismissMessageMenu()
     messages.removeAllViews()
-    messages.addView(dayDivider(), LayoutParams(-1, dp(44)))
+    if (showDayDivider) {
+      messages.addView(dayDivider(), LayoutParams(-1, dp(44)))
+    }
     val timeline = client.localMessages(conversationId, limit = 100)
     timeline.forEach { messages.addView(messageView(it)) }
     markTimelineRead(timeline)
@@ -445,6 +462,24 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
     }
   }
   /**
+   * Applies host-owned peer nickname / avatar to the SDK navigation bar.
+   * Call after opening a conversation from an external profile or list row.
+   */
+  fun setNavigationPeer(title: String, avatarUrl: String? = null, avatarText: String? = null) {
+    navigationTitleText = title.ifBlank { navigationTitleText }
+    navigationAvatarUrl = avatarUrl?.takeIf { it.isNotBlank() }
+    navigationAvatarText = avatarText?.takeIf { it.isNotBlank() }
+      ?: navigationTitleText.take(1).ifBlank { "#" }
+    rebuildNavigationHeader()
+  }
+
+  /** Rebuilds the 44 dp navigation chrome after host peer / back-button changes. */
+  fun rebuildNavigationHeader() {
+    buildHeader(navigationTitleText)
+    applyTheme()
+  }
+
+  /**
    * Navigation-bar extension point. Override this method to replace the
    * complete 44 dp navigation layout while retaining message loading, input
    * state, appearance updates and Core callbacks. The supplied [container] is
@@ -452,8 +487,19 @@ open class PteIMUIChatView(context: Context, protected val client: PteIMSDK, pro
    */
   protected open fun buildHeader(title: String) {
     header.removeAllViews()
-    header.addView(iconButton(R.drawable.pte_im_ui_chat_back, "Back") { onBackRequested?.invoke() }, LayoutParams(dp(44), dp(44)))
-    header.addView(PteIMUIAvatarView(context).apply { cornerRadiusDp = this@PteIMUIChatView.avatarCornerRadiusDp; bind("#", Color.rgb(10, 155, 188)) }, LayoutParams(dp(34), dp(34)).apply { marginStart = dp(2); marginEnd = dp(8) })
+    val back = backButtonFactory?.invoke()?.also { view ->
+      if (view.contentDescription.isNullOrBlank()) view.contentDescription = "Back"
+      view.setOnClickListener { onBackRequested?.invoke() }
+    } ?: iconButton(backIconResource, "Back") { onBackRequested?.invoke() }
+    header.addView(back, LayoutParams(dp(44), dp(44)))
+    header.addView(
+      PteIMUIAvatarView(context).apply {
+        tag = "pte-nav-avatar"
+        cornerRadiusDp = this@PteIMUIChatView.avatarCornerRadiusDp
+        bind(navigationAvatarText, Color.rgb(10, 155, 188), navigationAvatarUrl)
+      },
+      LayoutParams(dp(34), dp(34)).apply { marginStart = dp(2); marginEnd = dp(8) },
+    )
     header.addView(LinearLayout(context).apply {
       orientation = VERTICAL; gravity = Gravity.CENTER_VERTICAL
       addView(TextView(context).apply { text = title; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false; tag = "pte-title" }, LayoutParams(-1, dp(21)))
@@ -965,6 +1011,11 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
   var maxVisibleConversations: Int? = null
   /** Receives the avatar tap without preventing the row's normal C2C/group route. */
   var onAvatarTapped: ((PteIMUIConversationPresentation) -> Unit)? = null
+  /**
+   * Richer conversation open hook for hosts that need peer title / avatar.
+   * When set, it runs instead of the constructor [onConversationClick] id-only callback.
+   */
+  var onConversationSelected: ((PteIMUIConversationPresentation) -> Unit)? = null
   /** When false, hides the fixed "Chats / 会话" chrome row (logo + create). */
   var showHeader: Boolean = true
   /** Centered empty-state copy when there are no conversations; null keeps the list blank. */
@@ -1123,7 +1174,9 @@ open class PteIMUIConversationListView(context: Context, protected val client: P
     }
   }
   /** Override to intercept a row route while Core's local paging remains intact. */
-  open fun selectConversation(item: PteIMUIConversationPresentation) = onConversationClick(item.conversationId)
+  open fun selectConversation(item: PteIMUIConversationPresentation) {
+    onConversationSelected?.invoke(item) ?: onConversationClick(item.conversationId)
+  }
   /** Override to replace the full header while retaining cache, search and click handling. */
   open fun conversationHeader(): View {
     val palette = resolvePalette()

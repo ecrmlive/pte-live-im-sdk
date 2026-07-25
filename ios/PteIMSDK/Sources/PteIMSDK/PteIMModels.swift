@@ -208,9 +208,66 @@ public struct PteIMConversation: Sendable {
 
 /** Server-authoritative conversation item returned by the SDK paging API. */
 public struct PteIMRemoteConversation: Codable, Sendable {
-  public let id: Int64; public let type: String; public let title: String; public let avatar: String?
-  public let lastMessageSeq: Int64; public let lastMessageSnapshot: String?; public let lastMessageAt: Int64; public let unreadCount: Int64
-  enum CodingKeys: String, CodingKey { case id, type, title, avatar; case lastMessageSeq = "last_message_seq"; case lastMessageSnapshot = "last_message_snapshot"; case lastMessageAt = "last_message_at"; case unreadCount = "unread_count" }
+  public let id: Int64
+  public let type: String
+  public let title: String
+  public let avatar: String?
+  public let lastMessageSeq: Int64
+  public let lastMessageSnapshot: String?
+  public let lastMessageAt: Int64
+  public let unreadCount: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case id, type, title, avatar
+    case lastMessageSeq = "last_message_seq"
+    case lastMessageSnapshot = "last_message_snapshot"
+    case lastMessageAt = "last_message_at"
+    case unreadCount = "unread_count"
+  }
+
+  /// 对齐 Android `optLong`：服务端对 0 值使用 `omitempty`（如 unread_count），不能按必填解码。
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    if let v = try? c.decode(Int64.self, forKey: .id) {
+      id = v
+    } else if let v = try? c.decode(UInt64.self, forKey: .id) {
+      id = Int64(v)
+    } else if let v = try? c.decode(Int.self, forKey: .id) {
+      id = Int64(v)
+    } else {
+      throw DecodingError.keyNotFound(
+        CodingKeys.id,
+        .init(codingPath: c.codingPath, debugDescription: "conversation id missing")
+      )
+    }
+    type = (try c.decodeIfPresent(String.self, forKey: .type)) ?? ""
+    title = (try c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+    avatar = try c.decodeIfPresent(String.self, forKey: .avatar)
+    lastMessageSeq = (try c.decodeIfPresent(Int64.self, forKey: .lastMessageSeq)) ?? 0
+    lastMessageSnapshot = try c.decodeIfPresent(String.self, forKey: .lastMessageSnapshot)
+    lastMessageAt = (try c.decodeIfPresent(Int64.self, forKey: .lastMessageAt)) ?? 0
+    unreadCount = (try c.decodeIfPresent(Int64.self, forKey: .unreadCount)) ?? 0
+  }
+
+  public init(
+    id: Int64,
+    type: String,
+    title: String,
+    avatar: String?,
+    lastMessageSeq: Int64,
+    lastMessageSnapshot: String?,
+    lastMessageAt: Int64,
+    unreadCount: Int64
+  ) {
+    self.id = id
+    self.type = type
+    self.title = title
+    self.avatar = avatar
+    self.lastMessageSeq = lastMessageSeq
+    self.lastMessageSnapshot = lastMessageSnapshot
+    self.lastMessageAt = lastMessageAt
+    self.unreadCount = unreadCount
+  }
 }
 public struct PteIMConversationPage: Codable, Sendable { public let total: Int64; public let list: [PteIMRemoteConversation] }
 

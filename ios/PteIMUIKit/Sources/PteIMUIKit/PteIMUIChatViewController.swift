@@ -75,6 +75,8 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   /** Optional host-owned group/avatar presentation for the compact 44pt chat navigation bar. */
   public var navigationAvatarText: String?
   public var navigationAvatarColor: UIColor?
+  /** When false (default, align Android), omits the "今天 / Today" day divider headers. */
+  public var showDayDivider: Bool = false
   /** Shows the sender nickname above incoming messages. Enable this for group
    conversations; direct chats intentionally keep the compact one-to-one layout. */
   public var showsIncomingSenderNames = false
@@ -116,9 +118,11 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   private var quotedMessage: PteIMMessage?
   private var uploadRetrySources: [String: (PteIMUIAction, URL)] = [:]
   private var messageSections: [[PteIMMessage]] {
+    let sorted = messages.sorted { $0.createdAt < $1.createdAt }
+    guard showDayDivider else { return sorted.isEmpty ? [] : [sorted] }
     let calendar = Calendar.current
-    let grouped = Dictionary(grouping: messages) { calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0.createdAt) / 1000)) }
-    return grouped.keys.sorted().map { grouped[$0]?.sorted { $0.createdAt < $1.createdAt } ?? [] }
+    let grouped = Dictionary(grouping: sorted) { calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0.createdAt) / 1000)) }
+    return grouped.keys.sorted().map { grouped[$0] ?? [] }
   }
 
   public init(client: PteIMSDK, conversationId: String, title: String? = nil, skin: PteIMUISkin = .default) {
@@ -147,15 +151,19 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
   public override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     appearanceController.refresh()
-    navigationController?.setNavigationBarHidden(true, animated: animated)
+    // Only when pushed as a nav page. Host wrappers (ChatRoomViewController) own visibility.
+    if parent is UINavigationController {
+      navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
     configureNavigationBar()
   }
   public override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
-    // The tab/list screens continue to use their own navigation treatment.
-    if isMovingFromParent || navigationController?.topViewController !== self {
-      navigationController?.setNavigationBarHidden(false, animated: animated)
-    }
+    // Restore host nav only when this chat itself is the pushed page.
+    // Embedded children must not flip the bar — that left a red/gray status-bar split
+    // over the previous immersive page (e.g. expert detail chrome).
+    guard parent is UINavigationController, isMovingFromParent else { return }
+    navigationController?.setNavigationBarHidden(false, animated: animated)
   }
   deinit { client.removeListener(listener) }
 
@@ -317,6 +325,8 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     ])
     registerMessageCells(in: tableView); tableView.dataSource = self; tableView.delegate = self; tableView.separatorStyle = .none; tableView.keyboardDismissMode = .interactive
     tableView.sectionHeaderTopPadding = 0
+    tableView.estimatedSectionHeaderHeight = 0
+    tableView.estimatedSectionFooterHeight = 0
     tableView.contentInset = .zero
     let longPress = UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
     tableView.addGestureRecognizer(longPress)
@@ -729,12 +739,17 @@ open class PteIMUIChatViewController: UIViewController, UITableViewDataSource, U
     else { didTapMessage(message) }
   }
   public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { dismissInputPresentation() }
-  open func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 34 }
+  open func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+    showDayDivider ? 34 : .leastNormalMagnitude
+  }
   open func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+    guard showDayDivider else { return nil }
     let header = PteIMUITimelineHeaderView()
     header.configure(date: Date(timeIntervalSince1970: TimeInterval(messageSections[section].first?.createdAt ?? 0) / 1000), language: language, color: theme.palette(for: traitCollection).secondaryTextColor)
     return header
   }
+  open func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat { .leastNormalMagnitude }
+  open func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? { nil }
 }
 
 @MainActor private enum PteIMUIMapDestination: CaseIterable {

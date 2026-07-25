@@ -312,7 +312,10 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   /** Opens (or idempotently creates) a C2C conversation for this UserSig identity. */
   public func openSingleConversation(peerUserId: Int64) async throws -> PteIMRemoteConversation {
     guard peerUserId > 0 else { throw PteIMError.invalidResponse }
-    return try await sdkRequest(path: "v1/im/conversations/open-single", body: ["peerUserId": peerUserId], response: PteIMRemoteConversation.self)
+    let row = try await sdkRequest(path: "v1/im/conversations/open-single", body: ["peerUserId": peerUserId], response: PteIMRemoteConversation.self)
+    // Keep list title/avatar available immediately (Android merges localRemoteConversations).
+    try? store.applyRemoteConversations([row], nextCursor: try store.conversationCursor())
+    return row
   }
 
   /** Creates a group owned by this UserSig identity. */
@@ -320,7 +323,9 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     guard !title.isEmpty, memberIds.allSatisfy({ $0 > 0 }) else { throw PteIMError.invalidResponse }
     var body: [String: Any] = ["title": title, "memberIds": memberIds]
     if let avatar { body["avatar"] = avatar }
-    return try await sdkRequest(path: "v1/im/conversations/create-group", body: body, response: PteIMRemoteConversation.self)
+    let row = try await sdkRequest(path: "v1/im/conversations/create-group", body: body, response: PteIMRemoteConversation.self)
+    try? store.applyRemoteConversations([row], nextCursor: try store.conversationCursor())
+    return row
   }
 
   /** Advances this user's read sequence; zero means the latest message. */

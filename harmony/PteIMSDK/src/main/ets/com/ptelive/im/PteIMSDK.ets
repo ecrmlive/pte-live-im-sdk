@@ -334,7 +334,8 @@ export class PteIMSDK {
 
   async openSingleConversation(peerUserId: number): Promise<PteIMRemoteConversation> {
     if (peerUserId <= 0) throw new Error('peerUserId must be positive')
-    const body = new PteIMRequestBody(); body.peerUserId = peerUserId
+    // Plain object: ArkTS JSON.stringify on class instances can omit fields.
+    const body: WireObject = { 'peerUserId': peerUserId }
     return this.remoteConversation(await this.sdkRequest('/v1/im/conversations/open-single', body))
   }
 
@@ -406,8 +407,8 @@ export class PteIMSDK {
       if (key.length === 0 || uploadUrl.length === 0 || headers === undefined || headers === null) throw new Error('media credential response is invalid')
       const request = http.createHttp()
       try {
-      const requestHeaders = new Map<string, string>()
-      requestHeaders.set('Content-Type', this.stringValue(headers, 'Content-Type'))
+      const requestHeaders: Record<string, string> = {}
+      requestHeaders['Content-Type'] = this.stringValue(headers, 'Content-Type')
       const options: PteIMHttpRequestOptions = {
         method: http.RequestMethod.PUT,
         header: requestHeaders,
@@ -454,7 +455,14 @@ export class PteIMSDK {
     })
     this.socket.on('close', () => { this.onClose() })
     this.socket.on('error', (error: Error) => { this.emitError(error); this.onClose() })
-    this.socket.connect(this.webSocketURL(), (error: Error) => { if (error !== null) { this.emitError(error); this.onClose() } })
+    // OpenHarmony connect success callback often passes `undefined` (not null).
+    // Treat only truthy values as failure — `undefined !== null` used to crash emitError.
+    this.socket.connect(this.webSocketURL(), (error: Error) => {
+      if (error) {
+        this.emitError(error)
+        this.onClose()
+      }
+    })
   }
 
   // The configured IM service validates UserSig at WSS upgrade; use the same query contract as H5/mini-program.
@@ -566,13 +574,19 @@ export class PteIMSDK {
   private async sdkRequest(path: string, body: Object): Promise<WireObject> {
     const request = http.createHttp()
     try {
-      const requestHeaders = this.apiRequestHeaders()
+      // OpenHarmony http.header must be a plain Record; Map drops custom headers
+      // (e.g. X-Pte-Response-Public-Key) and api-im then returns HTTP 400.
       const responseKey = await PteIMResponseCrypto.createRequestKey()
-      requestHeaders.set('X-Pte-Response-Public-Key', responseKey.publicKey)
+      const requestHeaders = this.apiRequestHeaders()
+      requestHeaders['X-Pte-Response-Public-Key'] = responseKey.publicKey
       const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
       const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
       if (response.responseCode === 401) void this.refreshUserSig(true)
-      if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
+      if (response.responseCode < 200 || response.responseCode >= 300) {
+        let detail = ''
+        try { detail = response.result !== undefined && response.result !== null ? response.result.toString() : '' } catch (_e) { detail = '' }
+        throw new Error(`IM API failed with HTTP ${response.responseCode}${detail.length > 0 ? `: ${detail}` : ''}`)
+      }
       const root = await PteIMResponseCrypto.decryptResponse(JSON.parse(response.result.toString()) as WireObject, responseKey)
       if (this.numberValue(root, 'code') !== 1) throw new Error(this.stringValue(root, 'msg'))
       return root['data'] as WireObject
@@ -613,16 +627,32 @@ export class PteIMSDK {
     return new PteIMUserProfile(this.numberValue(value, 'user_id'), this.stringValue(value, 'nickname'), this.stringValue(value, 'avatar'), gender, this.stringValue(value, 'birthday'), this.stringValue(value, 'province'), this.stringValue(value, 'city'), this.stringValue(value, 'district'))
   }
   private remoteMessage(value: WireObject): PteIMRemoteMessage { return new PteIMRemoteMessage(this.numberValue(value, 'message_id'), this.numberValue(value, 'conversation_id'), this.numberValue(value, 'sender_id'), this.stringValue(value, 'client_msg_id'), this.stringValue(value, 'msg_type'), this.stringValue(value, 'content'), this.stringValue(value, 'payload'), this.numberValue(value, 'seq'), this.numberValue(value, 'sent_at'), this.numberValue(value, 'recalled_at')) }
-  private apiRequestHeaders(): Map<string, string> {
-    const headers = new Map<string, string>()
-    headers.set('Content-Type', 'application/json')
-    headers.set('Authorization', `Bearer ${this.config.userSig}`)
-    headers.set('X-Pte-Sdk-AppId', this.config.sdkAppId.toString())
-    headers.set('X-Pte-User-Id', this.config.userId)
+  private apiRequestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {}
+    headers['Content-Type'] = 'application/json'
+    headers['Authorization'] = `Bearer ${this.config.userSig}`
+    headers['X-Pte-Sdk-AppId'] = this.config.sdkAppId.toString()
+    headers['X-Pte-User-Id'] = this.config.userId
     return headers
   }
   private resolveCosUrl(value: string): string { return value.length === 0 || value.startsWith('https://') ? value : `${this.base.cosDomain.replace(/\/$/, '')}/${value.replace(/^\//, '')}` }
-  private emitError(error: Object): void { const value = error instanceof Error ? error : new Error(error.toString()); this.listeners.forEach((listener: PteIMListener) => listener.onError(value)) }
+  private emitError(error: Object | Error | string | null | undefined): void {
+    let value: Error
+    if (error instanceof Error) {
+      value = error
+    } else if (error === null || error === undefined) {
+      value = new Error('unknown IM error')
+    } else {
+      value = new Error(String(error))
+    }
+    this.listeners.forEach((listener: PteIMListener) => {
+      try {
+        listener.onError(value)
+      } catch (_e) {
+        // listener must not crash the process
+      }
+    })
+  }
 
   private async messagesFromResponse(payload: WireObject): Promise<PteIMMessage[]> {
     const raw = payload['messages'] as Object[]

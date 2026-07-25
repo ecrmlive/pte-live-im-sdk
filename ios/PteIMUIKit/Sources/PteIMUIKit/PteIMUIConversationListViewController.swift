@@ -99,7 +99,12 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
       navigationController?.setNavigationBarHidden(true, animated: animated)
     }
   }
-  @objc open func refresh() { client.syncNow(); reloadConversations(); refreshControl.endRefreshing() }
+  @objc open func refresh() {
+    client.syncNow()
+    client.syncConversationsNow()
+    reloadConversations()
+    refreshControl.endRefreshing()
+  }
   open func reloadConversations() {
     if let hostPresentations {
       conversations = []
@@ -109,17 +114,67 @@ open class PteIMUIConversationListViewController: UIViewController, UITableViewD
       updateEmptyState()
       return
     }
-    conversations = (try? client.localConversations(limit: 100)) ?? []
-    visiblePresentations = conversations.map { presentation(for: $0) }
-    filteredPresentations = visiblePresentations
+    // Align Android list: merge local message previews with remote title/avatar/unread.
+    let remote = (try? client.localRemoteConversations(limit: 100)) ?? []
+    let remoteById = Dictionary(uniqueKeysWithValues: remote.map { (String($0.id), $0) })
+    let local = (try? client.localConversations(limit: 100)) ?? []
+    conversations = local
+    var rows: [PteIMUIConversationPresentation] = local.map { presentation(for: $0, remote: remoteById[$0.conversationId]) }
+    let localIds = Set(local.map(\.conversationId))
+    for item in remote where !localIds.contains(String(item.id)) {
+      rows.append(presentation(forRemote: item))
+    }
+    visiblePresentations = rows
+    filteredPresentations = rows
     tableView.reloadData()
     updateEmptyState()
   }
 
   /** Override to use your member/group directory for nickname, avatar and unread count. */
   open func presentation(for conversation: PteIMConversation) -> PteIMUIConversationPresentation {
-    let rendered = PteIMUIMessageText.render(conversation.lastMessage, language: client.appearance.language).replacingOccurrences(of: "\n", with: " · ")
-    return PteIMUIConversationPresentation(conversationId: conversation.conversationId, title: conversation.conversationId, subtitle: rendered, avatarText: PteIMUIMessageText.avatarText(for: conversation.conversationId), updatedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000))
+    let remote = (try? client.localRemoteConversations(limit: 100))?
+      .first(where: { String($0.id) == conversation.conversationId })
+    return presentation(for: conversation, remote: remote)
+  }
+
+  open func presentation(for conversation: PteIMConversation, remote: PteIMRemoteConversation?) -> PteIMUIConversationPresentation {
+    let rendered = PteIMUIMessageText.render(conversation.lastMessage, language: client.appearance.language)
+      .replacingOccurrences(of: "\n", with: " · ")
+    let remoteTitle = remote?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let title = remoteTitle.isEmpty ? conversation.conversationId : remoteTitle
+    let avatarSeed = title == conversation.conversationId ? conversation.conversationId : title
+    let kind: PteIMUIConversationKind = (remote?.type.lowercased() == "group") ? .group : .single
+    return PteIMUIConversationPresentation(
+      conversationId: conversation.conversationId,
+      kind: kind,
+      title: title,
+      subtitle: rendered,
+      avatarText: String(avatarSeed.prefix(1)),
+      unreadCount: Int(remote?.unreadCount ?? 0),
+      updatedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000)
+    )
+  }
+
+  open func presentation(forRemote remote: PteIMRemoteConversation) -> PteIMUIConversationPresentation {
+    let id = String(remote.id)
+    let remoteTitle = remote.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let title = remoteTitle.isEmpty ? id : remoteTitle
+    let snapshot = remote.lastMessageSnapshot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let preview = snapshot.isEmpty
+      ? (remote.type.lowercased() == "group" ? "[群聊]" : "开始聊天")
+      : snapshot
+    let kind: PteIMUIConversationKind = remote.type.lowercased() == "group" ? .group : .single
+    return PteIMUIConversationPresentation(
+      conversationId: id,
+      kind: kind,
+      title: title,
+      subtitle: preview,
+      avatarText: String(title.prefix(1)),
+      unreadCount: Int(remote.unreadCount),
+      updatedAt: remote.lastMessageAt > 0
+        ? Date(timeIntervalSince1970: TimeInterval(remote.lastMessageAt) / 1000)
+        : nil
+    )
   }
 
   /** Override to install a custom subclass or change every individual row. */
