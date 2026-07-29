@@ -35,7 +35,7 @@ const im = createPteIMSDK({
 
 The server responds or pushes an envelope with `action`, `requestId` when applicable, and `payload`. Every data-changing event has a monotonically increasing `syncCursor` and message events additionally have a per-conversation `serverSeq`.
 
-For `send_message`, the client sends only routing metadata (`clientMsgId`, `conversationId`, `type`) and an `e2ee` object. Plain `content` is not sent over WSS. The precise E2EE object, device registration endpoints, encrypted API response header, and key-derivation labels are specified in [security.md](security.md).
+For `send_message`, the client sends only routing metadata (`clientMsgId`, `conversationId`, `type`), optional `quoteMessageId`, and an `e2ee` object. Plain `content` is not sent over WSS. `quoteMessageId` must be the accepted server ID of a message in the same conversation; it is association metadata, not plaintext. The precise E2EE object, device registration endpoints, encrypted API response header, and key-derivation labels are specified in [security.md](security.md).
 
 ## Message payload
 
@@ -85,6 +85,10 @@ For `send_message`, the client sends only routing metadata (`clientMsgId`, `conv
 | `POST /v1/im/conversations/read` | UserSig-protected read cursor; body `{ conversationId, seq }`, with `seq: 0` meaning latest |
 | `POST /v1/im/conversations` | UserSig-protected conversation page; body `{ page, pageSize }` |
 | `POST /v1/im/conversations/messages` | UserSig-protected history page; body `{ conversationId, beforeSeq, limit }` |
+| `POST /v1/im/messages/recall` | Recall a sender-owned normal message within the server recall window; body `{ messageId }` |
+| `POST /v1/im/messages/delete` | Hide one message only for the current UserSig account; body `{ messageId }` |
+| `POST /v1/im/messages/reactions/add` | Idempotently add the current user's emoji reaction; body `{ messageId, emoji }` |
+| `POST /v1/im/messages/reactions/remove` | Remove the current user's emoji reaction; body `{ messageId, emoji }` |
 | `POST /v1/im/media/put-url` | UserSig-protected COS credential; body `{ mediaType, contentType, contentLength }`, returns `{ key, uploadUrl, headers, expiresAt }` |
 
 For the PteLive reference deployment, these requests are served by `api-im`. The SDK consumes the contract and does not depend on the service's internal deployment layout.
@@ -99,6 +103,18 @@ For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authoriz
 2. It requests all deltas after that cursor, writes each page in one platform-store transaction, and advances the cursor only after commit.
 3. Realtime events are committed before their ACK is sent. A missing `serverSeq` triggers an incremental sync.
 4. A server `cursor_expired` response triggers a controlled snapshot sync.
+
+## 消息状态事件
+
+`message_event` 是 IM 状态变更而非宿主业务回调。历史和同步记录包含 `quoteMessageId`、`quoteSnapshot`、`status`、`recalledAt`、`deletedAt` 与反应聚合；实时事件用于缩短一致性窗口，断线后仍须以同步修复。
+
+| eventType | 作用 | 处理 |
+| --- | --- | --- |
+| `chat.message.recalled` | 全会话撤回 | 保留消息并更新 `status` / `recalledAt` |
+| `chat.message.deleted` | 当前账户删除 | 只从当前账户缓存移除，不能向其他成员传播 |
+| `chat.message.reaction_changed` | 添加或移除表情反应 | 使用 `serverMsgId`、`userId`、`emoji`、`reactionAction`（`added` / `removed`）更新聚合 |
+
+完整语义、REST 请求及各端实现状态见[消息生命周期](message-lifecycle.md)。
 
 ## Browser Web client
 

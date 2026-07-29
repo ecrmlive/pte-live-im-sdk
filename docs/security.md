@@ -92,6 +92,8 @@ Android and iOS generate one persistent P-256 device identity per SDK account na
 
 Content encryption uses AAD `pte-live-im-message-v1`. For every recipient (and, when enabled, the mandatory audit key), an ephemeral ECDH secret derives the wrapping key as `HMAC-SHA-256(wrapNonce, sharedSecret || "pte-live-im-audit-wrap-v1")`; the content key is AES-GCM encrypted using that same label as AAD. The SDK decrypts an incoming envelope only when it finds the local registered `device_id`. It never puts content keys, device private keys, COS SecretId/SecretKey, or UserSig-generation secrets on the wire or in the public repository.
 
+引用消息的 `quoteMessageId` 是 WSS 顶层关联元数据，用于服务端校验同一会话关系和跨分页定位；它不是正文。客户端显示所需的引用内容继续位于 E2EE 消息内容中。撤回、当前账户删除和表情反应只传递消息 ID、状态、emoji 与操作者等协议元数据，不包含消息明文；具体事件字段见[消息生命周期](message-lifecycle.md)。
+
 This implementation deliberately fails a send if the service requires an audit recipient but does not supply a supported audit key. For an encrypted receive, it fails when the local device is not one of the encrypted recipients; old server history without an `e2ee` field remains readable only for migration compatibility and must not be used to silently downgrade newly sent messages.
 
 Never embed COS SecretId, SecretKey, private keys, UserSig-generation secrets, or a durable UTS encryption key in a public repository or app bundle.

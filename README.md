@@ -8,8 +8,8 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 
 | 产品 | 职责 | 不负责的内容 |
 | --- | --- | --- |
-| `PteIMSDK` | 配置、UserSig 登录、WSS、消息、好友/群组关系、分页同步、本地加密缓存、COS 上传、E2EE、主题/语言状态、可选 Commerce 扩展 | 业务登录、现金支付、系统选择器 |
-| `PteIMUIKit` | 会话列表、联系人/群组列表、一对一/群组聊天、文本/表情、标准附件选择与预览、发送状态、亮暗/中英文、业务动作回调 | 签发 UserSig、保存密钥、替宿主完成支付、红包、礼物和订单业务 |
+| `PteIMSDK` | 配置、UserSig 登录、WSS、消息、引用、撤回、单用户删除、表情反应、好友/群组关系、分页同步、本地加密缓存、COS 上传、E2EE、主题/语言状态、可选 Commerce 扩展 | 业务登录、现金支付、系统选择器 |
+| `PteIMUIKit` | 会话列表、联系人/群组列表、一对一/群组聊天、文本/表情、标准附件选择与预览、发送状态、亮暗/中英文、IM 消息操作与业务卡片点击回调 | 签发 UserSig、保存密钥、替宿主完成支付、红包、礼物和订单业务 |
 | `PteIMUIDemo` | 手机号/昵称/密码/图形验证码 → 取得 `userId`/短期 `userSig` → IM 登录 → 好友、会话、群组、我的 | 生产业务后端实现 |
 
 ## 仓库
@@ -45,10 +45,10 @@ Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 
 
 | 场景 | 内容 |
 | --- | --- |
-| 一对一聊天 | 文本、图片、视频、语音、表情、定位、礼物、红包、订单、文件 |
+| 一对一聊天 | 文本、图片、视频、语音、表情、定位、礼物、红包、订单、文件；引用、撤回、单用户删除、表情反应 |
 | 群聊 | 文本、图片、视频、语音、表情、定位、红包、文件 |
 | 关系与分页 | 关注即好友、好友/关注/群组/群成员分页、会话游标同步、消息历史分页 |
-| Core | 连接/重连、ACK、消息状态、会话与消息同步、本地加密缓存、Outbox、UserSig 续期、COS PUT 上传、E2EE 协议封装 |
+| Core | 连接/重连、ACK、消息状态、引用/撤回/删除事件、表情反应、会话与消息同步、本地加密缓存、Outbox、UserSig 续期、COS PUT 上传、E2EE 协议封装 |
 | 离线推送基础 | 设备令牌登记、单设备通知开关、登出时删除令牌；令牌仅以服务端 AES-256-GCM 密文保存 |
 | 外观 | `light`、`dark`、`system`；`zh-CN`、`en-US`、`system`，可不重新登录即时更新 |
 
@@ -63,7 +63,7 @@ PteIMBaseConfig(apiDomain, imDomain, cosDomain, commerceDomain?, themeMode, lang
 PteIMLoginConfig(sdkAppId, userId, userSig, userSigExpireAt?, userSigProvider?)
 ```
 
-`apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。`userSigProvider` 是 SDK Core 的宿主适配点：它只负责用宿主保存的 refresh session 向业务服务换取 `{ userSig, expireAt }`。Core 会在到期前 5 分钟、HTTP 401 和 WSS 过期事件时自动调用它、更新 WSS 凭证并同步数据；业务账号密码、refresh token 存储和风控不进入 SDK。
+`apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。`userSigProvider` 是 SDK Core 的宿主适配点：它只负责用宿主保存的 refresh session 向业务服务换取 `{ userSig, expireAt }`。Core 会在到期前 5 分钟、HTTP 401 和 WSS 过期事件时自动调用它、更新 WSS 凭证并同步数据；业务账号密码、refresh token 存储和风控不进入 SDK。消息生命周期、逐端支持状态和 REST/WSS 契约见[消息生命周期](docs/message-lifecycle.md)。
 
 ### Android
 
@@ -102,12 +102,12 @@ im.commerce.sendGift(
   PteIMGiftSendRequest(clientRequestId = requestId, sku = "rose", quantity = 1, roomId = roomId, sceneType = "live")
 ) { order ->
   order.onSuccess { value ->
-    // 如需单聊/群聊卡片，再用既有 sendGift 发送仅含 orderId 的 E2EE 业务引用。
+    // 如需单聊/群聊卡片，再调用 IM Core 的 sendGift，发送仅含 orderId 的 E2EE 引用卡片。
   }
 }
 ```
 
-红包、礼物和订单的业务状态由 `pte-live-im-commerce` 保存，直播、语聊、社交房间事件经可靠 Outbox 投递到 IM。UIKit 仍只负责展示和点击回调，不承担扣币、支付或订单状态。完整端到端契约见 [Commerce SDK 契约](https://github.com/pte-live/pte-live-im-commerce/blob/main/docs/SDK_CONTRACT.md)。
+IM Core 负责礼物、红包、订单**消息卡片**的加密发送、历史、同步、引用、撤回、删除和实时投递；卡片只引用业务 ID，不携带钱包或支付凭据。`pte-live-im-commerce` 仍是礼物、红包、订单、库存与资金状态的真相源，直播、语聊、社交房间的业务事件经可靠 Outbox 投递到 IM。当前代码由客户端在 Commerce 操作成功后调用 Core 发送引用卡片，尚未提供 Commerce 以可信内部身份直接写入聊天消息的服务端桥接。UIKit 只负责展示和点击回调，不承担扣币、支付或订单状态。完整端到端契约见 [Commerce SDK 契约](https://github.com/pte-live/pte-live-im-commerce/blob/main/docs/SDK_CONTRACT.md)。
 
 ### iOS
 
@@ -293,7 +293,7 @@ iOS 将文本/表情/语音与富消息卡片分离：`PteIMUIMessageCell` 渲�
 
 Android 使用 `PteIMUITheme(light = …, dark = …)` 并传给 `PteIMUIKit.createChatView`、`createConversationListView` 或 `createContactListView`；HarmonyOS 通过三个组件的 `theme` 属性传入；UTS 通过 `<PteIMUIChat>`、`<PteIMUIConversationList>`、`<PteIMUIContactList>` 的 `:theme` 属性传入。三端均遵循同一套色板字段和输入回调：`onActionRequested` / `action` 负责更多面板，`onVoiceRecordingChanged` / `voice-recording` 负责按住说话状态。
 
-三端聊天页与 iOS 一致提供标题副文案（在线状态/群成员数）、消息状态时间、文本/表情/语音与图片、视频、定位、红包、礼物、订单、文件富消息卡片。撤回、删除、引用、表情反应均是 IM Core 能力：撤回由发送者在服务端时限内全局生效；删除只隐藏当前账户；引用以服务端 `quoteMessageId` 和快照保证跨分页可展示；表情反应由 IM 持久化并实时同步。`reactionProvider` / `onReactionChanged` 只保留为兼容扩展，不再要求业务服务保存反应状态。
+三端聊天页与 iOS 一致提供标题副文案（在线状态/群成员数）、消息状态时间、文本/表情/语音与图片、视频、定位、红包、礼物、订单、文件富消息卡片。撤回、删除、引用、表情反应的服务端语义均属于 IM Core：撤回由发送者在服务端时限内全局生效；删除只隐藏当前账户；引用以服务端 `quoteMessageId` 和快照保证跨分页可展示；表情反应由 IM 持久化并实时同步。Android 与 iOS 已将四项能力接入本地缓存和 WSS 事件；HarmonyOS、UTS、Browser 的具体可用性以[消息生命周期](docs/message-lifecycle.md)的矩阵为准。`reactionProvider` / `onReactionChanged` 只保留为兼容扩展，不再要求业务服务保存反应状态。
 
 Android 的图片和视频卡片点击后进入 UIKit 原生预览：`PteIMUIMediaPreviewActivity` 是 `open` 页面，图片点击关闭、长按保存相册；视频支持暂停/播放、关闭和底部进度条。文件进入 `PteIMUIFilePreviewActivity`（同为 `open` 页面），点击交给系统预览、长按保存到系统文件。定位卡片使用地图缩略图，不叠加定位图标；点击后按高德、百度、腾讯、Google、系统地图的顺序检测并携带目的地唤起外置地图。二级导航的返回与更多均为 44 dp 点击区并使用满幅图标。长按菜单的撤回调用 IM 服务端全局撤回，删除调用 IM 服务端仅删除当前用户可见记录；两者不再以 `deleteLocalMessage` 代替。
 

@@ -65,6 +65,8 @@ client.removeListener(listener)
 - WSS：`login` / `send_message`（仅 `e2ee`，无明文 `content`）/ `ack` / UserSig 过期事件
 - E2EE：设备注册、收件人密钥包装、审计密钥；设备私钥存 IndexedDB（AES-GCM 包装），隐私模式失败时会话仍可用但不持久化身份
 
+当前 Browser Core 的消息生命周期范围：已提供 `recallMessage(messageId)`、`deleteMessage(messageId)` 两个 REST 调用，并将 WSS `message_event` 原样交给 `onMessageEvent`；它不会持久化消息状态。引用发送、表情反应 REST、反应聚合和状态自动应用尚未实现，宿主不能把回调透传误当成跨设备一致的 UI 状态。完整逐端矩阵见[消息生命周期](../../docs/message-lifecycle.md)。
+
 不要把 UserSig 签名密钥、COS 密钥或 refresh token 放进本包。
 
 ## 直播房间事件

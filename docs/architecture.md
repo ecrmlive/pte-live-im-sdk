@@ -4,6 +4,14 @@
 
 `PteIMUIKit` receives an already-logged-in Core client. It contains only IM-generic surfaces: conversation lists, contact/group lists, one-to-one/group chat, composer, media preview and reusable notice presentation. It tracks Core message and appearance callbacks, and asks the host to supply permission-sensitive media, location and business workflows. It never generates a UserSig, stores credentials, or owns a business route.
 
+## 消息与 Commerce 边界
+
+消息的创建、E2EE 信封、历史、同步、引用、撤回、单账户删除、表情反应和 `message_event` 实时投递都由 IM Core 与 `api-im` 负责。UIKit 对这些状态只做展示和可选通知；宿主回调不能替代协议状态持久化。
+
+礼物、红包和订单有两层边界：**聊天卡片是 IM 消息**，由 Core 发送、加密、同步和展示；卡片中只引用业务 ID。**资金、库存、领取、支付、履约和订单状态是 Commerce 业务**，由 `pte-live-im-commerce` 保存和处理。当前实现由客户端在 Commerce 成功后显式调用 Core 的 `sendGift`、`sendRedPacket` 或 `sendOrder` 发送引用卡片；Commerce Outbox 发送的是房间业务事件，不会直接创建聊天消息。未来若增加服务端可信写消息桥接，必须以独立内部鉴权、幂等键和审计契约实现，不能由客户端伪造业务状态。
+
+引用、撤回、删除与反应的精确权限、REST/WSS 字段和逐端状态见[消息生命周期](message-lifecycle.md)。
+
 `PteIMUIDemo` is not a UI kit alias. It is a separate application-level example: business registration/login → backend response (`userId`, short-lived `userSig`, `expireAt`, host-owned refresh session) → PteIMSDK login → embedded PteIMUIKit conversation/contact/chat screens. The Demo maps that refresh session into `userSigProvider`; Core, rather than a page timer, owns UserSig renewal. Login, registration, Demo navigation, TabBar, profile, settings, language choice, registered-demo-user list, add-friend/group workflow, demo fixtures and their image assets belong exclusively to this layer.
 
 | Platform | PteIMSDK | PteIMUIKit | PteIMUIDemo |

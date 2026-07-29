@@ -9,13 +9,13 @@ PteIMSDK 是 Core SDK，PteIMUIKit 提供会话、联系人和聊天界面，Pte
 | 最低版本 | iOS 16.0 |
 | 语言 | Swift 6 |
 | UI | Swift + UIKit；不使用 SwiftUI |
-| 架构 | MVVM / Clean Architecture |
+| 当前模块结构 | Core / UIKit / Demo 分层；未引入 Factory 或 Swinject |
 | 网络 | URLSession |
 | 长连接 | URLSessionWebSocketTask |
 | 本地存储 | Core Data |
 | 并发 | async/await、Actor |
-| 依赖注入 | Factory |
-| 日志与监控 | OSLog + 崩溃采集 |
+| 依赖注入 | 当前由宿主装配；未引入 DI 框架 |
+| 日志与监控 | OSLog；崩溃采集由宿主接入 |
 | 推送 | 友盟+ U-Push |
 
 `PteIMSDK` 只放 Core、Core Data、E2EE、网络与同步能力；`PteIMUIKit` 只放 UIKit 页面及可配置视觉组件。Core Data 缓存按账号隔离，消息正文、Outbox 内容和同步游标保持 AES-256-GCM 加密，密钥位于 Keychain。
@@ -26,17 +26,17 @@ PteIMSDK 是 Core SDK，PteIMUIKit 提供会话、联系人和聊天界面，Pte
 | --- | --- |
 | 最低版本 | Android 12（API 31） |
 | 语言 | Kotlin |
-| UI | Jetpack Compose，兼容 View 宿主 |
-| 架构 | MVVM + Clean Architecture |
-| 网络 | OkHttp + Retrofit |
-| 长连接 | OkHttp WebSocket |
+| UI | 当前 UIKit 为 Android View；未包含 Compose 页面 |
+| 当前模块结构 | Core / UIKit / Demo 分层 |
+| 网络 | `HttpURLConnection` |
+| 长连接 | SDK 内置 `WssTransport`（TLS Socket） |
 | 本地存储 | Room |
 | 并发 | Coroutines、Flow |
-| 依赖注入 | Hilt |
-| 日志与监控 | Timber + 崩溃采集 |
+| 依赖注入 | 当前未引入 Hilt |
+| 日志与监控 | 当前未引入 Timber；崩溃采集由宿主接入 |
 | 推送 | 友盟+ U-Push |
 
-Room 数据库按账号隔离，消息、会话、Outbox 和同步游标支持分页、索引、去重及持久化重试。加密密钥由 Android Keystore 管理。
+Room 数据库按账号隔离，消息、会话、Outbox 和同步游标支持分页、索引、去重及持久化重试。加密密钥由 Android Keystore 管理。Android 与 iOS 已将引用、撤回、单账户删除和表情反应写入缓存并消费实时事件；其他端的精确状态见[消息生命周期](message-lifecycle.md)。
 
 ## OpenHarmony
 
