@@ -43,12 +43,17 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   private var outboxRetryFuture: ScheduledFuture<*>? = null
   private var userSigRefreshFuture: ScheduledFuture<*>? = null
   @Volatile private var userSigRefreshInFlight = false
+  /** Wall-clock of last UserSig network refresh start — caps 401 / WS storms. */
+  @Volatile private var lastUserSigRefreshAtMs = 0L
   private val listeners = linkedSetOf<PteIMListener>()
   @Volatile private var appearance = PteIMAppearance(initialConfig.base.themeMode, initialConfig.base.language)
   /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
   val commerce: PteIMCommerce by lazy { PteIMCommerce(this) }
 
   companion object {
+    /** Min gap between UserSig network refreshes (401 / WS / timer force). */
+    private const val USER_SIG_REFRESH_COOLDOWN_MS = 120_000L
+
     fun configure(context: Context, baseConfig: PteIMBaseConfig): PteIMSDKBootstrap = PteIMSDKBootstrap(context.applicationContext, baseConfig)
     internal fun create(context: Context, config: PteIMSessionConfig): PteIMSDK {
       config.validate()
@@ -84,10 +89,17 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   fun refreshUserSig(force: Boolean = false): Boolean {
     val provider = config.login.userSigProvider ?: return false
     if (stopRequested) return false
-    val now = System.currentTimeMillis() / 1000
+    val nowMs = System.currentTimeMillis()
+    val now = nowMs / 1000
     if (!force && config.login.userSigExpireAt > now + 300) { scheduleUserSigRefresh(); return true }
     if (userSigRefreshInFlight) return false
+    // Cap force refreshes from HTTP 401 / user_sig_* WS so host chat-token cannot spin.
+    if (nowMs - lastUserSigRefreshAtMs < USER_SIG_REFRESH_COOLDOWN_MS) {
+      scheduleUserSigRefresh()
+      return false
+    }
     userSigRefreshInFlight = true
+    lastUserSigRefreshAtMs = nowMs
     provider.refreshUserSig { result ->
       result.onSuccess { renewed ->
         if (renewed.userSig.isBlank() || renewed.expireAt <= System.currentTimeMillis() / 1000) {
@@ -474,7 +486,16 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
     userSigRefreshFuture = null
     val expiry = config.login.userSigExpireAt
     if (stopRequested || config.login.userSigProvider == null || expiry <= 0) return
-    val delaySeconds = (expiry - System.currentTimeMillis() / 1000 - 300).coerceAtLeast(1)
+    val now = System.currentTimeMillis() / 1000
+    // Refresh ~5 minutes before expiry. When already past / in warning window,
+    // back off several minutes — never 30–60s (that matched host 55s cache and stormed).
+    val delaySeconds = (expiry - now - 300).let { raw ->
+      when {
+        raw >= 300 -> raw
+        expiry > now -> 120L
+        else -> 300L
+      }
+    }
     userSigRefreshFuture = reconnectExecutor.schedule({ refreshUserSig(force = true) }, delaySeconds, TimeUnit.SECONDS)
   }
 
