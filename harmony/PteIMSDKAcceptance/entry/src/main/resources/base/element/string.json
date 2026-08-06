@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "app_name", "value": "PteIMSDK Acceptance" },
+    { "name": "module_desc", "value": "PteIMSDK acceptance module" },
+    { "name": "EntryAbility_desc", "value": "PteIMSDK automated acceptance" },
+    { "name": "EntryAbility_label", "value": "PteIMSDK Acceptance" }
+  ]
+}

@@ -1,6 +1,6 @@
 # `@pte-live/pte-im-sdk`
 
-独立 Browser Core（路径 `web/pte-im-sdk`）：聊一聊、Commerce 扩展、房间 SceneClient（`show` / `voice` / `shop` / `sports`）。  
+独立 Web SDK（路径 `web/pte-im-sdk`）：聊一聊、Commerce 扩展、房间 SceneClient（`show` / `voice` / `shop` / `sports`）。
 **不是** `PteIMUIKit`。
 
 权威协议：服务端 [`LIVE_EVENT_PROTOCOL.md`](https://github.com/pte-live/pte-live-im/blob/main/docs/LIVE_EVENT_PROTOCOL.md)；跨端契约 [`docs/scene-client-contract.md`](../../docs/scene-client-contract.md)。

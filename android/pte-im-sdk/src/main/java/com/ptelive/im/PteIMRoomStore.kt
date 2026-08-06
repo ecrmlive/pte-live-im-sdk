@@ -102,7 +102,7 @@ internal class PteIMRoomStore(context: Context, storeKey: String) {
       delete("messages", "client_msg_id = ?", arrayOf(row[0]!!))
       return@transactionResult null
     }
-    val payload = JSONObject(row[1])
+    val payload = JSONObject(row[1] ?: error("stored message payload is missing"))
     when (eventType) {
       "chat.message.recalled" -> {
         payload.put("status", event.optInt("status", 2))
@@ -200,6 +200,9 @@ internal class PteIMRoomStore(context: Context, storeKey: String) {
   fun nextOutboxRetryAt(): Long? = db.query("SELECT MIN(next_retry_at) FROM outbox").use { cursor ->
     if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
   }
+
+  /** Releases the Room database when this SDK instance will not be started again. */
+  fun close() = database.close()
 
   private fun insertMessage(db: SupportSQLiteDatabase, message: PteIMMessage) {
     db.insert("messages", PTE_IM_CONFLICT_REPLACE, ContentValues().apply {

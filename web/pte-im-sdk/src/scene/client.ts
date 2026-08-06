@@ -54,6 +54,8 @@ export class PteIMSceneClient {
   private reconnectAttempt = 0
   private listeners = new Set<PteIMSceneListener>()
   private tracker = new RoomSeqTracker(0)
+  /** roomSeq is scoped to a room; never carry a watermark into another room. */
+  private trackerRoomKey: string | null = null
   private active: { scene: PteIMSceneKind; roomId: string; extend?: string; catchUp?: LiveCatchUpSource } | null = null
   private pendingEnter: {
     requestId: string
@@ -103,9 +105,15 @@ export class PteIMSceneClient {
 
   async enter(options: PteIMSceneEnterOptions): Promise<PteIMSceneEntered> {
     assertSceneRoomId(options.scene, options.roomId)
+    const roomId = String(options.roomId).trim()
+    const roomKey = `${options.scene}:${roomId}`
+    if (this.trackerRoomKey !== roomKey) {
+      this.tracker = new RoomSeqTracker(0)
+      this.trackerRoomKey = roomKey
+    }
     this.active = {
       scene: options.scene,
-      roomId: String(options.roomId).trim(),
+      roomId,
       extend: options.extend,
       catchUp: options.catchUp,
     }
@@ -210,7 +218,10 @@ export class PteIMSceneClient {
       data = dataRaw as Record<string, unknown>
     }
 
-    if (data?.type === 'scene.ack' || stringOf(frame.msg).includes('scene')) {
+    // `scene.*` is also the social-room event namespace. Treat only an
+    // explicit acknowledgement as an enter response, otherwise live events
+    // such as `scene.user.enter` are silently swallowed.
+    if (data?.type === 'scene.ack' || stringOf(frame.msg) === 'scene.ack') {
       const ok = data?.ok === true || data?.ok === 'true'
       const requestId = stringOf(data?.request_id ?? data?.requestId)
       const scene = (stringOf(data?.scene) || this.active?.scene || 'show') as PteIMSceneKind

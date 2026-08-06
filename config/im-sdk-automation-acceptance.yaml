@@ -1,0 +1,117 @@
+version: 1
+name: im-sdk-automation-acceptance
+
+# 该文件定义 SDK 自动化验收，不包含 PteIMUIDemo 或任何业务页面。
+scope:
+  include:
+    - web
+    - android
+    - ios
+    - harmony
+    - uniapp_x
+  exclude:
+    - demo_build
+    - demo_ui_flow
+    - manual_captcha
+
+environment:
+  api_domain_env: PTE_IM_TEST_API_DOMAIN
+  ws_domain_env: PTE_IM_TEST_WS_DOMAIN
+  commerce_domain_env: PTE_IM_TEST_COMMERCE_DOMAIN
+  # UserSig is obtained from the existing business-auth path and injected only
+  # through this ignored local/CI credential file. No SDK-specific account API
+  # or gateway route is part of acceptance.
+  credential_file_env: PTE_IM_TEST_CREDENTIALS_FILE
+
+normal_test_users:
+  source: precreated_isolated_users
+  app_ids:
+    chat_commerce_social: 10001
+    sports: 20001
+  user_ids:
+    sender: 91000001
+    receiver: 91000002
+  credentials: short_lived_usersig_from_existing_business_auth
+  prohibited_storage:
+    - repository
+    - source_code
+    - test_report
+  prohibited_paths:
+    - sdk_specific_account_api
+    - sdk_specific_gateway_route
+
+actors:
+  chat_sender: sdk_e2e_sender
+  chat_receiver: sdk_e2e_receiver
+  scene_viewer: sdk_e2e_viewer
+  sports_viewer: sdk_e2e_sports_viewer
+  lifecycle: create_before_suite_cleanup_after_suite
+
+fixtures:
+  commerce:
+    gift: sdk_e2e_gift
+    backpack_item: sdk_e2e_backpack
+    wallet_balance_minor: 10000
+  rooms:
+    show: sdk-e2e-show
+    voice: sdk-e2e-voice
+    shop: sdk-e2e-shop
+    sports: sports-live-910001
+  text_encoding: ascii_only
+
+cases:
+  chat:
+    - register_e2ee_device
+    - open_single_conversation
+    - send_and_receive_e2ee_text
+    - send_ack_and_history_sync
+    - follow_and_list_friend
+  extension:
+    - quote_recall_delete_reaction_contract
+    - user_sig_refresh_contract
+    - media_upload_contract
+  commerce:
+    - capabilities_gifts_wallet_backpack
+    - send_gift_and_receive_business_card
+    - use_backpack
+    - create_and_claim_red_packet
+    - order_history
+  social:
+    - enter_show_and_receive_scene_event
+    - enter_voice_and_receive_scene_event
+  sports:
+    - issue_room_bound_usersig
+    - enter_sports_room
+    - receive_sports_chat_event
+    - reject_mismatched_sports_room
+
+platforms:
+  web:
+    unit_command: "npm test"
+    integration_runner: web/pte-im-sdk/test
+  android:
+    unit_command: "./gradlew :pte-im-sdk:testDebugUnitTest"
+    integration_runner: android/pte-im-sdk/src/androidTest
+    device_requirement: android_api_31_or_newer
+  ios:
+    unit_command: "xcodebuild test -scheme PteIMSDKTests -destination platform=iOS Simulator,name=iPhone"
+    integration_runner: ios/PteIMSDK/Tests
+    device_requirement: ios_16_or_newer_simulator
+  harmony:
+    unit_command: "hvigorw --mode module test"
+    integration_runner: harmony/PteIMSDK/src/ohosTest
+    device_requirement: openharmony_api_23_device_or_emulator
+  uniapp_x:
+    unit_command: "hbuilderx_uts_test"
+    integration_runner: uni_modules/pte-im-sdk/test
+    device_requirement: h5_headless_browser_and_wechat_miniprogram_runner
+
+acceptance:
+  require_all_platforms: true
+  require_all_cases: true
+  allow_skipped_tests: false
+  allow_demo_as_evidence: false
+  require_test_server: true
+  require_isolated_accounts: true
+  require_cleanup: true
+  pass_condition: "all platform unit and integration cases pass with zero errors"

@@ -1,4 +1,4 @@
-/** @pte-live/pte-im-sdk — Browser Core: chat + commerce + scene. */
+/** @pte-live/pte-im-sdk — Web SDK: chat + commerce + scene. */
 
 export * from './chat/index.ts'
 export * from './commerce/index.ts'

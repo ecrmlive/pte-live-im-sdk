@@ -148,7 +148,92 @@ public struct PteIMContactPage: Codable, Sendable, Equatable { public let list: 
 public struct PteIMGroupPage: Codable, Sendable { public let list: [PteIMRemoteConversation]; public let nextCursor: String; public let hasMore: Bool }
 public struct PteIMMember: Codable, Sendable { public let userId: Int64; public let role: Int; public let alias: String; public let muteUntil: Int64; public let joinedAt: Int64; enum CodingKeys: String, CodingKey { case role, alias; case userId = "user_id"; case muteUntil = "mute_until"; case joinedAt = "joined_at" } }
 public struct PteIMMemberPage: Codable, Sendable { public let list: [PteIMMember]; public let nextCursor: String; public let hasMore: Bool }
-public struct PteIMStateChange: Codable, Sendable { public let id: String; public let entityType: String; public let entityId: String; public let operation: String; public let payload: [String: String]?; public let createdAt: Int64 }
+public struct PteIMStateChange: Codable, Sendable {
+  public let id: String
+  public let entityType: String
+  public let entityId: String
+  public let operation: String
+  /// State-sync payloads originate from several IM entities and may contain
+  /// numeric, boolean, or nested JSON values. They are normalized to strings
+  /// so callers keep the original SDK surface without decode failures.
+  public let payload: [String: String]?
+  public let createdAt: Int64
+
+  enum CodingKeys: String, CodingKey { case id, entityType, entityId, operation, payload, createdAt }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(String.self, forKey: .id)
+    entityType = try values.decode(String.self, forKey: .entityType)
+    entityId = try values.decode(String.self, forKey: .entityId)
+    operation = try values.decode(String.self, forKey: .operation)
+    createdAt = try values.decode(Int64.self, forKey: .createdAt)
+    payload = try values.decodeIfPresent([String: PteIMStatePayloadValue].self, forKey: .payload)?.reduce(into: [:]) { result, item in
+      result[item.key] = item.value.stringValue
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(id, forKey: .id)
+    try values.encode(entityType, forKey: .entityType)
+    try values.encode(entityId, forKey: .entityId)
+    try values.encode(operation, forKey: .operation)
+    try values.encodeIfPresent(payload, forKey: .payload)
+    try values.encode(createdAt, forKey: .createdAt)
+  }
+}
+
+private indirect enum PteIMStatePayloadValue: Codable {
+  case string(String), number(Double), bool(Bool), object([String: PteIMStatePayloadValue]), array([PteIMStatePayloadValue]), null
+
+  init(from decoder: Decoder) throws {
+    let single = try decoder.singleValueContainer()
+    if single.decodeNil() { self = .null }
+    else if let value = try? single.decode(String.self) { self = .string(value) }
+    else if let value = try? single.decode(Bool.self) { self = .bool(value) }
+    else if let value = try? single.decode(Double.self) { self = .number(value) }
+    else if let value = try? decoder.container(keyedBy: DynamicCodingKey.self) {
+      var object: [String: PteIMStatePayloadValue] = [:]
+      for key in value.allKeys { object[key.stringValue] = try value.decode(PteIMStatePayloadValue.self, forKey: key) }
+      self = .object(object)
+    } else if var array = try? decoder.unkeyedContainer() {
+      var values: [PteIMStatePayloadValue] = []
+      while !array.isAtEnd { values.append(try array.decode(PteIMStatePayloadValue.self)) }
+      self = .array(values)
+    } else { throw PteIMError.invalidResponse }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    switch self {
+    case .string(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+    case .number(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+    case .bool(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+    case .null: var container = encoder.singleValueContainer(); try container.encodeNil()
+    case .object(let value): var container = encoder.container(keyedBy: DynamicCodingKey.self); for (key, item) in value { try container.encode(item, forKey: DynamicCodingKey(key)) }
+    case .array(let value): var container = encoder.unkeyedContainer(); for item in value { try container.encode(item) }
+    }
+  }
+
+  var stringValue: String {
+    if case .string(let value) = self { return value }
+    if case .number(let value) = self {
+      return value.rounded() == value ? String(Int64(value)) : String(value)
+    }
+    if case .bool(let value) = self { return String(value) }
+    if case .null = self { return "" }
+    let data = (try? JSONEncoder().encode(self)) ?? Data()
+    return String(data: data, encoding: .utf8) ?? ""
+  }
+}
+
+private struct DynamicCodingKey: CodingKey {
+  let stringValue: String
+  init(_ stringValue: String) { self.stringValue = stringValue }
+  init?(stringValue: String) { self.stringValue = stringValue }
+  let intValue: Int? = nil
+  init?(intValue: Int) { return nil }
+}
 public struct PteIMStateChangePage: Codable, Sendable { public let changes: [PteIMStateChange]; public let nextCursor: String; public let hasMore: Bool }
 public struct PteIMDefaultSetting: Codable, Sendable { public let chatPrerequisite: String; public let notificationEnabled: Bool; public let groupJoinMode: String }
 

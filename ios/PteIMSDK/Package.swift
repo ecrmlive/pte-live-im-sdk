@@ -5,5 +5,8 @@ let package = Package(
   name: "PteIMSDK",
   platforms: [.iOS(.v16)],
   products: [.library(name: "PteIMSDK", targets: ["PteIMSDK"])],
-  targets: [.target(name: "PteIMSDK", path: "Sources/PteIMSDK")]
+  targets: [
+    .target(name: "PteIMSDK", path: "Sources/PteIMSDK"),
+    .testTarget(name: "PteIMSDKTests", dependencies: ["PteIMSDK"], path: "Tests/PteIMSDKTests")
+  ]
 )

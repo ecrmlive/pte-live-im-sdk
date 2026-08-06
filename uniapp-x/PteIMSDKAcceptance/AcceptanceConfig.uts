@@ -1,0 +1,11 @@
+import { PteIMBaseConfig } from '../../uni_modules/pte-im-sdk/utssdk/interface.uts'
+
+/** Public test-server endpoints only. UserSig values are issued at runtime and never persisted. */
+export const PteIMAcceptanceBaseConfig: PteIMBaseConfig = {
+  apiDomain: 'https://api-im.qxkejiwl.top',
+  imDomain: 'wss://wss.qxkejiwl.top/ws',
+  cosDomain: 'https://cos.qxkejiwl.top',
+  commerceDomain: 'https://api-im-commerce.qxkejiwl.top',
+  themeMode: 'system',
+  language: 'en-US',
+}

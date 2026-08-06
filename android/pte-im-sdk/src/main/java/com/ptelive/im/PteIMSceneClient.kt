@@ -65,7 +65,8 @@ class PteIMSceneClient internal constructor(
   private val executor = Executors.newSingleThreadExecutor()
   private val reconnectExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
   private val listeners = linkedSetOf<PteIMSceneListener>()
-  private val tracker = RoomSeqTracker(0)
+  private var tracker = RoomSeqTracker(0)
+  private var trackerRoomKey: String? = null
   private var transport: WssTransport? = null
   @Volatile private var stopped = true
   @Volatile private var handshaken = false
@@ -129,11 +130,17 @@ class PteIMSceneClient internal constructor(
       try {
         require(userId.isNotBlank() && userSig.isNotBlank()) { "请先调用 connect" }
         assertSceneRoomId(scene, roomId)
-        active = ActiveRoom(scene, roomId.trim(), extend, catchUp)
+        val normalizedRoomId = roomId.trim()
+        val roomKey = "${sceneWire(scene)}:$normalizedRoomId"
+        if (trackerRoomKey != roomKey) {
+          tracker = RoomSeqTracker(0)
+          trackerRoomKey = roomKey
+        }
+        active = ActiveRoom(scene, normalizedRoomId, extend, catchUp)
         ensureConnected { connectResult ->
           connectResult.onFailure { callback(Result.failure(it)) }.onSuccess {
             if (catchUp != null) {
-              runCatchUp(catchUp) { eventType, payload -> emitEvent(eventType, payload) }) { catchUpResult ->
+              runCatchUp(catchUp, { eventType, payload -> emitEvent(eventType, payload) }) { catchUpResult ->
                 catchUpResult.onFailure { callback(Result.failure(it)) }.onSuccess { sendEnter(enterTimeoutMs, callback) }
               }
             } else {
@@ -273,7 +280,7 @@ class PteIMSceneClient internal constructor(
     }
 
     val msg = frame.optString("msg")
-    if (data?.optString("type") == "scene.ack" || msg.contains("scene")) {
+    if (data?.optString("type") == "scene.ack" || msg == "scene.ack") {
       val ok = data?.optBoolean("ok") == true || data?.optString("ok") == "true"
       val requestId = stringOf(data?.opt("request_id") ?: data?.opt("requestId"))
       val scene = sceneKindOf(stringOf(data?.opt("scene")).ifBlank { active?.scene?.let(::sceneWire) ?: "show" })
@@ -364,7 +371,7 @@ class PteIMSceneClient internal constructor(
         }.onSuccess {
           val current = active ?: return@execute
           if (current.catchUp != null) {
-            runCatchUp(current.catchUp) { eventType, payload -> emitEvent(eventType, payload) }) {
+            runCatchUp(current.catchUp, { eventType, payload -> emitEvent(eventType, payload) }) {
               it.onFailure { error ->
                 emitError(error.message ?: "Scene 重连失败")
                 scheduleReconnect()

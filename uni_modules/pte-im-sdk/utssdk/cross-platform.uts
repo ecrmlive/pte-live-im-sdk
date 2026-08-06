@@ -428,7 +428,9 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
 
   private connect(): void {
     if (this.stopped || this.socket != null) return
-    const socket = uni.connectSocket({ url: this.webSocketURL() })
+    // H5 promisifies task APIs when no completion callback is supplied. Passing
+    // explicit callbacks preserves the SocketTask required for onOpen/onMessage.
+    const socket = uni.connectSocket({ url: this.webSocketURL(), success: () => {}, fail: (error: any) => this.emitError(error) })
     this.socket = socket
     socket.onOpen(() => {
       if (this.socket != socket || this.stopped) return
@@ -619,7 +621,15 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
 
   private materializeMessage(value: any, callback: (message: PteIMIncomingMessage) => void): void {
     if (value.e2ee == null) { callback(value as PteIMIncomingMessage); return }
-    this.e2ee.decrypt(value.e2ee).then((content) => { value.content = content; callback(value as PteIMIncomingMessage) }).catch((error) => this.emitError(error))
+    this.e2ee.canDecrypt(value.e2ee).then((canDecrypt) => {
+      if (!canDecrypt) {
+        value.type = 'text'
+        value.content = { text: 'E2EE message unavailable on this device', decryptFailed: true }
+        callback(value as PteIMIncomingMessage)
+        return
+      }
+      this.e2ee.decrypt(value.e2ee).then((content) => { value.content = content; callback(value as PteIMIncomingMessage) }).catch((error) => this.emitError(error))
+    }).catch((error) => this.emitError(error))
   }
 
   private removeEncrypting(clientMsgId: string): void {

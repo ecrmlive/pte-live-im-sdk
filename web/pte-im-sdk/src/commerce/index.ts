@@ -1,5 +1,5 @@
 /**
- * Browser IM Commerce extension — same REST surface as Android/iOS/Harmony/UTS.
+ * Web SDK Commerce extension — same REST surface as Android/iOS/Harmony/UTS.
  * Shares chat UserSig; owns no WebSocket.
  */
 

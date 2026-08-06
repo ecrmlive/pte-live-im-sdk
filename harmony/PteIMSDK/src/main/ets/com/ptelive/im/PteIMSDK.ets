@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
 import util from '@ohos.util'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageReaction, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage, PteIMUserSigRefreshResult } from './IMModels'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageReaction, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireContent, PteIMWireMessage, PteIMUserSigRefreshResult } from './IMModels'
 import { PteIMRdbStore, PteIMStoredRemoteConversation } from './PteIMRdbStore'
 import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
@@ -11,7 +11,7 @@ import { PteIMSceneClient, PteIMSceneCredentials } from './PteIMSceneClient'
 
 type WireObject = Record<string, Object>
 interface PteIMSendMessagePayload { clientMsgId: string; conversationId: string; type: PteIMMessageType; e2ee: WireObject; quoteMessageId: string }
-interface PteIMDecryptedMessage extends WireObject { clientMsgId: Object; serverMsgId: Object; serverSeq: Object; conversationId: Object; senderId: Object; type: Object; createdAt: Object; content: WireObject }
+interface PteIMDecryptedMessage extends WireObject { clientMsgId: Object; serverMsgId: Object; serverSeq: Object; conversationId: Object; senderId: Object; type: Object; createdAt: Object; content: Object }
 
 interface PteIMHttpRequestOptions extends http.HttpRequestOptions {}
 
@@ -119,6 +119,9 @@ export class PteIMSDK {
     if (wasConnected) this.listeners.forEach((listener: PteIMListener) => listener.onConnectionChanged(false))
   }
 
+  /** True once E2EE registration and the chat WebSocket handshake complete. */
+  isConnected(): boolean { return this.connected && !this.stopped }
+
   /** Applies a Provider result; UI code never submits a UserSig directly. */
   private applyRefreshedUserSig(userSig: string, expireAt: number): void {
     if (userSig.length === 0) throw new Error('userSig is required')
@@ -162,6 +165,10 @@ export class PteIMSDK {
 
   /** Creates an independent scene WSS client (room-scoped UserSig, separate from chat). */
   createSceneClient(credentials: PteIMSceneCredentials): PteIMSceneClient {
+    // Native OpenHarmony WebSocket may send a non-browser Origin by default.
+    // Give scene sockets the same configured business origin as chat so a
+    // server's browser-origin allowlist can still protect browser clients.
+    if (credentials.origin.length === 0) credentials.origin = this.webSocketOrigin()
     return new PteIMSceneClient(credentials)
   }
 
@@ -418,7 +425,9 @@ export class PteIMSDK {
       const options: PteIMHttpRequestOptions = {
         method: http.RequestMethod.PUT,
         header: requestHeaders,
-        extraData: bytes.buffer
+        extraData: bytes.buffer,
+        connectTimeout: 10000,
+        readTimeout: 30000,
       }
       const response = await request.request(uploadUrl, options)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`COS upload failed with HTTP ${response.responseCode}`)
@@ -463,7 +472,10 @@ export class PteIMSDK {
     this.socket.on('error', (error: Error) => { this.emitError(error); this.onClose() })
     // OpenHarmony connect success callback often passes `undefined` (not null).
     // Treat only truthy values as failure — `undefined !== null` used to crash emitError.
-    this.socket.connect(this.webSocketURL(), (error: Error) => {
+    const headers: Record<string, string> = {}
+    const origin = this.webSocketOrigin()
+    if (origin.length > 0) headers['Origin'] = origin
+    this.socket.connect(this.webSocketURL(), { header: headers }, (error: Error) => {
       if (error) {
         this.emitError(error)
         this.onClose()
@@ -476,6 +488,12 @@ export class PteIMSDK {
     const separator = this.base.imDomain.indexOf('?') >= 0 ? '&' : '?'
     return this.base.imDomain + separator + 'sdkAppID=' + encodeURIComponent(this.config.sdkAppId.toString()) +
       '&identifier=' + encodeURIComponent(this.config.userId) + '&userSig=' + encodeURIComponent(this.config.userSig)
+  }
+
+  /** Returns an RFC 6454 origin derived from the configured API base URL. */
+  private webSocketOrigin(): string {
+    const match = this.base.apiDomain.match(/^(https?:\/\/[^/]+)/i)
+    return match === null ? '' : match[1]
   }
 
   private async onOpen(): Promise<void> {
@@ -581,7 +599,8 @@ export class PteIMSDK {
     envelope.userId = this.config.userId
     envelope.userSig = this.config.userSig
     envelope.payload = payload
-    this.socket.send(JSON.stringify(envelope), (error: Error) => { if (error !== null) this.emitError(error) })
+    // OpenHarmony reports a successful send with undefined, not null.
+    this.socket.send(JSON.stringify(envelope), (error: Error) => { if (error) this.emitError(error) })
   }
 
   private async flushOutbox(): Promise<void> {
@@ -638,7 +657,7 @@ export class PteIMSDK {
       const responseKey = await PteIMResponseCrypto.createRequestKey()
       const requestHeaders = this.apiRequestHeaders()
       requestHeaders['X-Pte-Response-Public-Key'] = responseKey.publicKey
-      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body), connectTimeout: 10000, readTimeout: 10000 }
       const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
       if (response.responseCode === 401) void this.refreshUserSig(true)
       if (response.responseCode < 200 || response.responseCode >= 300) {
@@ -656,7 +675,7 @@ export class PteIMSDK {
     const request = http.createHttp()
     try {
       const requestHeaders = this.apiRequestHeaders()
-      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body) }
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: requestHeaders, extraData: JSON.stringify(body), connectTimeout: 10000, readTimeout: 10000 }
       const response = await request.request(`${this.base.apiDomain.replace(/\/$/, '')}${path}`, options)
       if (response.responseCode === 401) void this.refreshUserSig(true)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`IM API failed with HTTP ${response.responseCode}`)
@@ -670,7 +689,7 @@ export class PteIMSDK {
     if (this.base.commerceDomain.length === 0) throw new Error('commerceDomain is not configured')
     const request = http.createHttp()
     try {
-      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: this.apiRequestHeaders(), extraData: JSON.stringify(body) }
+      const options: PteIMHttpRequestOptions = { method: http.RequestMethod.POST, header: this.apiRequestHeaders(), extraData: JSON.stringify(body), connectTimeout: 10000, readTimeout: 10000 }
       const response = await request.request(`${this.base.commerceDomain.replace(/\/$/, '')}${path}`, options)
       if (response.responseCode < 200 || response.responseCode >= 300) throw new Error(`Commerce failed with HTTP ${response.responseCode}`)
       const root = JSON.parse(response.result.toString()) as WireObject
@@ -756,6 +775,16 @@ export class PteIMSDK {
   private async messageFromRemoteWire(value: WireObject): Promise<PteIMMessage> {
     const e2ee = value['e2ee'] as WireObject
     if (e2ee === undefined || e2ee === null) return this.messageFromWire(value)
+    if (!(await this.e2ee.canDecrypt(e2ee))) {
+      const unavailableContent = new PteIMWireContent()
+      unavailableContent.text = 'E2EE message unavailable on this device'
+      const unavailable: PteIMDecryptedMessage = {
+        clientMsgId: value['clientMsgId'], serverMsgId: value['serverMsgId'], serverSeq: value['serverSeq'],
+        conversationId: value['conversationId'], senderId: value['senderId'], type: 'text', createdAt: value['createdAt'],
+        content: unavailableContent,
+      }
+      return this.messageFromWire(unavailable)
+    }
     const content = await this.e2ee.decrypt(e2ee)
     const decrypted: PteIMDecryptedMessage = {
       clientMsgId: value['clientMsgId'], serverMsgId: value['serverMsgId'], serverSeq: value['serverSeq'],
@@ -789,11 +818,15 @@ export class PteIMSDKBootstrap {
   private baseConfig: PteIMBaseConfig
   constructor(context: Context, baseConfig: PteIMBaseConfig) { this.context = context; this.baseConfig = baseConfig }
 
-  async login(loginConfig: PteIMLoginConfig): Promise<PteIMSDK> {
+  /**
+   * Creates a client. Set autoStart to false when the caller needs to register
+   * listeners before network activity begins (for example, an acceptance host).
+   */
+  async login(loginConfig: PteIMLoginConfig, autoStart: boolean = true): Promise<PteIMSDK> {
     this.baseConfig.validate(); loginConfig.validate()
     const storeName = `pte_live_im_${loginConfig.sdkAppId}_${loginConfig.userId.replace(/[^A-Za-z0-9_]/g, '_')}`
     const client = new PteIMSDK(loginConfig, this.baseConfig, await PteIMRdbStore.open(this.context, storeName))
-    client.start()
+    if (autoStart) client.start()
     return client
   }
 }

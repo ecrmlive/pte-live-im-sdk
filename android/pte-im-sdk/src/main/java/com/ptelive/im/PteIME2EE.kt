@@ -68,11 +68,7 @@ internal class PteIME2EE(context: Context, storeKey: String, private val sdkAppI
   fun decrypt(envelope: JSONObject): JSONObject {
     require(envelope.optInt("version") == 1 && envelope.optString("algorithm") == algorithm) { "unsupported E2EE message envelope" }
     val recipients = envelope.optJSONArray("recipients") ?: error("E2EE recipients are missing")
-    var recipient: JSONObject? = null
-    for (index in 0 until recipients.length()) {
-      val value = recipients.getJSONObject(index)
-      if (value.optString("device_id") == deviceId()) { recipient = value; break }
-    }
+    val recipient = recipientForThisDevice(recipients)
     val selected = recipient ?: error("this device is not an E2EE recipient")
     val shared = KeyAgreement.getInstance("ECDH").run {
       init(identity().private); doPhase(PteIMResponseCipher.publicKey(PteIMResponseCipher.decode(selected.getString("ephemeral_public_key"))), true); generateSecret()
@@ -82,6 +78,21 @@ internal class PteIME2EE(context: Context, storeKey: String, private val sdkAppI
     require(contentKey.size == 32) { "invalid E2EE content key" }
     val plaintext = aesGcm(Cipher.DECRYPT_MODE, contentKey, PteIMResponseCipher.decode(envelope.getString("nonce")), PteIMResponseCipher.decode(envelope.getString("ciphertext")), messageAad)
     return JSONObject(plaintext.toString(Charsets.UTF_8))
+  }
+
+  /** A replaced or cleared local identity cannot decrypt older envelopes. Those
+   * messages remain part of history, but must not abort a subsequent sync. */
+  fun canDecrypt(envelope: JSONObject): Boolean {
+    val recipients = envelope.optJSONArray("recipients") ?: return false
+    return recipientForThisDevice(recipients) != null
+  }
+
+  private fun recipientForThisDevice(recipients: JSONArray): JSONObject? {
+    for (index in 0 until recipients.length()) {
+      val value = recipients.getJSONObject(index)
+      if (value.optString("device_id") == deviceId()) return value
+    }
+    return null
   }
 
   private fun wrapForDevice(contentKey: ByteArray, userId: Long, deviceId: String, publicKey: String): JSONObject {

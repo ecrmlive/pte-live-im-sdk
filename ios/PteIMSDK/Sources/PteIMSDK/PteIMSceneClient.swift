@@ -58,7 +58,8 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
   private var reconnectWorkItem: DispatchWorkItem?
   private let queue = DispatchQueue(label: "com.ptelive.im.scene")
   private var listeners: [ObjectIdentifier: PteIMSceneListener] = [:]
-  private let tracker = RoomSeqTracker()
+  private var tracker = RoomSeqTracker()
+  private var trackerRoomKey: String?
   private var stopped = true
   private var handshaken = false
   private var userId = ""
@@ -98,7 +99,7 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
   }
 
   public func removeListener(_ listener: PteIMSceneListener) {
-    queue.sync { listeners.removeValue(forKey: ObjectIdentifier(listener)) }
+    _ = queue.sync { listeners.removeValue(forKey: ObjectIdentifier(listener)) }
   }
 
   public func getLastRoomSeq() -> Int64 { queue.sync { tracker.lastRoomSeq } }
@@ -150,8 +151,15 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
     try assertSceneRoomId(scene: scene, roomId: roomId)
     guard !userId.isEmpty, !userSig.isEmpty else { throw PteIMError.invalidCredentials }
     let trimmedRoomId = roomId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let roomKey = "\(scene.rawValue):\(trimmedRoomId)"
     if !isConnected() { try await connect(userId: userId, userSig: userSig, expireAt: userSigExpireAt) }
-    queue.sync { active = ActiveRoom(scene: scene, roomId: trimmedRoomId, extend: extend, catchUp: catchUp) }
+    queue.sync {
+      if trackerRoomKey != roomKey {
+        tracker = RoomSeqTracker()
+        trackerRoomKey = roomKey
+      }
+      active = ActiveRoom(scene: scene, roomId: trimmedRoomId, extend: extend, catchUp: catchUp)
+    }
     if let catchUp {
       try await runCatchUp(catchUp) { [weak self] eventType, payload in
         self?.emitEvent(eventType: eventType, payload: payload)
@@ -271,7 +279,7 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
     }
 
     let msg = frame["msg"] as? String ?? ""
-    if payloadData?["type"] as? String == "scene.ack" || msg.contains("scene") {
+    if payloadData?["type"] as? String == "scene.ack" || msg == "scene.ack" {
       let ok = (payloadData?["ok"] as? Bool) == true || (payloadData?["ok"] as? String) == "true"
       let requestId = stringOf(payloadData?["request_id"] ?? payloadData?["requestId"])
       let scene = sceneKindOf(stringOf(payloadData?["scene"]).isEmpty ? (active?.scene.rawValue ?? "show") : stringOf(payloadData?["scene"]))
@@ -299,14 +307,15 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
     if tracker.needsCatchUp(payload) {
       guard let source = active?.catchUp, !catchUpBusy else { return }
       catchUpBusy = true
-      Task { [weak self] in
-        defer { self?.queue.async { self?.catchUpBusy = false } }
+      let client = self
+      Task { [client] in
+        defer { client.queue.async { [client] in client.catchUpBusy = false } }
         do {
-          try await self?.runCatchUp(source) { eventType, payload in
-            self?.emitEvent(eventType: eventType, payload: payload)
+          try await client.runCatchUp(source) { eventType, payload in
+            client.emitEvent(eventType: eventType, payload: payload)
           }
         } catch {
-          self?.emitError(error.localizedDescription)
+          client.emitError(error.localizedDescription)
         }
       }
       return

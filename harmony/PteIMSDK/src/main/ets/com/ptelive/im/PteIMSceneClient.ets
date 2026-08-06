@@ -14,6 +14,8 @@ export type PteIMSceneKind = 'show' | 'voice' | 'shop' | 'sports'
 
 export class PteIMSceneCredentials {
   wsUrl: string = ''
+  /** Optional trusted HTTP Origin for native WSS upgrades. */
+  origin: string = ''
   sdkAppId: string = ''
   userId: string = ''
   userSig: string = ''
@@ -80,6 +82,7 @@ export class PteIMSceneClient {
   private reconnectAttempt: number = 0
   private readonly listeners: PteIMSceneListener[] = []
   private tracker: RoomSeqTracker = new RoomSeqTracker(0)
+  private trackerRoomKey: string | null = null
   private active: PteIMSceneActiveSession | null = null
   private pendingEnter: PteIMScenePendingEnter | null = null
   private catchUpBusy: boolean = false
@@ -124,9 +127,15 @@ export class PteIMSceneClient {
 
   async enter(options: PteIMSceneEnterOptions): Promise<PteIMSceneEntered> {
     assertSceneRoomId(options.scene, options.roomId)
+    const roomId = options.roomId.trim()
+    const roomKey = options.scene + ':' + roomId
+    if (this.trackerRoomKey !== roomKey) {
+      this.tracker = new RoomSeqTracker(0)
+      this.trackerRoomKey = roomKey
+    }
     const active = new PteIMSceneActiveSession()
     active.scene = options.scene
-    active.roomId = options.roomId.trim()
+    active.roomId = roomId
     active.extend = options.extend
     active.catchUp = options.catchUp
     this.active = active
@@ -208,7 +217,9 @@ export class PteIMSceneClient {
         this.notifyConnection(false)
         this.scheduleReconnect()
       })
-      socket.connect(this.webSocketURL(), (error: Error) => {
+      const headers: Record<string, string> = {}
+      if (this.credentials.origin.length > 0) headers['Origin'] = this.credentials.origin
+      socket.connect(this.webSocketURL(), { header: headers }, (error: Error) => {
         if (error) {
           if (settled) return
           settled = true
@@ -248,10 +259,11 @@ export class PteIMSceneClient {
 
     const msg = stringOf(frame['msg'])
     const dataType = data !== null ? stringOf(data['type']) : ''
-    if (dataType === 'scene.ack' || msg.indexOf('scene') >= 0) {
+    if (dataType === 'scene.ack' || msg === 'scene.ack') {
       const ok = data !== null && (data['ok'] === true || data['ok'] === 'true')
       const requestId = data !== null ? stringOf(data['request_id'] ?? data['requestId']) : ''
-      const scene = (data !== null ? stringOf(data['scene']) : '') || (this.active !== null ? this.active.scene : 'show') as PteIMSceneKind
+      const sceneRaw = (data !== null ? stringOf(data['scene']) : '') || (this.active !== null ? this.active.scene : 'show')
+      const scene: PteIMSceneKind = sceneKindOf(sceneRaw)
       const roomId = (data !== null ? stringOf(data['room_id'] ?? data['roomId']) : '') ||
         (this.active !== null ? this.active.roomId : '')
       if (this.pendingEnter !== null &&
@@ -406,6 +418,13 @@ export class PteIMSceneClient {
       '&identifier=' + encodeURIComponent(this.credentials.userId) +
       '&userSig=' + encodeURIComponent(this.credentials.userSig)
   }
+}
+
+function sceneKindOf(value: string): PteIMSceneKind {
+  if (value === 'voice') return 'voice'
+  if (value === 'shop') return 'shop'
+  if (value === 'sports') return 'sports'
+  return 'show'
 }
 
 export function groupNameForScene(scene: PteIMSceneKind, roomId: string): string {

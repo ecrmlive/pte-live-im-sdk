@@ -1,0 +1,121 @@
+<template>
+  <view class="page">
+    <text class="title">PteIMSDK UTS Acceptance</text>
+    <text :class="['status', passed ? 'passed' : failed ? 'failed' : 'running']">{{ status }}</text>
+    <text class="detail">{{ detail }}</text>
+  </view>
+</template>
+
+<script lang="uts">
+import { PteIMAcceptanceBaseConfig } from '../../AcceptanceConfig.uts'
+import { createPteIMSDK } from '../../uni_modules/pte-im-sdk/utssdk/web/index.uts'
+import { PteIME2EE } from '../../uni_modules/pte-im-sdk/utssdk/e2ee.uts'
+import { PteIMLoginConfig, PteIMSDKClient } from '../../uni_modules/pte-im-sdk/utssdk/interface.uts'
+
+type Credential = { sdkAppId: number, userId: string, userSig: string, expireAt: number }
+type Probe = { connected: boolean, acked: boolean, text: string, errors: string[] }
+
+function pause(milliseconds: number): Promise<void> { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)) }
+async function waitFor(condition: () => boolean, label: string, timeoutMs: number = 30000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) { if (condition()) return; await pause(100) }
+  if (!condition()) throw new Error(label + ' timed out')
+}
+function action(call: (done: (error: string | null) => void) => void): Promise<void> {
+  return new Promise<void>((resolve, reject) => call((error) => error == null ? resolve() : reject(new Error(error))))
+}
+function result(call: (done: (value: any | null, error: string | null) => void) => void): Promise<any> {
+  return new Promise<any>((resolve, reject) => call((value, error) => value != null && error == null ? resolve(value) : reject(new Error(error ?? 'empty SDK response'))))
+}
+
+export default {
+  data() { return { status: 'RUNNING', detail: 'issuing normal test-server identities', passed: false, failed: false } },
+  onReady() { void this.runAcceptance() },
+  methods: {
+    phase(name: string): void { this.detail = name; console.info('PTE_IM_UTS_ACCEPTANCE:PHASE ' + name) },
+    async issueUserSig(userId: string, deviceId: string, appId: number = 10001, scene: string = '', roomId: string = ''): Promise<Credential> {
+      const crypto = new PteIME2EE(PteIMAcceptanceBaseConfig, { sdkAppId: appId, userId, userSig: 'acceptance' } as PteIMLoginConfig)
+      const key = await crypto.responseKey()
+      const body: any = { app_id: appId.toString(), user_id: userId, identifier: userId, user_type: 'user', device_id: deviceId, platform: 'uniapp-x', expire: 3600 }
+      if (scene.length > 0) body.scene = scene
+      if (roomId.length > 0) body.room_id = roomId
+      const response = await new Promise<any>((resolve, reject) => uni.request({
+        url: PteIMAcceptanceBaseConfig.apiDomain + '/api/v1/im/usersig', method: 'POST', dataType: 'json',
+        header: { 'Content-Type': 'application/json', 'X-Pte-Response-Public-Key': key.publicKey }, data: body,
+        success: (value: any) => resolve(value), fail: (error: any) => reject(new Error(String(error?.errMsg ?? error))),
+      }))
+      if (Number(response.statusCode) != 200) throw new Error('UserSig HTTP ' + String(response.statusCode))
+      const root = crypto.decryptResponse(response.data, key)
+      if (Number(root.code) != 1 || root.data == null) throw new Error(String(root.msg ?? 'UserSig rejected'))
+      const data = root.data as any
+      const credential: Credential = { sdkAppId: Number(data.sdk_app_id), userId: String(data.user_id), userSig: String(data.user_sig), expireAt: Number(data.expire_at) }
+      if (credential.sdkAppId <= 0 || credential.userId.length == 0 || credential.userSig.length == 0 || credential.expireAt <= 0) throw new Error('UserSig payload invalid')
+      return credential
+    },
+    client(bootstrap: any, credential: Credential): PteIMSDKClient {
+      return bootstrap.login({ sdkAppId: credential.sdkAppId, userId: credential.userId, userSig: credential.userSig, userSigExpireAt: credential.expireAt } as PteIMLoginConfig)
+    },
+    async enterScene(client: PteIMSDKClient, credential: Credential, scene: 'show' | 'voice' | 'shop' | 'sports', roomId: string): Promise<void> {
+      const room = client.scene.create({ wsUrl: PteIMAcceptanceBaseConfig.imDomain, sdkAppId: credential.sdkAppId.toString(), userId: credential.userId, userSig: credential.userSig, expireAt: credential.expireAt })
+      await result((done) => room.enter({ scene, roomId }, done))
+      room.disconnect()
+    },
+    async runAcceptance(): Promise<void> {
+      let sender: PteIMSDKClient | null = null
+      let receiver: PteIMSDKClient | null = null
+      try {
+        const bootstrap = createPteIMSDK(PteIMAcceptanceBaseConfig)
+        const senderCredential = await this.issueUserSig('98000005', 'uts-h5-acceptance-sender')
+        const receiverCredential = await this.issueUserSig('98000006', 'uts-h5-acceptance-receiver')
+        sender = this.client(bootstrap, senderCredential); receiver = this.client(bootstrap, receiverCredential)
+        const senderProbe: Probe = { connected: false, acked: false, text: '', errors: [] }
+        const receiverProbe: Probe = { connected: false, acked: false, text: '', errors: [] }
+        sender!.addListener({ onConnectionChanged: (value) => { senderProbe.connected = value }, onMessageStateChanged: (value) => { if (value.state == 'sent') senderProbe.acked = true }, onError: (value) => senderProbe.errors.push(value) })
+        receiver!.addListener({ onConnectionChanged: (value) => { receiverProbe.connected = value }, onMessage: (value) => { receiverProbe.text = String(value.content?.text ?? '') }, onError: (value) => receiverProbe.errors.push(value) })
+        this.phase('chat connection')
+        sender!.start(); receiver!.start()
+        await waitFor(() => senderProbe.connected && receiverProbe.connected, 'chat WSS connection')
+        this.phase('E2EE chat')
+        const conversation = await result((done) => sender!.openSingleConversation(98000006, done))
+        const text = 'uts-h5-e2e-' + Date.now().toString()
+        sender!.sendText(String(conversation.id), text)
+        await waitFor(() => senderProbe.acked && receiverProbe.text == text, 'E2EE chat ACK/receive')
+        if (senderProbe.errors.length > 0 || receiverProbe.errors.length > 0) throw new Error('chat SDK listener error')
+        this.phase('social')
+        await action((done) => sender!.follow(98000006, 'uts-acceptance', done))
+        const follows = await result((done) => sender!.fetchFollows('', 100, done))
+        if (!follows.list.some((item: any) => String(item.userId) == '98000006')) throw new Error('follow contract failed')
+        await action((done) => sender!.unfollow(98000006, done))
+        this.phase('commerce')
+        const capabilities = await result((done) => sender!.commerce.capabilities(done))
+        if (capabilities.gifts !== true || capabilities.backpack !== true || capabilities.orders !== true) throw new Error('commerce capability contract failed')
+        await result((done) => sender!.commerce.gifts(done)); await result((done) => sender!.commerce.wallet(done)); await result((done) => sender!.commerce.backpack(done)); await result((done) => sender!.commerce.orders(20, done))
+        for (const scene of ['show', 'voice', 'shop']) {
+          this.phase('scene-' + scene)
+          const credential = await this.issueUserSig('98000005', 'uts-h5-' + scene, 10001, scene, 'sdk-e2e-' + scene)
+          await this.enterScene(sender, credential, scene as 'show' | 'voice' | 'shop', 'sdk-e2e-' + scene)
+        }
+        this.phase('scene-sports')
+        const sportsCredential = await this.issueUserSig('98000005', 'uts-h5-sports', 20001, 'sports', 'sports-live-910001')
+        await this.enterScene(sender, sportsCredential, 'sports', 'sports-live-910001')
+        this.status = 'PASS'; this.detail = 'chat, social, commerce, show, voice, shop, sports'; this.passed = true
+        console.info('PTE_IM_UTS_ACCEPTANCE:PASS')
+      } catch (error) {
+        this.status = 'FAIL'; this.detail = String(error); this.failed = true
+        console.error('PTE_IM_UTS_ACCEPTANCE:FAIL ' + String(error))
+      } finally {
+        if (sender != null) sender.stop()
+        if (receiver != null) receiver.stop()
+      }
+    },
+  },
+}
+</script>
+
+<style>
+.page { min-height: 100vh; padding: 48px 24px; background: #0F172A; }
+.title { display: block; color: #F8FAFC; font-size: 24px; font-weight: 700; }
+.status { display: block; margin-top: 24px; font-size: 34px; font-weight: 800; }
+.detail { display: block; margin-top: 16px; color: #CBD5E1; font-size: 16px; line-height: 24px; }
+.running { color: #FBBF24; }.passed { color: #4ADE80; }.failed { color: #FB7185; }
+</style>

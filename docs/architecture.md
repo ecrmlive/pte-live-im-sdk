@@ -22,7 +22,7 @@
 | uni-app x | `uni_modules/pte-im-sdk` for H5/Web and WeChat | uvue components and UTS controllers | `uniapp-x/PteIMUIDemo` |
 | Browser (standalone) | `web/pte-im-sdk` (`@pte-live/pte-im-sdk`) | — | — |
 
-The Browser package is a separate TypeScript Core for secure-context browsers. It includes chat (`PteIMWebSDK`), Commerce (`PteIMCommerce`), and `PteIMSceneClient` (independent room WSS for `show` / `voice` / `shop` / `sports`). Catch-up HTTP remains host-owned. See [scene-client-contract.md](scene-client-contract.md), [live-event-protocol.md](live-event-protocol.md) and [web/pte-im-sdk/README.md](../web/pte-im-sdk/README.md).
+The Web SDK package is a separate TypeScript Core for secure-context browsers. It includes chat (`PteIMWebSDK`), Commerce (`PteIMCommerce`), and `PteIMSceneClient` (independent room WSS for `show` / `voice` / `shop` / `sports`). Catch-up HTTP remains host-owned. See [scene-client-contract.md](scene-client-contract.md), [live-event-protocol.md](live-event-protocol.md) and [web/pte-im-sdk/README.md](../web/pte-im-sdk/README.md).
 
 ## UI ownership boundary
 

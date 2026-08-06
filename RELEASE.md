@@ -1,6 +1,6 @@
 # Release 流程
 
-## Web Browser Core（`web/pte-im-sdk`）
+## Web SDK（`web/pte-im-sdk`）
 
 包名：`@pte-live/pte-im-sdk`。
 

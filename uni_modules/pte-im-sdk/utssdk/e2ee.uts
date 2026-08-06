@@ -70,6 +70,12 @@ export class PteIME2EE {
     return JSON.parse(utf8Decode(gcm(contentKey, nonce, utf8('pte-live-im-message-v1')).decrypt(base64URLDecode(String(envelope.ciphertext)))))
   }
 
+  async canDecrypt(envelope: any): Promise<boolean> {
+    if (envelope.version !== 1 || envelope.algorithm !== 'P-256/A256GCM' || !Array.isArray(envelope.recipients)) throw new Error('unsupported E2EE message envelope')
+    const identity = await this.identity()
+    return envelope.recipients.some((entry: any): boolean => entry.device_id === identity.deviceId)
+  }
+
   async responseKey(): Promise<PteIMResponseKey> {
     await this.primeRandom(4096)
     const privateKey = p256.utils.randomSecretKey()

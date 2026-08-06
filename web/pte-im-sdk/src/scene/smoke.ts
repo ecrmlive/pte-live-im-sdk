@@ -1,5 +1,5 @@
 /**
- * Minimal Scene smoke harness for Browser hosts.
+ * Minimal Scene smoke harness for Web SDK hosts.
  * Not a UIKit. Wire UserSig + CatchUpSource from your business API.
  */
 import {

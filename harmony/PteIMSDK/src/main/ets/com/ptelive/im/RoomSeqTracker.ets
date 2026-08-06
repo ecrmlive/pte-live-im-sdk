@@ -24,6 +24,12 @@ export interface PteIMLiveCatchUpSource {
   fetchEventsAfter(afterSeq: number, limit?: number): Promise<PteIMLiveCatchUpPage>
 }
 
+/** Explicit ArkTS class avoids untyped/object-literal return values in frame parsing. */
+export class PteIMFrameEvent {
+  eventType?: string
+  payload?: WireObject
+}
+
 function asRecord(value: Object | null | undefined): WireObject | null {
   if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) return null
   return value as WireObject
@@ -122,17 +128,18 @@ export class RoomSeqTracker {
   }
 }
 
-export function eventTypeFromFrame(frame: WireObject): { eventType?: string, payload?: WireObject } {
+export function eventTypeFromFrame(frame: WireObject): PteIMFrameEvent {
+  const empty = new PteIMFrameEvent()
   let envelope: Object | null = frame['data']
   if (typeof frame['data'] === 'string') {
     try {
       envelope = JSON.parse(frame['data'] as string) as Object
     } catch (_error) {
-      return {}
+      return empty
     }
   }
   const root = asRecord(envelope)
-  if (root === null) return {}
+  if (root === null) return empty
   const scene = asRecord(root['scene'])
   const payload = parseLivePayload(scene !== null ? scene['payload'] : null)
   let eventType: string | undefined = undefined
@@ -142,7 +149,10 @@ export function eventTypeFromFrame(frame: WireObject): { eventType?: string, pay
   if (typeof eventTypeSnake === 'string') eventType = eventTypeSnake
   else if (typeof eventTypeCamel === 'string') eventType = eventTypeCamel
   else if (typeof msg === 'string') eventType = msg
-  return { eventType, payload: payload ?? flattenPayload(root) ?? undefined }
+  const result = new PteIMFrameEvent()
+  result.eventType = eventType
+  result.payload = payload ?? flattenPayload(root) ?? undefined
+  return result
 }
 
 function flattenPayload(root: WireObject): WireObject | null {

@@ -83,6 +83,10 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
 
   fun stop() { stopRequested = true; socketConnected = false; outboxRetryFuture?.cancel(false); userSigRefreshFuture?.cancel(false); userSigRefreshFuture = null; transport?.close(); transport = null }
 
+  /** Stops networking and releases the local Room cache. Create a new SDK
+   * instance with [configure] to use this account again after closing. */
+  fun close() { stop(); store.close() }
+
   /** Applies a provider result. Credentials are never supplied by UI callers. */
   private fun applyRefreshedUserSig(userSig: String, expireAt: Long) {
     require(userSig.isNotBlank()) { "userSig is required" }
@@ -132,6 +136,8 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
 
   fun currentAppearance(): PteIMAppearance = appearance
   fun currentUserId(): String = config.userId
+  /** Whether the SDK's authenticated chat WSS connection is currently open. */
+  fun isConnected(): Boolean = socketConnected
 
   fun fetchMyProfile(callback: (Result<PteIMUserProfile>) -> Unit) {
     executor.execute { callback(runCatching { profileFromJson(postSdkJson("/v1/im/profile/me", JSONObject())) }) }
@@ -421,7 +427,11 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   override fun onText(text: String) {
     try {
       val envelope = JSONObject(text)
-      when (envelope.getString("action")) {
+      // Test/prod WSS sends a transport handshake frame before IM actions.
+      // It has no `action` and must not be surfaced as an SDK protocol error.
+      val action = envelope.optString("action")
+      if (action.isBlank()) return
+      when (action) {
         "message" -> decodeMessage(envelope.getJSONObject("payload")).also { message ->
           store.applyDelta(envelope.optString("syncCursor", store.cursor()), listOf(message))
           listeners.forEach { it.onMessage(message) }
@@ -543,7 +553,18 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
 
   private fun decodeMessage(json: JSONObject): PteIMMessage {
     val materialized = JSONObject(json.toString())
-    if (materialized.has("e2ee") && !materialized.isNull("e2ee")) materialized.put("content", e2ee.decrypt(materialized.getJSONObject("e2ee")))
+    if (materialized.has("e2ee") && !materialized.isNull("e2ee")) {
+      val envelope = materialized.getJSONObject("e2ee")
+      if (e2ee.canDecrypt(envelope)) {
+        materialized.put("content", e2ee.decrypt(envelope))
+      } else {
+        // An older message may be addressed only to a device identity that was
+        // removed locally. Keep history and advance the cursor without exposing
+        // a false transport/sync error to the host application.
+        materialized.put("type", "text")
+        materialized.put("content", JSONObject().put("text", "E2EE message unavailable on this device").put("decryptFailed", true))
+      }
+    }
     return messageFromJson(materialized, config.cosDomain)
   }
 
@@ -642,7 +663,6 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       PteIMMessageType.VIDEO -> "video/mp4"
       PteIMMessageType.VOICE -> "audio/mpeg"
       PteIMMessageType.FILE -> contentTypeForFileName(appContext.displayName(uri) ?: "")
-      else -> error("unsupported upload message type")
     }
     val credential = postMediaCredentialJson("/v1/im/media/put-url", JSONObject().apply {
       put("mediaType", mediaType); put("contentType", contentType); put("contentLength", total)

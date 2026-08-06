@@ -68,7 +68,7 @@ RDB 以账号命名空间存放会话、消息、Outbox 和同步游标，并启
 
 UTS 模块使用宿主提供的 HTTPS、WSS 与本地安全存储能力。H5 必须运行在安全上下文；微信小程序必须配置 API 与 WSS 域名白名单。
 
-## Browser（独立 Web Core）
+## Web SDK（独立 Web Core）
 
 | 项目 | 标准 |
 | --- | --- |

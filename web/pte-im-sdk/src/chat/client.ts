@@ -126,7 +126,7 @@ type ResponseKey = { privateKey: Uint8Array; publicKey: string }
 type E2EERequest = (path: string, body: Record<string, unknown>) => Promise<unknown>
 
 /**
- * Browser implementation of the pte-live-im client protocol. It speaks only
+ * Web SDK implementation of the pte-live-im client protocol. It speaks only
  * the PTE UserSig, encrypted REST and PTE WebSocket contracts; no Qixi IM
  * transport or message storage is involved.
  */

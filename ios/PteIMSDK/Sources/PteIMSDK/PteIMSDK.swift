@@ -35,7 +35,7 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     self.appearanceStore = appearanceStore
     self.appearance = appearanceStore.load() ?? configuredAppearance
     self.store = try PteIMCoreDataStore(storeKey: config.storeKey, persistent: persistentCache)
-    self.e2ee = PteIME2EE(storeKey: config.storeKey, appId: config.sdkAppId, userId: config.userId)
+    self.e2ee = PteIME2EE(storeKey: config.storeKey, appId: config.sdkAppId, userId: config.userId, persistentIdentity: persistentCache)
     super.init()
   }
 
@@ -76,6 +76,9 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   }
 
   public func stop() { stopRequested = true; socketConnected = false; reconnectWorkItem?.cancel(); reconnectWorkItem = nil; outboxRetryWorkItem?.cancel(); outboxRetryWorkItem = nil; userSigRefreshWorkItem?.cancel(); userSigRefreshWorkItem = nil; socket?.cancel(with: .goingAway, reason: nil); socket = nil }
+
+  /** True after E2EE device registration and the chat WebSocket upgrade both complete. */
+  public func isConnected() -> Bool { socketConnected && !stopRequested }
 
   /** Applies a provider result. Credentials are never supplied by UI callers. */
   private func applyRefreshedUserSig(_ userSig: String, expireAt: Int64) {
@@ -458,8 +461,14 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   }
 
   private func handleInbound(_ text: String) {
+    // The WSS transport may emit a blank keepalive frame. It has no IM
+    // semantics and must not surface as a JSON/E2EE error to the host.
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     do {
-      guard let root = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], let action = root["action"] as? String else { throw PteIMError.invalidResponse }
+      guard let root = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { throw PteIMError.invalidResponse }
+      // Test/prod WSS emits an initial transport handshake frame without an IM action.
+      // It is not a protocol error and carries no SDK-visible state transition.
+      guard let action = root["action"] as? String, !action.isEmpty else { return }
       let payload = root["payload"] as? [String: Any] ?? [:]
       switch action {
       case "message":
@@ -514,7 +523,14 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
 
   private func decodeMessage(_ payload: [String: Any]) throws -> PteIMMessage {
     var cleartext = payload
-    if let envelope = payload["e2ee"] as? [String: Any] { cleartext["content"] = try e2ee.decrypt(envelope) }
+    if let envelope = payload["e2ee"] as? [String: Any] {
+      if try e2ee.canDecrypt(envelope) {
+        cleartext["content"] = try e2ee.decrypt(envelope)
+      } else {
+        cleartext["type"] = "text"
+        cleartext["content"] = ["text": "E2EE message unavailable on this device", "decryptFailed": true]
+      }
+    }
     return resolveMessage(try JSONDecoder().decode(PteIMMessage.self, from: JSONSerialization.data(withJSONObject: cleartext)))
   }
 
@@ -542,11 +558,18 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   }
 
   private func e2eeRequest(path: String, body: [String: Any]) async throws -> Any {
-    try await sdkPayload(path: path, body: body)
+    // The IM Core E2EE endpoints retain the Core `{ code: 0 }` success
+    // envelope, while public SDK endpoints use `{ code: 1 }`.
+    try await sdkPayload(
+      path: path,
+      body: body,
+      successCodes: [0, 1],
+      allowMissingData: path == "api/v1/chat/e2ee/device/register"
+    )
   }
 
   /** api-im encrypts every application response with the caller's ephemeral P-256 public key. */
-  private func sdkPayload(path: String, body: [String: Any]) async throws -> Any {
+  private func sdkPayload(path: String, body: [String: Any], successCodes: Set<Int> = [1], allowMissingData: Bool = false) async throws -> Any {
     var request = URLRequest(url: config.apiDomain.appendingPathComponent(path))
     request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer \(config.userSig)", forHTTPHeaderField: "Authorization")
@@ -558,10 +581,20 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
     guard let http = httpResponse as? HTTPURLResponse else { throw PteIMError.invalidResponse }
     if http.statusCode == 401 { refreshUserSig(force: true) }
     guard 200..<300 ~= http.statusCode else { throw PteIMError.invalidResponse }
-    let clear = try PteIMResponseCipher.decrypt(data, with: responseKey)
-    guard let envelope = try JSONSerialization.jsonObject(with: clear) as? [String: Any],
-          (envelope["code"] as? NSNumber)?.intValue == 1, let value = envelope["data"] else { throw PteIMError.invalidResponse }
-    return value
+    let clear: Data
+    do {
+      clear = try PteIMResponseCipher.decrypt(data, with: responseKey)
+    } catch {
+      throw PteIMSDKResponseDecryptionError(path: path)
+    }
+    guard let envelope = try JSONSerialization.jsonObject(with: clear) as? [String: Any] else { throw PteIMError.invalidResponse }
+    let code = (envelope["code"] as? NSNumber)?.intValue
+    guard let code, successCodes.contains(code) else {
+      throw PteIMSDKProtocolError(path: path, code: code, hasData: envelope["data"] != nil)
+    }
+    if let value = envelope["data"] { return value }
+    if allowMissingData { return NSNull() }
+    throw PteIMSDKProtocolError(path: path, code: code, hasData: false)
   }
 
   internal func commercePayload(path: String, body: [String: Any]) async throws -> Any {
@@ -685,6 +718,18 @@ private struct PteIMOKResponse: Decodable { let ok: Bool }
 /** Plain response shape used only by api-im's COS credential endpoint. */
 private struct PteIMSDKEnvelope<T: Decodable>: Decodable { let code: Int; let msg: String; let data: T? }
 private struct PteIMCosPutCredential: Decodable { let key: String; let uploadUrl: String; let headers: [String: String]; let expiresAt: Int64 }
+
+private struct PteIMSDKProtocolError: LocalizedError {
+  let path: String
+  let code: Int?
+  let hasData: Bool
+  var errorDescription: String? { "PteIM API response invalid at \(path) (code=\(code.map(String.init) ?? "missing"), data=\(hasData))" }
+}
+
+private struct PteIMSDKResponseDecryptionError: LocalizedError {
+  let path: String
+  var errorDescription: String? { "PteIM API encrypted response is invalid at \(path)" }
+}
 
 public final class PteIMSDKBootstrap {
   private let baseConfig: PteIMBaseConfig

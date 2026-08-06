@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "pte-im-sdk-acceptance",
+  "version": "1.0.0",
+  "description": "SDK-only test-server acceptance host for PteIMSDK",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

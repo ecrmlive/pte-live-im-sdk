@@ -1,0 +1,7 @@
+{
+  "pages": [{
+    "path": "pages/index/index",
+    "style": { "navigationStyle": "custom", "backgroundColor": "#0F172A" }
+  }],
+  "globalStyle": { "backgroundColor": "#0F172A" }
+}

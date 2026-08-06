@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "PteIMSDK acceptance entry",
+  "main": "",
+  "dependencies": {
+    "@ptelive/pte-im-sdk": "file:../../PteIMSDK"
+  }
+}

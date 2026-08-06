@@ -118,6 +118,19 @@ export class PteIME2EE {
     } catch (error) { throw new Error(`PteIM E2EE message decryption failed: ${String(error)}`) }
   }
 
+  /** An E2EE envelope addressed to a removed device is valid history, but it
+   * cannot be decrypted by this newly created local identity. */
+  async canDecrypt(envelope: WireObject): Promise<boolean> {
+    if (this.numberValue(envelope, 'version') !== 1 || this.stringValue(envelope, 'algorithm') !== PteIME2EE.algorithm) throw new Error('unsupported E2EE message envelope')
+    const entries = envelope['recipients'] as Object[]
+    if (!Array.isArray(entries)) throw new Error('E2EE recipients are missing')
+    const identity = await this.identity()
+    for (let index = 0; index < entries.length; index++) {
+      if (this.stringValue(entries[index] as WireObject, 'device_id') === identity.deviceId) return true
+    }
+    return false
+  }
+
   private async wrap(contentKey: Uint8Array, encodedPublicKey: string, recipient: WireObject): Promise<WireObject> {
     try {
       const remote = await PteIMResponseCrypto.publicKeyFromRaw(PteIMResponseCrypto.base64URLDecode(encodedPublicKey))

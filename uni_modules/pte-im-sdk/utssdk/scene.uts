@@ -148,6 +148,7 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
   private reconnectAttempt: number = 0
   private listeners: PteIMSceneListener[] = []
   private tracker: RoomSeqTracker = new RoomSeqTracker(0)
+  private trackerRoomKey: string | null = null
   private active: { scene: PteIMSceneKind, roomId: string, extend?: string, catchUp?: PteIMLiveCatchUpSource } | null = null
   private pendingEnter: {
     requestId: string
@@ -203,9 +204,15 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
       callback(null, error instanceof Error ? error.message : String(error))
       return
     }
+    const roomId = options.roomId.trim()
+    const roomKey = options.scene + ':' + roomId
+    if (this.trackerRoomKey != roomKey) {
+      this.tracker = new RoomSeqTracker(0)
+      this.trackerRoomKey = roomKey
+    }
     this.active = {
       scene: options.scene,
-      roomId: options.roomId.trim(),
+      roomId,
       extend: options.extend,
       catchUp: options.catchUp,
     }
@@ -265,7 +272,16 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
       callback('Scene WSS 握手超时')
       if (this.socket != null) this.closeSocket(this.socket, 'Scene handshake timeout')
     }, 15000)
-    const socket = uni.connectSocket({ url: this.webSocketURL() })
+    // H5 promisifies task APIs without callbacks; keep the SocketTask so scene
+    // handshake events remain observable on both Web and WeChat.
+    const socket = uni.connectSocket({ url: this.webSocketURL(), success: () => {}, fail: (error: any) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      const message = stringOf(error?.errMsg ?? error) || 'Scene WSS 连接异常'
+      this.emitError(message)
+      callback(message)
+    } })
     this.socket = socket
     socket.onOpen(() => { /* wait for handshake code=0 */ })
     socket.onMessage((event: any) => {
@@ -319,10 +335,10 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
 
     const msg = stringOf(frame.msg)
     const dataType = data != null ? stringOf(data.type) : ''
-    if (dataType == 'scene.ack' || msg.indexOf('scene') >= 0) {
+    if (dataType == 'scene.ack' || msg == 'scene.ack') {
       const ok = data != null && (data.ok == true || data.ok == 'true')
       const requestId = data != null ? stringOf(data.request_id ?? data.requestId) : ''
-      const scene = (data != null ? stringOf(data.scene) : '') || (this.active != null ? this.active.scene : 'show') as PteIMSceneKind
+      const scene = ((data != null ? stringOf(data.scene) : '') || (this.active != null ? this.active.scene : 'show')) as PteIMSceneKind
       const roomId = (data != null ? stringOf(data.room_id ?? data.roomId) : '') || (this.active != null ? this.active.roomId : '')
       if (this.pendingEnter != null &&
         (this.pendingEnter.requestId.length == 0 || requestId.length == 0 || requestId == this.pendingEnter.requestId)) {

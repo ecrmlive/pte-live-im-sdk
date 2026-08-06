@@ -60,7 +60,13 @@ export class PteIMResponseCrypto {
 
   static async deriveKey(secret: Uint8Array, salt: Uint8Array, label: string): Promise<cryptoFramework.SymKey> {
     try {
-      const macKey = await cryptoFramework.createSymKeyGenerator('HMAC|SHA256').convertKey({ data: salt })
+      // CryptoArchitectureKit rejects a 12-byte imported HMAC key, while the
+      // wire KDF intentionally uses the AES-GCM nonce as its salt. HMAC pads
+      // any key shorter than its 64-byte block size with zeroes, so extending
+      // this short salt to 32 bytes is byte-for-byte equivalent to the iOS /
+      // Android HMAC input and keeps cross-platform envelopes interoperable.
+      const macSalt = salt.length < 32 ? PteIMResponseCrypto.join(salt, new Uint8Array(32 - salt.length)) : salt
+      const macKey = await cryptoFramework.createSymKeyGenerator('HMAC|SHA256').convertKey({ data: macSalt })
       const mac = cryptoFramework.createMac('SHA256')
       await mac.init(macKey)
       await mac.update({ data: PteIMResponseCrypto.join(secret, PteIMResponseCrypto.utf8(label)) })

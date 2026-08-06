@@ -33,11 +33,11 @@ PteIM 客户端采用三层一致的产品命名：`PteIMSDK` 是 Core SDK，`Pt
 | iOS 原生 | [ios/PteIMSDK](ios/PteIMSDK) | [ios/PteIMUIKit](ios/PteIMUIKit) | [ios/PteIMUIDemo](ios/PteIMUIDemo) | iOS 16.0 |
 | HarmonyOS 原生 | [harmony/PteIMSDK](harmony/PteIMSDK) | [harmony/PteIMUIKit](harmony/PteIMUIKit) | [harmony/PteIMUIDemo](harmony/PteIMUIDemo) | OpenHarmony API 23 |
 | uni-app x UTS | [uni_modules/pte-im-sdk](uni_modules/pte-im-sdk) | [uni_modules/pte-im-uikit](uni_modules/pte-im-uikit) | [uniapp-x/PteIMUIDemo](uniapp-x/PteIMUIDemo) | HBuilderX 5.0+；H5/Web、微信小程序 |
-| Browser（独立） | [web/pte-im-sdk](web/pte-im-sdk)（`@pte-live/pte-im-sdk`） | — | — | 现代浏览器；聊一聊 + Commerce + SceneClient（show/voice/shop/sports） |
+| Web SDK（独立） | [web/pte-im-sdk](web/pte-im-sdk)（`@pte-live/pte-im-sdk`） | — | — | 现代浏览器；聊一聊 + Commerce + SceneClient（show/voice/shop/sports） |
 
 Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 版本面向 H5/Web 和微信小程序，不包装原生 SDK。所有 UI 源文件以 `PteIMUI` 开头。
 
-独立 Browser 包 `@pte-live/pte-im-sdk` 提供聊一聊（`PteIMWebSDK`）、Commerce 扩展与 `PteIMSceneClient`（独立房间 WSS）。用法见 [web/pte-im-sdk/README.md](web/pte-im-sdk/README.md)；房间契约见 [Scene Client 契约](docs/scene-client-contract.md) 与 [能力矩阵](docs/platform-capability-matrix.md)。
+独立 Web SDK 包 `@pte-live/pte-im-sdk` 提供聊一聊（`PteIMWebSDK`）、Commerce 扩展与 `PteIMSceneClient`（独立房间 WSS）。用法见 [web/pte-im-sdk/README.md](web/pte-im-sdk/README.md)；房间契约见 [Scene Client 契约](docs/scene-client-contract.md) 与 [能力矩阵](docs/platform-capability-matrix.md)。
 
 客户端技术选型、版本基线和各端职责见[客户端技术基础](docs/client-technology-foundation.md)。本地缓存的加密、分页和容量边界见[四端本地存储基线](docs/local-storage-contract.md)。
 
@@ -175,7 +175,7 @@ im.start()
 
 微信小程序使用同路径下的 `mp-weixin/index.uts`。H5 配置 CORS 和 WebSocket Origin；微信配置 HTTPS/WSS 域名白名单。
 
-### Browser（`@pte-live/pte-im-sdk`）
+### Web SDK（`@pte-live/pte-im-sdk`）
 
 与四端 `PteIMSDK` 并列的独立 Web Core，面向现代浏览器（安全上下文）。不提供 UI，也不走 uni-app x UTS 路径。
 

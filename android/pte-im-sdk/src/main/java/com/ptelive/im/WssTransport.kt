@@ -2,6 +2,7 @@ package com.ptelive.im
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.net.Socket
 import java.security.MessageDigest
@@ -81,11 +82,12 @@ internal class WssTransport(private val endpoint: String, private val listener: 
   }
 
   private fun readFrames(input: DataInputStream) {
+    var fragmentedOpcode: Int? = null
+    var fragmentedPayload: ByteArrayOutputStream? = null
     while (socket != null && !socket!!.isClosed) {
       val first = input.readUnsignedByte()
       val fin = first and 0x80 != 0
       val opcode = first and 0x0f
-      check(fin) { "fragmented WSS frames are not supported by protocol v1" }
       val second = input.readUnsignedByte()
       val masked = second and 0x80 != 0
       var length = (second and 0x7f).toLong()
@@ -96,10 +98,43 @@ internal class WssTransport(private val endpoint: String, private val listener: 
       val payload = ByteArray(length.toInt()).also(input::readFully)
       mask?.let { key -> payload.indices.forEach { payload[it] = (payload[it].toInt() xor key[it % 4].toInt()).toByte() } }
       when (opcode) {
-        0x1 -> listener.onText(payload.toString(Charsets.UTF_8))
-        0x8 -> return
-        0x9 -> sendFrame(0xA, payload)
+        0x0 -> {
+          val target = fragmentedPayload ?: error("unexpected WSS continuation frame")
+          target.write(payload)
+          check(target.size() <= 2_097_152) { "WSS message exceeds 2 MiB" }
+          if (fin) {
+            val completedOpcode = fragmentedOpcode ?: error("missing WSS fragmented opcode")
+            dispatchMessage(completedOpcode, target.toByteArray())
+            fragmentedOpcode = null
+            fragmentedPayload = null
+          }
+        }
+        0x1, 0x2 -> {
+          check(fragmentedPayload == null) { "nested WSS fragmented message" }
+          if (fin) dispatchMessage(opcode, payload) else {
+            fragmentedOpcode = opcode
+            fragmentedPayload = ByteArrayOutputStream().also { it.write(payload) }
+          }
+        }
+        0x8 -> {
+          check(fin && payload.size <= 125) { "invalid WSS close frame" }
+          return
+        }
+        0x9 -> {
+          check(fin && payload.size <= 125) { "invalid WSS ping frame" }
+          sendFrame(0xA, payload)
+        }
+        0xA -> check(fin && payload.size <= 125) { "invalid WSS pong frame" }
+        else -> error("unsupported WSS opcode $opcode")
       }
+    }
+  }
+
+  private fun dispatchMessage(opcode: Int, payload: ByteArray) {
+    when (opcode) {
+      0x1 -> listener.onText(payload.toString(Charsets.UTF_8))
+      0x2 -> error("binary WSS messages are not supported")
+      else -> error("invalid WSS data opcode $opcode")
     }
   }
 
