@@ -663,6 +663,7 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
       PteIMMessageType.VIDEO -> "video/mp4"
       PteIMMessageType.VOICE -> "audio/mpeg"
       PteIMMessageType.FILE -> contentTypeForFileName(appContext.displayName(uri) ?: "")
+      else -> error("unsupported upload message type")
     }
     val credential = postMediaCredentialJson("/v1/im/media/put-url", JSONObject().apply {
       put("mediaType", mediaType); put("contentType", contentType); put("contentLength", total)
