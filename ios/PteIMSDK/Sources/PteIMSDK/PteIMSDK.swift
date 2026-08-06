@@ -20,6 +20,14 @@ public final class PteIMSDK: NSObject, @unchecked Sendable {
   /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
   public lazy var commerce = PteIMCommerce(sdk: self)
 
+  /**
+   Creates an independent scene WSS client using `PteIMBaseConfig.imDomain`.
+   Scene and chat use separate connections; call `connect(userId:userSig:)` with room-scoped UserSig.
+   */
+  public func createSceneClient() -> PteIMSceneClient {
+    PteIMSceneClient(wsURL: config.imDomain, sdkAppId: config.sdkAppId)
+  }
+
   internal init(config: PteIMSessionConfig, persistentCache: Bool = true) throws {
     self.config = config
     let configuredAppearance = PteIMAppearance(themeMode: config.base.themeMode, language: config.base.language)

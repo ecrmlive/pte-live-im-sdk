@@ -78,7 +78,22 @@ export class PteIMWireMessage {
   type: string = ''
   createdAt: number = 0
   quoteMessageId: string = ''
+  status: number = 1
+  recalledAt: number = 0
+  reactions: PteIMMessageReaction[] = []
   content: PteIMWireContent = new PteIMWireContent()
+}
+
+export class PteIMMessageReaction {
+  emoji: string = ''
+  count: number = 0
+  reactedByMe: boolean = false
+
+  constructor(emoji: string = '', count: number = 0, reactedByMe: boolean = false) {
+    this.emoji = emoji
+    this.count = count
+    this.reactedByMe = reactedByMe
+  }
 }
 
 export class PteIMBaseConfig {
@@ -236,6 +251,10 @@ export class PteIMMessage {
   quoteClientMsgId: string = ''
   quoteServerMsgId: string = ''
   quoteText: string = ''
+  /** 1=normal, 2=recalled. */
+  status: number = 1
+  recalledAt: number = 0
+  reactions: PteIMMessageReaction[] = []
 
   constructor(conversationId: string, type: PteIMMessageType, text: string = '',
     packageId: string = '', emojiId: string = '', media: PteIMMedia | null = null,
@@ -291,6 +310,9 @@ export class PteIMMessage {
     message.type = this.type
     message.createdAt = this.createdAt
     message.quoteMessageId = this.quoteServerMsgId
+    message.status = this.status
+    message.recalledAt = this.recalledAt
+    message.reactions = this.reactions
     message.content = content
     return message
   }
@@ -368,6 +390,7 @@ export class PteIMListener {
   onConnectionChanged(_connected: boolean): void {}
   onStateChanges(_changes: PteIMStateChange[]): void {}
   onMessage(_message: PteIMMessage): void {}
+  onMessageUpdated(_message: PteIMMessage): void {}
   onMessageStateChanged(_clientMsgId: string, _state: PteIMSendState): void {}
   onUserSigRefreshFailed(error: Error): void {}
   onThemeModeChanged(_themeMode: PteIMThemeMode): void {}

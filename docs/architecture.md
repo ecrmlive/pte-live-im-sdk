@@ -20,9 +20,9 @@
 | iOS | `ios/PteIMSDK` | `ios/PteIMUIKit` | `ios/PteIMUIDemo` |
 | HarmonyOS | `harmony/PteIMSDK` | `harmony/PteIMUIKit` | `harmony/PteIMUIDemo` |
 | uni-app x | `uni_modules/pte-im-sdk` for H5/Web and WeChat | uvue components and UTS controllers | `uniapp-x/PteIMUIDemo` |
-| Browser (standalone) | `packages/im-web-sdk` (`@pte-live/im-web-sdk`) | — | — |
+| Browser (standalone) | `web/pte-im-sdk` (`@pte-live/pte-im-sdk`) | — | — |
 
-The Browser package is a separate TypeScript Core for secure-context browsers. `PteLiveIMWebClient` speaks the same UserSig, encrypted REST, WSS and E2EE chat contracts as the native/UTS cores. `@pte-live/im-web-sdk/live` only helps hosts apply live-room `eventType` + `roomSeq` catch-up; it does not own WSS join or business HTTP. See [live-event-protocol.md](live-event-protocol.md) and [packages/im-web-sdk/README.md](../packages/im-web-sdk/README.md).
+The Browser package is a separate TypeScript Core for secure-context browsers. It includes chat (`PteIMWebSDK`), Commerce (`PteIMCommerce`), and `PteIMSceneClient` (independent room WSS for `show` / `voice` / `shop` / `sports`). Catch-up HTTP remains host-owned. See [scene-client-contract.md](scene-client-contract.md), [live-event-protocol.md](live-event-protocol.md) and [web/pte-im-sdk/README.md](../web/pte-im-sdk/README.md).
 
 ## UI ownership boundary
 

@@ -70,9 +70,10 @@ export function readEnvelope(payload: Record<string, unknown>): LiveEventEnvelop
 }
 
 /**
- * Track roomSeq + eventId dedupe for live WSS / catch-up.
+ * Track roomSeq + eventId dedupe for scene WSS / catch-up.
+ * `RoomSeqTracker` is the canonical name; `LiveRoomSeqTracker` is kept as an alias.
  */
-export class LiveRoomSeqTracker {
+export class RoomSeqTracker {
   private lastRoomSeq: number
   private readonly seen = new Set<string>()
 
@@ -119,10 +120,8 @@ export class LiveRoomSeqTracker {
     apply: (eventType: string, payload: Record<string, unknown>) => void,
   ): Promise<void> {
     const current = await source.getCurrentRoomSeq()
-    if (this.lastRoomSeq <= 0 && current > 0) {
-      this.lastRoomSeq = current
-      return
-    }
+    // Fresh enter: seed watermark to avoid full-history replay, then still pull after_seq.
+    if (this.lastRoomSeq <= 0 && current > 0) this.lastRoomSeq = current
     let after = this.lastRoomSeq
     for (let page = 0; page < 20; page += 1) {
       const { currentRoomSeq, events } = await source.fetchEventsAfter(after, 100)
@@ -165,5 +164,13 @@ export function eventTypeFromFrame(frame: { data?: unknown; msg?: unknown }): {
       : typeof frame.msg === 'string'
         ? frame.msg
         : undefined
-  return { eventType, payload }
+  return { eventType, payload: payload ?? flattenPayload(root) }
 }
+
+function flattenPayload(root: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (root.eventId || root.event_id || root.roomSeq || root.room_seq) return root
+  return undefined
+}
+
+/** @deprecated Use RoomSeqTracker */
+export class LiveRoomSeqTracker extends RoomSeqTracker {}

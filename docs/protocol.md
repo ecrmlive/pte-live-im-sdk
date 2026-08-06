@@ -118,7 +118,7 @@ For media, the SDK calls `POST /v1/im/media/put-url` with its UserSig (`Authoriz
 
 ## Browser Web client
 
-Standalone package `@pte-live/im-web-sdk` (`packages/im-web-sdk`) implements the same chat wire contract in the browser via `PteLiveIMWebClient`:
+Standalone package `@pte-live/pte-im-sdk` (`web/pte-im-sdk`) implements the same chat wire contract in the browser via `PteLiveIMWebClient`:
 
 - Credentials: `apiUrl`, `wsUrl`, `sdkAppId`, `identifier` / `userId`, `userSig`, `expireAt`
 - REST: `POST` to `/v1/im/*` with `Authorization: Bearer <userSig>`, `X-Pte-Sdk-AppId`, `X-Pte-User-Id`, and optional `X-Pte-Response-Public-Key` for encrypted responses
@@ -127,4 +127,4 @@ Standalone package `@pte-live/im-web-sdk` (`packages/im-web-sdk`) implements the
 
 Host renews UserSig through business auth, then calls `renewUserSig({ userSig, expireAt })`. This package does not ship UIKit.
 
-Live-room fan-out (`sports.*` / `shop.*` / `scene.*`) is a separate path: hosts own WSS `scene.enter` and business catch-up HTTP; use `@pte-live/im-web-sdk/live` for `eventType` / `roomSeq` helpers. See [live-event-protocol.md](live-event-protocol.md).
+Live-room fan-out (`sports.*` / `shop.*` / `scene.*`) is a separate path: hosts own WSS `scene.enter` and business catch-up HTTP; use `@pte-live/pte-im-sdk/live` for `eventType` / `roomSeq` helpers. See [live-event-protocol.md](live-event-protocol.md).

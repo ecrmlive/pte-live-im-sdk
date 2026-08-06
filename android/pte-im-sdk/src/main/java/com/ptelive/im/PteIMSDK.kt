@@ -50,6 +50,12 @@ class PteIMSDK private constructor(private val appContext: Context, initialConfi
   /** Optional Commerce extension. It shares the current UserSig and does not open another socket. */
   val commerce: PteIMCommerce by lazy { PteIMCommerce(this) }
 
+  /**
+   * Creates an independent scene WSS client using [PteIMBaseConfig.imDomain].
+   * Scene and chat use separate connections; call [PteIMSceneClient.connect] with room-scoped UserSig.
+   */
+  fun createSceneClient(): PteIMSceneClient = PteIMSceneClient(config.imDomain, config.sdkAppId)
+
   companion object {
     /** Min gap between UserSig network refreshes (401 / WS / timer force). */
     private const val USER_SIG_REFRESH_COOLDOWN_MS = 120_000L

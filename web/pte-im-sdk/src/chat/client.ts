@@ -2,6 +2,7 @@ import { gcm } from '@noble/ciphers/aes.js'
 import { p256 } from '@noble/curves/nist.js'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
+import { PteIMCommerce } from '../commerce/index.ts'
 
 export interface PteChatCredentials {
   provider?: string
@@ -9,11 +10,26 @@ export interface PteChatCredentials {
   wsUrl: string
   /** HTTPS origin used to resolve COS object keys for display (no trailing slash). */
   cosDomain?: string
+  /** Optional IM Commerce HTTPS origin (no path). */
+  commerceDomain?: string
   sdkAppId: string
   identifier: string
   userSig: string
   userId: string
   expireAt: number
+}
+
+export interface PteIMMessageReaction {
+  emoji: string
+  count: number
+  reactedByMe: boolean
+}
+
+export interface PteIMBusinessContent {
+  businessId: string
+  title: string
+  subtitle?: string
+  actionUrl?: string
 }
 
 export interface PteMediaPutCredential {
@@ -73,7 +89,9 @@ export interface PteChatMessage {
   status?: number
   recalledAt?: number
   deletedAt?: number
+  quoteMessageId?: string
   quoteSnapshot?: string
+  reactions?: PteIMMessageReaction[]
   /** Client-only send pipeline state for optimistic UI. */
   sendState?: 'sending' | 'sent' | 'failed'
 }
@@ -89,7 +107,15 @@ export interface PteChatListener {
   onMessage?: (message: PteChatMessage) => void
   /** Fired when the connection layer ACKs a local send_message (not a peer echo). */
   onSendAck?: (ack: PteSendAck) => void
-  onMessageEvent?: (event: { eventType: string; serverMsgId: string; status?: number }) => void
+  onMessageEvent?: (event: {
+    eventType: string
+    serverMsgId: string
+    status?: number
+    userId?: string
+    emoji?: string
+    reactionAction?: string
+    recalledAt?: number
+  }) => void
   onUserSigWillExpire?: () => void
   onUserSigExpired?: () => void
   onError?: (message: string) => void
@@ -104,6 +130,7 @@ type E2EERequest = (path: string, body: Record<string, unknown>) => Promise<unkn
  * the PTE UserSig, encrypted REST and PTE WebSocket contracts; no Qixi IM
  * transport or message storage is involved.
  */
+/** @deprecated Prefer PteIMWebSDK alias; same chat client. */
 export class PteLiveIMWebClient {
   private credentials: PteChatCredentials
   private socket: WebSocket | null = null
@@ -112,6 +139,7 @@ export class PteLiveIMWebClient {
   private reconnectAttempt = 0
   private listeners = new Set<PteChatListener>()
   private readonly e2ee: E2EE
+  readonly commerce: PteIMCommerce
 
   constructor(credentials: PteChatCredentials) {
     if (!credentials.apiUrl || !credentials.wsUrl || !credentials.sdkAppId || !credentials.identifier || !credentials.userSig) {
@@ -124,6 +152,12 @@ export class PteLiveIMWebClient {
       Number(this.currentUserId()),
       (path, body) => this.request(path, body),
     )
+    this.commerce = new PteIMCommerce((path, body) => this.commerceRequest(path, body))
+  }
+
+  /** Alias used by hosts aligning with native PteIMSDK naming. */
+  static create(credentials: PteChatCredentials) {
+    return new PteLiveIMWebClient(credentials)
   }
 
   addListener(listener: PteChatListener) {
@@ -223,6 +257,14 @@ export class PteLiveIMWebClient {
   recallMessage(messageId: string) { return this.request('/v1/im/messages/recall', { messageId }) }
   deleteMessage(messageId: string) { return this.request('/v1/im/messages/delete', { messageId }) }
 
+  addReaction(messageId: string, emoji: string) {
+    return this.request('/v1/im/messages/reactions/add', { messageId, emoji }) as Promise<{ messageId: string; reactions: PteIMMessageReaction[] }>
+  }
+
+  removeReaction(messageId: string, emoji: string) {
+    return this.request('/v1/im/messages/reactions/remove', { messageId, emoji }) as Promise<{ messageId: string; reactions: PteIMMessageReaction[] }>
+  }
+
   async ackMessages(conversationId: number, messageIds: string[], ackType: 'delivered' | 'read') {
     const ids = messageIds.map((value) => String(value || '').trim()).filter(Boolean)
     if (!ids.length) return
@@ -252,17 +294,36 @@ export class PteLiveIMWebClient {
     return { messages: await Promise.all(list.map((item) => this.materializeMessage(item as Record<string, unknown>))), nextCursor: stringOf(data.nextCursor), hasMore: Boolean(data.hasMore) }
   }
 
-  async sendText(conversationId: number | string, text: string) {
+  async sendText(conversationId: number | string, text: string, quoteMessageId?: string) {
     const normalized = text.trim()
     if (!normalized) throw new Error('消息不能为空')
-    return this.sendMessage(conversationId, 'text', { text: normalized })
+    return this.sendMessage(conversationId, 'text', { text: normalized }, quoteMessageId)
   }
 
-  async sendMessage(conversationId: number | string, type: string, content: Record<string, unknown>): Promise<string> {
+  async sendGift(conversationId: number | string, content: PteIMBusinessContent, quoteMessageId?: string) {
+    return this.sendMessage(conversationId, 'gift', businessContent(content), quoteMessageId)
+  }
+
+  async sendRedPacket(conversationId: number | string, content: PteIMBusinessContent, quoteMessageId?: string) {
+    return this.sendMessage(conversationId, 'red_packet', businessContent(content), quoteMessageId)
+  }
+
+  async sendOrder(conversationId: number | string, content: PteIMBusinessContent, quoteMessageId?: string) {
+    return this.sendMessage(conversationId, 'order', businessContent(content), quoteMessageId)
+  }
+
+  async sendMessage(
+    conversationId: number | string,
+    type: string,
+    content: Record<string, unknown>,
+    quoteMessageId?: string,
+  ): Promise<string> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) throw new Error('PTE IM 连接中，请稍后再试')
     const clientMsgId = requestId()
     const e2ee = await this.e2ee.encrypt(Number(conversationId), content)
-    this.sendEnvelope('send_message', { clientMsgId, conversationId: String(conversationId), type, e2ee })
+    const payload: Record<string, unknown> = { clientMsgId, conversationId: String(conversationId), type, e2ee }
+    if (quoteMessageId) payload.quoteMessageId = String(quoteMessageId)
+    this.sendEnvelope('send_message', payload)
     return clientMsgId
   }
 
@@ -439,7 +500,15 @@ export class PteLiveIMWebClient {
         }
       } else if (action === 'message_event') {
         const payload = frame.payload as Record<string, unknown>
-        this.listeners.forEach((listener) => listener.onMessageEvent?.({ eventType: stringOf(payload.eventType), serverMsgId: stringOf(payload.serverMsgId), status: numberOf(payload.status) }))
+        this.listeners.forEach((listener) => listener.onMessageEvent?.({
+          eventType: stringOf(payload.eventType),
+          serverMsgId: stringOf(payload.serverMsgId),
+          status: numberOf(payload.status) || undefined,
+          userId: stringOf(payload.userId) || undefined,
+          emoji: stringOf(payload.emoji) || undefined,
+          reactionAction: stringOf(payload.reactionAction) || undefined,
+          recalledAt: numberOf(payload.recalledAt) || undefined,
+        }))
       } else if (action === 'user_sig_will_expire') {
         this.listeners.forEach((listener) => listener.onUserSigWillExpire?.())
       } else if (action === 'user_sig_expired') {
@@ -477,8 +546,31 @@ export class PteLiveIMWebClient {
       serverMsgId: stringOf(raw.serverMsgId || raw.message_id), clientMsgId: stringOf(raw.clientMsgId || raw.client_msg_id),
       conversationId: stringOf(raw.conversationId || raw.conversation_id), senderId: stringOf(raw.senderId || raw.sender_id),
       type, content, createdAt: numberOf(raw.createdAt || raw.sent_at || raw.sentAt) * (numberOf(raw.createdAt || raw.sent_at || raw.sentAt) < 10_000_000_000 ? 1000 : 1),
-      serverSeq: numberOf(raw.serverSeq || raw.seq || raw.Seq), status: numberOf(raw.status), recalledAt: numberOf(raw.recalledAt || raw.recalled_at), deletedAt: numberOf(raw.deletedAt || raw.deleted_at), quoteSnapshot: stringOf(raw.quoteSnapshot || raw.quote_snapshot),
+      serverSeq: numberOf(raw.serverSeq || raw.seq || raw.Seq), status: numberOf(raw.status), recalledAt: numberOf(raw.recalledAt || raw.recalled_at), deletedAt: numberOf(raw.deletedAt || raw.deleted_at),
+      quoteMessageId: stringOf(raw.quoteMessageId || raw.quote_message_id) || undefined,
+      quoteSnapshot: stringOf(raw.quoteSnapshot || raw.quote_snapshot) || undefined,
+      reactions: parseReactions(raw.reactions),
     }
+  }
+
+  private async commerceRequest(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const domain = String(this.credentials.commerceDomain || '').replace(/\/$/, '')
+    if (!domain) throw new Error('commerceDomain is not configured')
+    const response = await fetch(`${domain}${path.startsWith('/') ? path : `/${path}`}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.credentials.userSig}`,
+        'X-Pte-Sdk-AppId': this.credentials.sdkAppId,
+        'X-Pte-User-Id': this.currentUserId(),
+      },
+      body: JSON.stringify(body),
+    })
+    const root = await response.json().catch(() => null) as Record<string, unknown> | null
+    if (!root) throw new Error('PTE Commerce 响应无效')
+    const code = numberOf(root.code)
+    if (!response.ok || (code !== 0 && code !== 1)) throw new Error(stringOf(root.msg) || 'PTE Commerce 请求失败')
+    return (root.data || root) as Record<string, unknown>
   }
 
   private sendEnvelope(action: string, payload: Record<string, unknown>) {
@@ -713,4 +805,27 @@ function normalizeMediaContentType(file: Blob, mediaType: 'image' | 'video' | 'v
   throw new Error('不支持的媒体类型')
 }
 
-export * from "./live.ts"
+function businessContent(content: PteIMBusinessContent): Record<string, unknown> {
+  return {
+    businessId: content.businessId,
+    title: content.title,
+    ...(content.subtitle ? { subtitle: content.subtitle } : {}),
+    ...(content.actionUrl ? { actionUrl: content.actionUrl } : {}),
+  }
+}
+
+function parseReactions(raw: unknown): PteIMMessageReaction[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const list = raw.map((item) => {
+    const row = (item || {}) as Record<string, unknown>
+    return {
+      emoji: stringOf(row.emoji),
+      count: numberOf(row.count),
+      reactedByMe: Boolean(row.reacted_by_me ?? row.reactedByMe),
+    }
+  }).filter((item) => item.emoji)
+  return list.length ? list : undefined
+}
+
+/** Canonical Web chat client name aligned with native PteIMSDK. */
+export { PteLiveIMWebClient as PteIMWebSDK }

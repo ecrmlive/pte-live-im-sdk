@@ -161,6 +161,43 @@ export class PteIMRdbStore {
     } catch (error) { throw new Error(`PteIM RDB delete message failed: ${String(error)}`) }
   }
 
+  async removeMessageByServerMsgId(serverMsgId: string): Promise<boolean> {
+    try {
+      const rows = await this.store.querySql('SELECT client_msg_id FROM messages WHERE server_msg_id=?', [serverMsgId])
+      let clientMsgId = ''
+      try {
+        if (!rows.goToFirstRow()) return false
+        clientMsgId = rows.getString(rows.getColumnIndex('client_msg_id'))
+      } finally {
+        rows.close()
+      }
+      await this.removeMessage(clientMsgId)
+      return true
+    } catch (error) {
+      throw new Error(`PteIM RDB removeMessageByServerMsgId failed: ${String(error)}`)
+    }
+  }
+
+  async loadByServerMsgId(serverMsgId: string): Promise<PteIMStoredMessage | null> {
+    try {
+      const values = await this.readStored(
+        'SELECT payload,server_msg_id,server_seq,created_at,state FROM messages WHERE server_msg_id=?',
+        [serverMsgId],
+      )
+      return values.length > 0 ? values[0] : null
+    } catch (error) {
+      throw new Error(`PteIM RDB loadByServerMsgId failed: ${String(error)}`)
+    }
+  }
+
+  async writePayloadByServerMsgId(serverMsgId: string, payload: string): Promise<void> {
+    try {
+      await this.store.executeSql('UPDATE messages SET payload=? WHERE server_msg_id=?', [payload, serverMsgId])
+    } catch (error) {
+      throw new Error(`PteIM RDB writePayloadByServerMsgId failed: ${String(error)}`)
+    }
+  }
+
   async apply(messages: PteIMMessage[], cursor: string): Promise<void> {
     try {
       for (let index = 0; index < messages.length; index++) await this.upsert(messages[index], PteIMSendState.SENT)

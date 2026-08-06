@@ -144,9 +144,84 @@ export type PteIMCommerce = {
   claimRedPacket(id: string, callback: (result: any | null, error: string | null) => void): void
 }
 
+export type PteIMSceneKind = 'show' | 'voice' | 'shop' | 'sports'
+
+export type PteIMSceneCredentials = {
+  wsUrl: string
+  sdkAppId: string
+  userId: string
+  userSig: string
+  expireAt?: number
+}
+
+export type PteIMLiveEventEnvelope = {
+  eventId?: string
+  roomSeq?: number
+  serverTs?: number
+  priority?: string
+}
+
+export type PteIMLiveRoomEventRow = {
+  eventId: string
+  eventType: string
+  roomSeq: number
+  payload: any
+}
+
+export type PteIMLiveCatchUpPage = {
+  currentRoomSeq: number
+  events: PteIMLiveRoomEventRow[]
+}
+
+export type PteIMLiveCatchUpSource = {
+  getCurrentRoomSeq(callback: (seq: number, error: string | null) => void): void
+  fetchEventsAfter(afterSeq: number, limit: number, callback: (page: PteIMLiveCatchUpPage | null, error: string | null) => void): void
+}
+
+export type PteIMSceneEnterOptions = {
+  scene: PteIMSceneKind
+  roomId: string
+  extend?: string
+  catchUp?: PteIMLiveCatchUpSource
+  enterTimeoutMs?: number
+}
+
+export type PteIMSceneEntered = {
+  scene: PteIMSceneKind
+  roomId: string
+  groupName: string
+  requestId: string
+}
+
+export type PteIMSceneListener = {
+  onConnectionChanged?: (connected: boolean) => void
+  onEntered?: (info: PteIMSceneEntered) => void
+  onEnterFailed?: (info: { scene: PteIMSceneKind, roomId: string, message: string }) => void
+  onEvent?: (eventType: string, payload: any, envelope: PteIMLiveEventEnvelope) => void
+  onError?: (message: string) => void
+}
+
+export interface PteIMSceneClient {
+  connect(callback: (error: string | null) => void): void
+  enter(options: PteIMSceneEnterOptions, callback: (result: PteIMSceneEntered | null, error: string | null) => void): void
+  leave(): void
+  disconnect(): void
+  addListener(listener: PteIMSceneListener): void
+  removeListener(listener: PteIMSceneListener): void
+  renewUserSig(credentials: { userSig: string, expireAt?: number }): void
+  getLastRoomSeq(): number
+  isConnected(): boolean
+}
+
+export type PteIMSceneModule = {
+  create(credentials: PteIMSceneCredentials): PteIMSceneClient
+}
+
 export interface PteIMSDKClient {
   /** Optional first-party Commerce extension; no second socket or login. */
   commerce: PteIMCommerce
+  /** Factory for independent scene WSS clients (room-scoped UserSig). */
+  scene: PteIMSceneModule
   start(): void
   stop(): void
   /** Refreshes through the host provider when the UserSig is near expiry or force=true. */
@@ -193,22 +268,24 @@ export interface PteIMSDKClient {
   /** Immediately retries a queued send after a transient transport failure. */
   retryMessage(clientMsgId: string): boolean
   fetchMessageHistory(conversationId: number, beforeSeq: number, limit: number, callback: (result: PteIMMessagePage | null, error: string | null) => void): void
-  sendText(conversationId: string, text: string): string
-  sendEmoji(conversationId: string, packageId: string, emojiId: string): string
-  sendImage(conversationId: string, media: PteIMMedia): string
-  sendVideo(conversationId: string, media: PteIMMedia): string
-  sendFile(conversationId: string, media: PteIMMedia): string
+  sendText(conversationId: string, text: string, quoteMessageId?: string): string
+  sendEmoji(conversationId: string, packageId: string, emojiId: string, quoteMessageId?: string): string
+  sendImage(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string
+  sendVideo(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string
+  sendFile(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string
   uploadAndSendImage(conversationId: string, filePath: string): string
   uploadAndSendVideo(conversationId: string, filePath: string): string
   /** `fileName` and `mimeType` preserve H5 File metadata when its temporary URL has no extension. */
   uploadAndSendFile(conversationId: string, filePath: string, fileName?: string, mimeType?: string): string
   /** H5 may provide a blob filename and MIME type because its temporary URL has no extension. */
   uploadAndSendVoice(conversationId: string, filePath: string, durationMs: number, waveform?: string, fileName?: string, mimeType?: string): string
-  sendVoice(conversationId: string, voice: PteIMVoice): string
-  sendLocation(conversationId: string, location: PteIMLocation): string
-  sendGift(conversationId: string, content: PteIMBusinessContent): string
-  sendRedPacket(conversationId: string, content: PteIMBusinessContent): string
-  sendOrder(conversationId: string, content: PteIMBusinessContent): string
+  sendVoice(conversationId: string, voice: PteIMVoice, quoteMessageId?: string): string
+  sendLocation(conversationId: string, location: PteIMLocation, quoteMessageId?: string): string
+  sendGift(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string
+  sendRedPacket(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string
+  sendOrder(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string
+  addReaction(serverMsgId: string, emoji: string, callback: (result: any | null, error: string | null) => void): void
+  removeReaction(serverMsgId: string, emoji: string, callback: (result: any | null, error: string | null) => void): void
   addListener(listener: PteIMListener): void
   removeListener(listener: PteIMListener): void
 }

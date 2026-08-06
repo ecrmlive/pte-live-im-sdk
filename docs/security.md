@@ -50,13 +50,13 @@ const im = createPteIMSDK({
 
 The host is responsible for supplying a reviewed cryptographic implementation and safely deriving/holding its key. JavaScript encryption cannot protect against an active same-origin/XSS attacker that can access the running key.
 
-## Browser Web SDK (`@pte-live/im-web-sdk`)
+## Browser Web SDK (`@pte-live/pte-im-sdk`)
 
 The standalone browser Core uses the same `@noble/*` P-256 / AES-GCM / HMAC-SHA-256 stack as UTS (versions in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)). It persists only the E2EE device identity (private key + `device_id`) in IndexedDB, wrapped by a non-extractable AES-GCM key in the same origin. It does **not** persist chat message bodies, outbox rows, or sync cursors. If IndexedDB is unavailable (for example private browsing), identity persistence is skipped and the session remains usable for that tab.
 
 Like UTS, browser JavaScript cannot defend against an active same-origin/XSS attacker that can read keys in memory. Do not embed UserSig signing secrets, COS credentials, or long-lived refresh tokens in the web bundle.
 
-Live-room helpers under `@pte-live/im-web-sdk/live` are pure sequence/dedupe utilities and store nothing durable.
+Live-room helpers under `@pte-live/pte-im-sdk/live` are pure sequence/dedupe utilities and store nothing durable.
 
 ## api-im encrypted responses
 

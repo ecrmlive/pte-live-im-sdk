@@ -1,0 +1,541 @@
+export type PteIMSceneKind = 'show' | 'voice' | 'shop' | 'sports'
+
+export type PteIMSceneCredentials = {
+  wsUrl: string
+  sdkAppId: string
+  userId: string
+  userSig: string
+  expireAt?: number
+}
+
+export type PteIMLiveEventEnvelope = {
+  eventId?: string
+  roomSeq?: number
+  serverTs?: number
+  priority?: string
+}
+
+export type PteIMLiveRoomEventRow = {
+  eventId: string
+  eventType: string
+  roomSeq: number
+  payload: any
+}
+
+export type PteIMLiveCatchUpPage = {
+  currentRoomSeq: number
+  events: PteIMLiveRoomEventRow[]
+}
+
+/** Host-injected HTTP catch-up bridge (callback style). */
+export type PteIMLiveCatchUpSource = {
+  getCurrentRoomSeq(callback: (seq: number, error: string | null) => void): void
+  fetchEventsAfter(afterSeq: number, limit: number, callback: (page: PteIMLiveCatchUpPage | null, error: string | null) => void): void
+}
+
+export type PteIMSceneEnterOptions = {
+  scene: PteIMSceneKind
+  roomId: string
+  extend?: string
+  catchUp?: PteIMLiveCatchUpSource
+  enterTimeoutMs?: number
+}
+
+export type PteIMSceneEntered = {
+  scene: PteIMSceneKind
+  roomId: string
+  groupName: string
+  requestId: string
+}
+
+export type PteIMSceneListener = {
+  onConnectionChanged?: (connected: boolean) => void
+  onEntered?: (info: PteIMSceneEntered) => void
+  onEnterFailed?: (info: { scene: PteIMSceneKind, roomId: string, message: string }) => void
+  onEvent?: (eventType: string, payload: any, envelope: PteIMLiveEventEnvelope) => void
+  onError?: (message: string) => void
+}
+
+export interface PteIMSceneClient {
+  connect(callback: (error: string | null) => void): void
+  enter(options: PteIMSceneEnterOptions, callback: (result: PteIMSceneEntered | null, error: string | null) => void): void
+  leave(): void
+  disconnect(): void
+  addListener(listener: PteIMSceneListener): void
+  removeListener(listener: PteIMSceneListener): void
+  renewUserSig(credentials: { userSig: string, expireAt?: number }): void
+  getLastRoomSeq(): number
+  isConnected(): boolean
+}
+
+export type PteIMSceneModule = {
+  create(credentials: PteIMSceneCredentials): PteIMSceneClient
+}
+
+class RoomSeqTracker {
+  private lastRoomSeq: number
+  private seen: string[] = []
+
+  constructor(initialLastRoomSeq: number = 0) {
+    this.lastRoomSeq = initialLastRoomSeq
+  }
+
+  getLastRoomSeq(): number {
+    return this.lastRoomSeq
+  }
+
+  accept(payload: any): boolean {
+    const envelope = readEnvelope(payload)
+    if (envelope.eventId != null && envelope.eventId.length > 0 && this.seen.indexOf(envelope.eventId) >= 0) return false
+    if (envelope.roomSeq != null && envelope.roomSeq > 0 && envelope.roomSeq <= this.lastRoomSeq) {
+      if (envelope.eventId != null && envelope.eventId.length > 0) this.rememberEventId(envelope.eventId)
+      return false
+    }
+    if (envelope.eventId != null && envelope.eventId.length > 0) this.rememberEventId(envelope.eventId)
+    if (envelope.roomSeq != null && envelope.roomSeq > this.lastRoomSeq) this.lastRoomSeq = envelope.roomSeq
+    return true
+  }
+
+  needsCatchUp(payload: any): boolean {
+    const envelope = readEnvelope(payload)
+    return envelope.roomSeq != null && envelope.roomSeq > this.lastRoomSeq + 1
+  }
+
+  catchUp(source: PteIMLiveCatchUpSource, apply: (eventType: string, payload: any) => void, done: (error: string | null) => void): void {
+    source.getCurrentRoomSeq((current, currentError) => {
+      if (currentError != null) { done(currentError); return }
+      if (this.lastRoomSeq <= 0 && current > 0) this.lastRoomSeq = current
+      this.catchUpPage(source, this.lastRoomSeq, 0, apply, done)
+    })
+  }
+
+  private catchUpPage(source: PteIMLiveCatchUpSource, after: number, page: number, apply: (eventType: string, payload: any) => void, done: (error: string | null) => void): void {
+    if (page >= 20) { done(null); return }
+    source.fetchEventsAfter(after, 100, (pageData, pageError) => {
+      if (pageError != null || pageData == null) { done(pageError ?? 'catch-up failed'); return }
+      let nextAfter = after
+      for (let index = 0; index < pageData.events.length; index++) {
+        const row = pageData.events[index]
+        const payload = parseLivePayload(row.payload) ?? {}
+        if (payload.eventId == null && row.eventId.length > 0) payload.eventId = row.eventId
+        if (payload.roomSeq == null && row.roomSeq > 0) payload.roomSeq = row.roomSeq
+        if (this.accept(payload)) apply(row.eventType, payload)
+        if (row.roomSeq > nextAfter) nextAfter = row.roomSeq
+      }
+      if (pageData.events.length < 100) {
+        if (pageData.currentRoomSeq > this.lastRoomSeq) this.lastRoomSeq = pageData.currentRoomSeq
+        done(null)
+        return
+      }
+      this.catchUpPage(source, nextAfter, page + 1, apply, done)
+    })
+  }
+
+  private rememberEventId(eventId: string): void {
+    if (this.seen.indexOf(eventId) >= 0) return
+    this.seen.push(eventId)
+    if (this.seen.length > 2000) this.seen.splice(0, 500)
+  }
+}
+
+/** Independent scene WSS client (show / voice / shop / sports). */
+export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
+  private credentials: PteIMSceneCredentials
+  private socket: any | null = null
+  private stopped: boolean = true
+  private handshaken: boolean = false
+  private reconnectTimer: number | null = null
+  private reconnectAttempt: number = 0
+  private listeners: PteIMSceneListener[] = []
+  private tracker: RoomSeqTracker = new RoomSeqTracker(0)
+  private active: { scene: PteIMSceneKind, roomId: string, extend?: string, catchUp?: PteIMLiveCatchUpSource } | null = null
+  private pendingEnter: {
+    requestId: string
+    scene: PteIMSceneKind
+    roomId: string
+    timer: number
+    callback: (result: PteIMSceneEntered | null, error: string | null) => void
+  } | null = null
+  private catchUpBusy: boolean = false
+
+  constructor(credentials: PteIMSceneCredentials) {
+    if (credentials.wsUrl.length == 0 || credentials.sdkAppId.length == 0 ||
+      credentials.userId.length == 0 || credentials.userSig.length == 0) {
+      throw new Error('PTE IM Scene 凭证不完整')
+    }
+    this.credentials = credentials
+  }
+
+  addListener(listener: PteIMSceneListener): void {
+    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener)
+    if (this.socket != null && this.handshaken) listener.onConnectionChanged?.(true)
+  }
+
+  removeListener(listener: PteIMSceneListener): void {
+    const index = this.listeners.indexOf(listener)
+    if (index >= 0) this.listeners.splice(index, 1)
+  }
+
+  getLastRoomSeq(): number {
+    return this.tracker.getLastRoomSeq()
+  }
+
+  isConnected(): boolean {
+    return this.socket != null && this.handshaken
+  }
+
+  renewUserSig(credentials: { userSig: string, expireAt?: number }): void {
+    if (credentials.userSig.length == 0) throw new Error('PTE IM UserSig 不能为空')
+    this.credentials.userSig = credentials.userSig
+    this.credentials.expireAt = credentials.expireAt
+  }
+
+  connect(callback: (error: string | null) => void): void {
+    this.stopped = false
+    if (this.socket != null && this.handshaken) { callback(null); return }
+    this.openSocket(callback)
+  }
+
+  enter(options: PteIMSceneEnterOptions, callback: (result: PteIMSceneEntered | null, error: string | null) => void): void {
+    try {
+      assertSceneRoomId(options.scene, options.roomId)
+    } catch (error) {
+      callback(null, error instanceof Error ? error.message : String(error))
+      return
+    }
+    this.active = {
+      scene: options.scene,
+      roomId: options.roomId.trim(),
+      extend: options.extend,
+      catchUp: options.catchUp,
+    }
+    this.connect((connectError) => {
+      if (connectError != null) { callback(null, connectError); return }
+      const runEnter = (): void => {
+        this.sendEnter(options.enterTimeoutMs ?? 15000, callback)
+      }
+      if (options.catchUp != null) {
+        this.tracker.catchUp(options.catchUp, (eventType, payload) => this.emitEvent(eventType, payload), (catchUpError) => {
+          if (catchUpError != null) { callback(null, catchUpError); return }
+          runEnter()
+        })
+        return
+      }
+      runEnter()
+    })
+  }
+
+  leave(): void {
+    const active = this.active
+    if (active != null && this.socket != null && this.handshaken) {
+      this.sendRaw({
+        action: 'scene.leave',
+        request_id: sceneRequestId(),
+        scene: active.scene,
+        room_id: active.roomId,
+      })
+    }
+    this.active = null
+    this.clearPendingEnter('已离房')
+  }
+
+  disconnect(): void {
+    this.stopped = true
+    this.active = null
+    this.clearPendingEnter('已断开')
+    if (this.reconnectTimer != null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
+    const socket = this.socket
+    this.socket = null
+    this.handshaken = false
+    this.closeSocket(socket, 'Scene disconnected')
+    this.notifyConnection(false)
+  }
+
+  private openSocket(callback: (error: string | null) => void): void {
+    if (this.socket != null && this.handshaken) { callback(null); return }
+    if (this.socket != null) {
+      this.closeSocket(this.socket, 'Scene reconnect')
+      this.socket = null
+    }
+    this.handshaken = false
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      callback('Scene WSS 握手超时')
+      if (this.socket != null) this.closeSocket(this.socket, 'Scene handshake timeout')
+    }, 15000)
+    const socket = uni.connectSocket({ url: this.webSocketURL() })
+    this.socket = socket
+    socket.onOpen(() => { /* wait for handshake code=0 */ })
+    socket.onMessage((event: any) => {
+      this.handleFrame(String(event.data), () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        callback(null)
+      })
+    })
+    socket.onError((_error: any) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      this.emitError('Scene WSS 连接异常')
+      callback('Scene WSS 连接异常')
+    })
+    socket.onClose(() => {
+      if (this.socket != socket) return
+      this.socket = null
+      this.handshaken = false
+      this.notifyConnection(false)
+      this.scheduleReconnect()
+    })
+  }
+
+  private handleFrame(raw: string, onHandshake?: () => void): void {
+    let frame: any
+    try {
+      frame = JSON.parse(raw) as any
+    } catch (_error) {
+      this.emitError('Scene 帧解析失败')
+      return
+    }
+
+    if (!this.handshaken && Number(frame.code) == 0 && frame.data != null) {
+      this.handshaken = true
+      this.reconnectAttempt = 0
+      this.notifyConnection(true)
+      onHandshake?.()
+      return
+    }
+
+    const dataRaw = frame.data
+    let data: any | null = null
+    if (typeof dataRaw == 'string') {
+      try { data = JSON.parse(dataRaw) as any } catch (_error) { data = null }
+    } else if (dataRaw != null && typeof dataRaw == 'object') {
+      data = dataRaw
+    }
+
+    const msg = stringOf(frame.msg)
+    const dataType = data != null ? stringOf(data.type) : ''
+    if (dataType == 'scene.ack' || msg.indexOf('scene') >= 0) {
+      const ok = data != null && (data.ok == true || data.ok == 'true')
+      const requestId = data != null ? stringOf(data.request_id ?? data.requestId) : ''
+      const scene = (data != null ? stringOf(data.scene) : '') || (this.active != null ? this.active.scene : 'show') as PteIMSceneKind
+      const roomId = (data != null ? stringOf(data.room_id ?? data.roomId) : '') || (this.active != null ? this.active.roomId : '')
+      if (this.pendingEnter != null &&
+        (this.pendingEnter.requestId.length == 0 || requestId.length == 0 || requestId == this.pendingEnter.requestId)) {
+        const pending = this.pendingEnter
+        this.pendingEnter = null
+        clearTimeout(pending.timer)
+        if (ok) {
+          const groupName = (data != null ? stringOf(data.group_name ?? data.groupName) : '') || groupNameForScene(scene, roomId)
+          const entered: PteIMSceneEntered = { scene, roomId, groupName, requestId: pending.requestId }
+          this.listeners.forEach((listener: PteIMSceneListener) => listener.onEntered?.(entered))
+          pending.callback(entered, null)
+        } else {
+          const message = msg.length > 0 ? msg : 'scene.enter 失败'
+          this.listeners.forEach((listener: PteIMSceneListener) =>
+            listener.onEnterFailed?.({ scene, roomId, message }))
+          pending.callback(null, message)
+        }
+      }
+      return
+    }
+
+    const parsed = eventTypeFromFrame(frame)
+    if (parsed.eventType == null || parsed.eventType.length == 0 || parsed.payload == null) return
+    if (this.tracker.needsCatchUp(parsed.payload)) {
+      const catchUp = this.active?.catchUp
+      if (catchUp != null && !this.catchUpBusy) {
+        this.catchUpBusy = true
+        this.tracker.catchUp(catchUp, (eventType, row) => this.emitEvent(eventType, row), (catchUpError) => {
+          this.catchUpBusy = false
+          if (catchUpError != null) this.emitError(catchUpError)
+        })
+      }
+      return
+    }
+    if (this.tracker.accept(parsed.payload)) this.emitEvent(parsed.eventType, parsed.payload)
+  }
+
+  private sendEnter(timeoutMs: number, callback: (result: PteIMSceneEntered | null, error: string | null) => void): void {
+    const active = this.active
+    if (active == null) { callback(null, '未设置进房参数'); return }
+    if (this.socket == null || !this.handshaken) { callback(null, 'Scene 未连接'); return }
+    const requestId = sceneRequestId()
+    const timer = setTimeout(() => {
+      if (this.pendingEnter == null || this.pendingEnter.requestId != requestId) return
+      this.pendingEnter = null
+      const message = 'scene.enter 超时'
+      this.listeners.forEach((listener: PteIMSceneListener) =>
+        listener.onEnterFailed?.({ scene: active.scene, roomId: active.roomId, message }))
+      callback(null, message)
+    }, timeoutMs)
+    this.pendingEnter = { requestId, scene: active.scene, roomId: active.roomId, timer, callback }
+    const body: any = {
+      action: 'scene.enter',
+      request_id: requestId,
+      scene: active.scene,
+      room_id: active.roomId,
+    }
+    if (active.extend != null && active.extend.length > 0) body.extend = active.extend
+    this.sendRaw(body)
+  }
+
+  private sendRaw(body: any): void {
+    if (this.socket == null || !this.handshaken) return
+    this.socket.send({ data: JSON.stringify(body) })
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer != null) return
+    const attempt = Math.min(this.reconnectAttempt, 5)
+    this.reconnectAttempt = attempt + 1
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.rejoin()
+    }, delay)
+  }
+
+  private rejoin(): void {
+    if (this.stopped) return
+    this.openSocket((connectError) => {
+      if (connectError != null) {
+        this.emitError(connectError)
+        this.scheduleReconnect()
+        return
+      }
+      if (this.active == null) return
+      const active = this.active
+      const runEnter = (): void => {
+        this.sendEnter(15000, (_result, error) => {
+          if (error != null) {
+            this.emitError(error)
+            this.scheduleReconnect()
+          }
+        })
+      }
+      if (active.catchUp != null) {
+        this.tracker.catchUp(active.catchUp, (eventType, payload) => this.emitEvent(eventType, payload), (catchUpError) => {
+          if (catchUpError != null) {
+            this.emitError(catchUpError)
+            this.scheduleReconnect()
+            return
+          }
+          runEnter()
+        })
+        return
+      }
+      runEnter()
+    })
+  }
+
+  private clearPendingEnter(message: string): void {
+    if (this.pendingEnter == null) return
+    clearTimeout(this.pendingEnter.timer)
+    const pending = this.pendingEnter
+    this.pendingEnter = null
+    pending.callback(null, message)
+  }
+
+  private emitEvent(eventType: string, payload: any): void {
+    const envelope = readEnvelope(payload)
+    this.listeners.forEach((listener: PteIMSceneListener) => listener.onEvent?.(eventType, payload, envelope))
+  }
+
+  private notifyConnection(connected: boolean): void {
+    this.listeners.forEach((listener: PteIMSceneListener) => listener.onConnectionChanged?.(connected))
+  }
+
+  private emitError(message: string): void {
+    this.listeners.forEach((listener: PteIMSceneListener) => listener.onError?.(message))
+  }
+
+  private closeSocket(socket: any | null, reason: string): void {
+    const options = { code: 1000, reason } as CloseSocketOptions
+    if (socket != null && typeof socket.close === 'function') {
+      try { socket.close(options); return } catch (_) {}
+    }
+    try { uni.closeSocket(options) } catch (_) {}
+  }
+
+  private webSocketURL(): string {
+    const separator = this.credentials.wsUrl.indexOf('?') >= 0 ? '&' : '?'
+    return this.credentials.wsUrl + separator +
+      'sdkAppID=' + encodeURIComponent(this.credentials.sdkAppId) +
+      '&identifier=' + encodeURIComponent(this.credentials.userId) +
+      '&userSig=' + encodeURIComponent(this.credentials.userSig)
+  }
+}
+
+export function createSceneModule(): PteIMSceneModule {
+  return {
+    create: (credentials: PteIMSceneCredentials): PteIMSceneClient => new CrossPlatformPteIMSceneClient(credentials),
+  }
+}
+
+export function groupNameForScene(scene: PteIMSceneKind, roomId: string): string {
+  if (scene == 'shop') return `live:${roomId}`
+  if (scene == 'sports') return `sports:${roomId}`
+  return `${scene}:${roomId}`
+}
+
+export function assertSceneRoomId(scene: PteIMSceneKind, roomId: string): void {
+  const id = roomId.trim()
+  if (id.length == 0) throw new Error('roomId 不能为空')
+  if (scene == 'sports' && !/^sports-live-\d+$/.test(id)) {
+    throw new Error('体育房间 roomId 必须为 sports-live-{数字id}')
+  }
+}
+
+function parseLivePayload(raw: any): any | null {
+  if (typeof raw == 'string') {
+    const trimmed = raw.trim()
+    if (trimmed.length == 0) return null
+    try { return JSON.parse(trimmed) as any } catch (_error) { return null }
+  }
+  if (raw != null && typeof raw == 'object' && !Array.isArray(raw)) return raw
+  return null
+}
+
+function readEnvelope(payload: any): PteIMLiveEventEnvelope {
+  const eventId = payload.eventId != null ? String(payload.eventId) :
+    payload.event_id != null ? String(payload.event_id) : undefined
+  const roomSeqRaw = payload.roomSeq ?? payload.room_seq
+  const roomSeq = roomSeqRaw == null || String(roomSeqRaw).trim().length == 0 ? undefined : Number(roomSeqRaw)
+  const serverTsRaw = payload.serverTs ?? payload.server_ts
+  const serverTs = serverTsRaw == null || String(serverTsRaw).trim().length == 0 ? undefined : Number(serverTsRaw)
+  const priority = payload.priority != null ? String(payload.priority) : undefined
+  return { eventId, roomSeq, serverTs, priority }
+}
+
+function eventTypeFromFrame(frame: any): { eventType?: string, payload?: any } {
+  let envelope: any = frame.data
+  if (typeof frame.data == 'string') {
+    try { envelope = JSON.parse(frame.data) as any } catch (_error) { return {} }
+  }
+  if (envelope == null || typeof envelope != 'object') return {}
+  const scene = envelope.scene
+  const payload = parseLivePayload(scene != null ? scene.payload : null)
+  const eventType = envelope.event_type != null ? String(envelope.event_type) :
+    envelope.eventType != null ? String(envelope.eventType) :
+      frame.msg != null ? String(frame.msg) : undefined
+  return { eventType, payload: payload ?? flattenPayload(envelope) }
+}
+
+function flattenPayload(root: any): any | null {
+  if (root.eventId != null || root.event_id != null || root.roomSeq != null || root.room_seq != null) return root
+  return null
+}
+
+function stringOf(value: any): string {
+  if (value == null) return ''
+  return String(value)
+}
+
+function sceneRequestId(): string {
+  return Date.now().toString() + '-' + Math.random().toString().substring(2)
+}

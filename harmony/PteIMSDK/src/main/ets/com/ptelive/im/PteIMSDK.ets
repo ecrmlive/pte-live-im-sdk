@@ -3,10 +3,11 @@ import { fileIo } from '@kit.CoreFileKit'
 import webSocket from '@ohos.net.webSocket'
 import http from '@ohos.net.http'
 import util from '@ohos.util'
-import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage, PteIMUserSigRefreshResult } from './IMModels'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBusinessContent, PteIMContact, PteIMContactPage, PteIMConversation, PteIMConversationPage, PteIMDefaultSetting, PteIMGender, PteIMGroupPage, PteIMLanguage, PteIMListener, PteIMLocation, PteIMLoginConfig, PteIMMedia, PteIMMember, PteIMMemberPage, PteIMMessage, PteIMMessagePage, PteIMMessageReaction, PteIMMessageType, PteIMPushDevice, PteIMPushPlatform, PteIMRemoteConversation, PteIMRemoteMessage, PteIMSendState, PteIMStateChange, PteIMStateChangePage, PteIMThemeMode, PteIMUserProfile, PteIMUserProfileUpdate, PteIMVoice, PteIMWireMessage, PteIMUserSigRefreshResult } from './IMModels'
 import { PteIMRdbStore, PteIMStoredRemoteConversation } from './PteIMRdbStore'
 import { PteIME2EE } from './PteIME2EE'
 import { PteIMResponseCrypto } from './PteIMResponseCrypto'
+import { PteIMSceneClient, PteIMSceneCredentials } from './PteIMSceneClient'
 
 type WireObject = Record<string, Object>
 interface PteIMSendMessagePayload { clientMsgId: string; conversationId: string; type: PteIMMessageType; e2ee: WireObject; quoteMessageId: string }
@@ -158,6 +159,11 @@ export class PteIMSDK {
 
   currentAppearance(): PteIMAppearance { return this.appearance }
   currentUserId(): string { return this.config.userId }
+
+  /** Creates an independent scene WSS client (room-scoped UserSig, separate from chat). */
+  createSceneClient(credentials: PteIMSceneCredentials): PteIMSceneClient {
+    return new PteIMSceneClient(credentials)
+  }
 
   async sendText(conversationId: string, text: string): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.TEXT, text)) }
   async sendEmoji(conversationId: string, packageId: string, emojiId: string): Promise<PteIMMessage> { return await this.send(new PteIMMessage(conversationId, PteIMMessageType.EMOJI, '', packageId, emojiId)) }
@@ -508,9 +514,62 @@ export class PteIMSDK {
         this.store.markSent(clientMsgId, this.stringValue(payload, 'serverMsgId'), this.numberValue(payload, 'serverSeq')).then(() => {
           this.listeners.forEach((listener: PteIMListener) => listener.onMessageStateChanged(clientMsgId, PteIMSendState.SENT))
         }).catch((error: Error) => this.emitError(error))
+      } else if (action === 'message_event') {
+        await this.handleMessageEvent(payload)
       } else if (action === 'user_sig_will_expire' || action === 'user_sig_expired') { void this.refreshUserSig(true) }
       else if (action === 'sync_required') this.syncNow()
     } catch (error) { this.emitError(error) }
+  }
+
+  private async handleMessageEvent(payload: WireObject): Promise<void> {
+    const serverMsgId = this.stringValue(payload, 'serverMsgId')
+    const eventType = this.stringValue(payload, 'eventType')
+    if (serverMsgId.length === 0 || eventType.length === 0) return
+    if (eventType === 'chat.message.deleted') {
+      await this.store.removeMessageByServerMsgId(serverMsgId)
+      return
+    }
+    const stored = await this.store.loadByServerMsgId(serverMsgId)
+    if (stored === null) return
+    const wire = JSON.parse(stored.payload) as WireObject
+    if (eventType === 'chat.message.recalled') {
+      wire['status'] = this.numberValue(payload, 'status') > 0 ? this.numberValue(payload, 'status') : 2
+      wire['recalledAt'] = this.numberValue(payload, 'recalledAt') > 0 ? this.numberValue(payload, 'recalledAt') : Date.now()
+    } else if (eventType === 'chat.message.reaction_changed') {
+      const emoji = this.stringValue(payload, 'emoji')
+      if (emoji.length === 0) return
+      const added = this.stringValue(payload, 'reactionAction') === 'added'
+      const actor = this.stringValue(payload, 'userId')
+      const raw = wire['reactions']
+      const list: Object[] = Array.isArray(raw) ? raw as Object[] : []
+      const next: Object[] = []
+      let found = false
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i] as WireObject
+        const itemEmoji = this.stringValue(item, 'emoji')
+        if (itemEmoji !== emoji) {
+          next.push(item)
+          continue
+        }
+        found = true
+        const count = this.numberValue(item, 'count') + (added ? 1 : -1)
+        const reactedByMe = actor === this.config.userId ? added : this.boolValue(item, 'reactedByMe')
+        if (count > 0) {
+          const row: WireObject = { 'emoji': emoji, 'count': Math.max(0, count), 'reactedByMe': reactedByMe }
+          next.push(row)
+        }
+      }
+      if (!found && added) {
+        const row: WireObject = { 'emoji': emoji, 'count': 1, 'reactedByMe': actor === this.config.userId }
+        next.push(row)
+      }
+      wire['reactions'] = next
+    } else {
+      return
+    }
+    await this.store.writePayloadByServerMsgId(serverMsgId, JSON.stringify(wire))
+    const updated = this.messageFromJson(JSON.stringify(wire), stored.serverMsgId, stored.serverSeq, stored.createdAt, stored.state)
+    this.listeners.forEach((listener: PteIMListener) => listener.onMessageUpdated(updated))
   }
 
   private sendEnvelope(action: string, payload: Object): void {
@@ -679,6 +738,19 @@ export class PteIMSDK {
     message.quoteClientMsgId = this.stringValue(content, 'quoteClientMsgId')
     message.quoteServerMsgId = this.stringValue(content, 'quoteServerMsgId') || this.stringValue(value, 'quoteMessageId')
     message.quoteText = this.stringValue(content, 'quoteText')
+    message.status = this.numberValue(value, 'status') > 0 ? this.numberValue(value, 'status') : 1
+    message.recalledAt = this.numberValue(value, 'recalledAt')
+    const reactionsRaw = value['reactions']
+    if (Array.isArray(reactionsRaw)) {
+      const reactions: PteIMMessageReaction[] = []
+      for (let i = 0; i < reactionsRaw.length; i++) {
+        const row = reactionsRaw[i] as WireObject
+        const emoji = this.stringValue(row, 'emoji')
+        if (emoji.length === 0) continue
+        reactions.push(new PteIMMessageReaction(emoji, this.numberValue(row, 'count'), this.boolValue(row, 'reactedByMe') || this.boolValue(row, 'reacted_by_me')))
+      }
+      message.reactions = reactions
+    }
     return message
   }
   private async messageFromRemoteWire(value: WireObject): Promise<PteIMMessage> {

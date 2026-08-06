@@ -52,8 +52,8 @@
 | --- | --- | --- | --- | --- |
 | Android 原生 | 已实现 | 已实现 | 已实现 | 已实现 |
 | iOS 原生 | 已实现 | 已实现 | 已实现 | 已实现 |
-| HarmonyOS 原生 | 已实现 | 已实现 | 已实现 | 尚未解析/持久化 `message_event` 的反应变更；UIKit 不能作为已实时同步的反应 UI 使用 |
-| uni-app x UTS（H5、微信） | 读取 `quoteMessageId`；发送引用链路尚未对外暴露 | 已实现，并把撤回/删除事件交给 listener | 未实现 | 未实现；`reaction-provider` 仅是宿主兼容扩展 |
-| Browser `@pte-live/im-web-sdk` | 未实现 | REST 调用已实现，事件只透传给 listener | 未实现 | 未实现；宿主自行消费 `onMessageEvent` |
+| Browser `@pte-live/pte-im-sdk` | 已实现 | REST + `onMessageEvent` 透传（含反应字段） | 已实现 | 未做本地消息库；宿主消费 `onMessageEvent` |
+| HarmonyOS 原生 | 已实现 | 已实现 | 已实现 | 已实现（`message_event` 写入本地 store） |
+| uni-app x UTS（H5、微信） | 已实现（发送可选 `quoteMessageId`） | 已实现，并把撤回/删除事件交给 listener | 已实现 | 事件透传；无完整反应聚合持久化 |
 
 “已实现”表示当前源码已有公开 SDK 调用与对应事件/缓存处理；不代表宿主业务可跳过 UserSig、会话成员权限或 UI 刷新。新增平台能力时，必须同时更新本矩阵、[协议](protocol.md)和服务端 `api-im/docs/openapi.yaml`。

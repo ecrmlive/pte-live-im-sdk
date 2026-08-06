@@ -1,6 +1,7 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChange, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig, PteIMUserSigRefreshResult } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChange, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig, PteIMUserSigRefreshResult, PteIMSceneModule } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
 import { CrossPlatformPteIMCommerce } from './commerce.uts'
+import { createSceneModule } from './scene.uts'
 
 type PteIMOutboxMessage = {
   clientMsgId: string
@@ -9,6 +10,7 @@ type PteIMOutboxMessage = {
   type: string
   createdAt: number
   content: any
+  quoteMessageId?: string
   retryCount: number
   nextRetryAt: number
 }
@@ -37,12 +39,14 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
   private encryptingOutboxIds: string[] = []
   private listeners: PteIMListener[] = []
   commerce: PteIMCommerce
+  scene: PteIMSceneModule
 
   constructor(base: PteIMBaseConfig, loginConfig: PteIMLoginConfig) {
     this.base = base
     this.loginConfig = loginConfig
     this.e2ee = new PteIME2EE(base, loginConfig)
     this.commerce = new CrossPlatformPteIMCommerce((path: string, data: any, callback: (data: any | null, error: string | null) => void) => this.commerceRequest(path, data, callback))
+    this.scene = createSceneModule()
     this.loadOutbox()
     this.loadSyncCursor()
     this.loadStateSyncCursor()
@@ -265,11 +269,11 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       callback({ items }, null)
     })
   }
-  sendText(conversationId: string, text: string): string { return this.sendMessage(conversationId, 'text', { text }) }
-  sendEmoji(conversationId: string, packageId: string, emojiId: string): string { return this.sendMessage(conversationId, 'emoji', { packageId, emojiId }) }
-  sendImage(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'image', mediaContent(media)) }
-  sendVideo(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'video', mediaContent(media)) }
-  sendFile(conversationId: string, media: PteIMMedia): string { return this.sendMessage(conversationId, 'file', mediaContent(media)) }
+  sendText(conversationId: string, text: string, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'text', { text }, quoteMessageId) }
+  sendEmoji(conversationId: string, packageId: string, emojiId: string, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'emoji', { packageId, emojiId }, quoteMessageId) }
+  sendImage(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'image', mediaContent(media), quoteMessageId) }
+  sendVideo(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'video', mediaContent(media), quoteMessageId) }
+  sendFile(conversationId: string, media: PteIMMedia, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'file', mediaContent(media), quoteMessageId) }
   uploadAndSendImage(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'image') }
   uploadAndSendVideo(conversationId: string, filePath: string): string { return this.uploadAndSendMedia(conversationId, filePath, 'video') }
   uploadAndSendFile(conversationId: string, filePath: string, fileName: string = '', mimeType: string = ''): string { return this.uploadAndSendMedia(conversationId, filePath, 'file', 0, '', fileName, mimeType) }
@@ -277,11 +281,17 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     if (durationMs <= 0) throw new Error('durationMs must be positive')
     return this.uploadAndSendMedia(conversationId, filePath, 'voice', durationMs, waveform, fileName, mimeType)
   }
-  sendVoice(conversationId: string, voice: PteIMVoice): string { return this.sendMessage(conversationId, 'voice', { url: voice.url, durationMs: voice.durationMs, waveform: voice.waveform, sizeBytes: voice.sizeBytes }) }
-  sendLocation(conversationId: string, location: PteIMLocation): string { return this.sendMessage(conversationId, 'location', location) }
-  sendGift(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'gift', content) }
-  sendRedPacket(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'red_packet', content) }
-  sendOrder(conversationId: string, content: PteIMBusinessContent): string { return this.sendMessage(conversationId, 'order', content) }
+  sendVoice(conversationId: string, voice: PteIMVoice, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'voice', { url: voice.url, durationMs: voice.durationMs, waveform: voice.waveform, sizeBytes: voice.sizeBytes }, quoteMessageId) }
+  sendLocation(conversationId: string, location: PteIMLocation, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'location', location, quoteMessageId) }
+  sendGift(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'gift', content, quoteMessageId) }
+  sendRedPacket(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'red_packet', content, quoteMessageId) }
+  sendOrder(conversationId: string, content: PteIMBusinessContent, quoteMessageId?: string): string { return this.sendMessage(conversationId, 'order', content, quoteMessageId) }
+  addReaction(serverMsgId: string, emoji: string, callback: (result: any | null, error: string | null) => void): void {
+    this.changeMessageReaction(serverMsgId, emoji, true, callback)
+  }
+  removeReaction(serverMsgId: string, emoji: string, callback: (result: any | null, error: string | null) => void): void {
+    this.changeMessageReaction(serverMsgId, emoji, false, callback)
+  }
   addListener(listener: PteIMListener): void {
     if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener)
   }
@@ -290,15 +300,25 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
     if (index >= 0) this.listeners.splice(index, 1)
   }
 
-  private sendMessage(conversationId: string, type: string, content: any): string {
+  private sendMessage(conversationId: string, type: string, content: any, quoteMessageId?: string): string {
     if (!/^[1-9][0-9]*$/.test(conversationId)) throw new Error('conversationId must be a positive numeric string returned by openSingleConversation or createGroupConversation')
     if (this.outbox.length >= 200) throw new Error('IM outbox limit reached')
     const clientMsgId = requestId()
-    this.outbox.push({ clientMsgId, conversationId, senderId: this.loginConfig.userId, type, createdAt: Date.now(), content, retryCount: 0, nextRetryAt: 0 })
+    const normalizedQuote = quoteMessageId != null ? quoteMessageId.trim() : ''
+    this.outbox.push({
+      clientMsgId, conversationId, senderId: this.loginConfig.userId, type, createdAt: Date.now(), content,
+      quoteMessageId: normalizedQuote.length > 0 ? normalizedQuote : undefined,
+      retryCount: 0, nextRetryAt: 0,
+    })
     this.persistOutbox()
     this.notifyMessageState({ clientMsgId, state: 'pending' })
     this.flushOutbox()
     return clientMsgId
+  }
+
+  private changeMessageReaction(serverMsgId: string, emoji: string, add: boolean, callback: (result: any | null, error: string | null) => void): void {
+    if (!/^[1-9][0-9]*$/.test(serverMsgId) || emoji.trim().length == 0) { callback(null, 'message and emoji are required'); return }
+    this.sdkRequest(add ? '/v1/im/messages/reactions/add' : '/v1/im/messages/reactions/remove', { messageId: serverMsgId, emoji }, callback)
   }
   private sdkRequest(path: string, data: any, callback: (data: UTSJSONObject | null, error: string | null) => void): void {
     this.e2ee.responseKey().then((key) => uni.request({ url: trimTrailingSlash(this.base.apiDomain) + path, method: 'POST', dataType: 'json', header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.loginConfig.userSig, 'X-Pte-Sdk-AppId': this.loginConfig.sdkAppId.toString(), 'X-Pte-User-Id': this.loginConfig.userId, 'X-Pte-Response-Public-Key': key.publicKey } as UTSJSONObject, data: data as UTSJSONObject,
@@ -507,7 +527,9 @@ export class CrossPlatformPteIMSDKClient implements PteIMSDKClient {
       this.encryptingOutboxIds.push(message.clientMsgId)
       this.e2ee.encrypt(message, (path, body, callback) => this.sdkRequest(path, body, callback)).then((e2ee) => {
         this.removeEncrypting(message.clientMsgId)
-        this.sendEnvelope('send_message', { clientMsgId: message.clientMsgId, conversationId: message.conversationId, type: message.type, e2ee })
+        const payload: any = { clientMsgId: message.clientMsgId, conversationId: message.conversationId, type: message.type, e2ee }
+        if (message.quoteMessageId != null && message.quoteMessageId.length > 0) payload.quoteMessageId = message.quoteMessageId
+        this.sendEnvelope('send_message', payload)
       }).catch((error) => { this.removeEncrypting(message.clientMsgId); this.emitError(error) })
     }
     if (changed) this.persistOutbox()
