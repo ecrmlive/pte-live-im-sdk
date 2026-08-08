@@ -8,12 +8,15 @@ data class PteIMAppearance(val themeMode: PteIMThemeMode, val language: PteIMLan
 
 /** App-scoped connection configuration. Supply once during application startup. */
 data class PteIMBaseConfig(
-  val apiDomain: String,
-  val imDomain: String,
+  val apiDomain: String = PteIMDefaultDomains.API,
+  val imDomain: String = PteIMDefaultDomains.IM,
   /** HTTPS root used to resolve COS object keys returned by the media API. */
-  val cosDomain: String,
-  /** Optional HTTPS Commerce extension origin. It reuses this IM session's UserSig. */
-  val commerceDomain: String? = null,
+  val cosDomain: String = PteIMDefaultDomains.COS,
+  /**
+   * Optional HTTPS Commerce extension origin. Defaults to the public Commerce
+   * host; pass `null` to disable. It reuses this IM session's UserSig.
+   */
+  val commerceDomain: String? = PteIMDefaultDomains.COMMERCE,
   val themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM,
   val language: PteIMLanguage = PteIMLanguage.ZH_CN,
   /**

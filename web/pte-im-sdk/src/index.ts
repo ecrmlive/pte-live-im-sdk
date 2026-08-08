@@ -1,5 +1,6 @@
 /** @pte-live/pte-im-sdk — Web SDK: chat + commerce + scene. */
 
+export * from './defaults.ts'
 export * from './chat/index.ts'
 export * from './commerce/index.ts'
 export * from './scene/index.ts'

@@ -53,21 +53,19 @@ final class PteIMUIDemoApplicationSession {
     let apiDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugAPIDomain") as? String ?? "http://127.0.0.1:11504"
     let imDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugIMDomain") as? String ?? "ws://127.0.0.1:11510/ws"
     let cosDomain = Bundle.main.object(forInfoDictionaryKey: "PTEIMDebugCOSDomain") as? String ?? "http://127.0.0.1:9000"
-    let allowInsecureLocalhost = true
-    #else
-    let apiDomain = "https://api-im.pte-live.invalid"
-    let imDomain = "wss://wss.pte-live.invalid/ws"
-    let cosDomain = "https://cos.pte-live.invalid"
-    let allowInsecureLocalhost = false
-    #endif
     baseConfig = try PteIMBaseConfig(
       apiDomain: apiDomain,
       imDomain: imDomain,
       cosDomain: cosDomain,
+      commerceDomain: nil,
       themeMode: .system,
       language: .system,
-      allowInsecureLocalhost: allowInsecureLocalhost
+      allowInsecureLocalhost: true
     )
+    #else
+    // Release uses SDK public defaults; hosts override any field as needed.
+    baseConfig = try PteIMBaseConfig(themeMode: .system, language: .system)
+    #endif
     bootstrap = PteIMSDK.configure(baseConfig)
   }
 }

@@ -12,6 +12,26 @@ export type PteIMSecureRandomSource = {
   getBytes(length: number, callback: (bytes: Uint8Array | null, error: string | null) => void): void
 }
 
+/** Public defaults for PteIMBaseConfig. Hosts may override any field. */
+export const PTE_IM_DEFAULT_API_DOMAIN = 'https://api-im.qxkejiwl.top'
+export const PTE_IM_DEFAULT_IM_DOMAIN = 'wss://wss.qxkejiwl.top/ws'
+export const PTE_IM_DEFAULT_COS_DOMAIN = 'https://cos.qxkejiwl.top'
+export const PTE_IM_DEFAULT_COMMERCE_DOMAIN = 'https://api-im-commerce.qxkejiwl.top'
+
+/** Host input: domains may be omitted; createPteIMSDK fills public defaults. */
+export type PteIMBaseConfigInput = {
+  apiDomain?: string
+  imDomain?: string
+  cosDomain?: string
+  map?: PteIMMapConfig
+  /** Pass '' to disable Commerce; omit to use PTE_IM_DEFAULT_COMMERCE_DOMAIN. */
+  commerceDomain?: string
+  themeMode?: 'system' | 'light' | 'dark'
+  language?: 'system' | 'zh-CN' | 'en-US'
+  localStorageCipher?: PteIMLocalStorageCipher
+  cryptoRandomSource?: PteIMSecureRandomSource
+}
+
 export type PteIMBaseConfig = {
   apiDomain: string
   imDomain: string
@@ -26,6 +46,31 @@ export type PteIMBaseConfig = {
   localStorageCipher?: PteIMLocalStorageCipher
   /** Supplied by the H5/WeChat entry module; applications normally do not set this themselves. */
   cryptoRandomSource?: PteIMSecureRandomSource
+}
+
+/** Fill omitted/blank domain fields with the public defaults. */
+export function resolvePteIMBaseConfig(config: PteIMBaseConfigInput): PteIMBaseConfig {
+  const apiDomain = config.apiDomain != null && config.apiDomain.length > 0 ? config.apiDomain : PTE_IM_DEFAULT_API_DOMAIN
+  const imDomain = config.imDomain != null && config.imDomain.length > 0 ? config.imDomain : PTE_IM_DEFAULT_IM_DOMAIN
+  const cosDomain = config.cosDomain != null && config.cosDomain.length > 0 ? config.cosDomain : PTE_IM_DEFAULT_COS_DOMAIN
+  let commerceDomain: string | null = null
+  if (config.commerceDomain == null) {
+    commerceDomain = PTE_IM_DEFAULT_COMMERCE_DOMAIN
+  } else if (config.commerceDomain.length > 0) {
+    commerceDomain = config.commerceDomain
+  }
+  const resolved = {
+    apiDomain: apiDomain,
+    imDomain: imDomain,
+    cosDomain: cosDomain,
+    themeMode: config.themeMode,
+    language: config.language,
+  } as PteIMBaseConfig
+  if (commerceDomain != null) resolved.commerceDomain = commerceDomain
+  if (config.map != null) resolved.map = config.map
+  if (config.localStorageCipher != null) resolved.localStorageCipher = config.localStorageCipher
+  if (config.cryptoRandomSource != null) resolved.cryptoRandomSource = config.cryptoRandomSource
+  return resolved
 }
 
 /** Keys must be restricted by H5 origin or WeChat Mini Program AppID in the AMap console. */

@@ -3,15 +3,21 @@ import { p256 } from '@noble/curves/nist.js'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { PteIMCommerce } from '../commerce/index.ts'
+import { resolvePteIMDomains } from '../defaults.ts'
 
 export interface PteChatCredentials {
   provider?: string
-  apiUrl: string
-  wsUrl: string
+  /** Defaults to the public api-im host when omitted. */
+  apiUrl?: string
+  /** Defaults to the public WSS `/ws` URL when omitted. */
+  wsUrl?: string
   /** HTTPS origin used to resolve COS object keys for display (no trailing slash). */
   cosDomain?: string
-  /** Optional IM Commerce HTTPS origin (no path). */
-  commerceDomain?: string
+  /**
+   * Optional IM Commerce HTTPS origin (no path). Defaults to the public
+   * Commerce host; pass `null` or `''` to disable.
+   */
+  commerceDomain?: string | null
   sdkAppId: string
   identifier: string
   userSig: string
@@ -131,8 +137,15 @@ type E2EERequest = (path: string, body: Record<string, unknown>) => Promise<unkn
  * transport or message storage is involved.
  */
 /** @deprecated Prefer PteIMWebSDK alias; same chat client. */
+type ResolvedChatCredentials = PteChatCredentials & {
+  apiUrl: string
+  wsUrl: string
+  cosDomain: string
+  commerceDomain?: string
+}
+
 export class PteLiveIMWebClient {
-  private credentials: PteChatCredentials
+  private credentials: ResolvedChatCredentials
   private socket: WebSocket | null = null
   private stopped = true
   private reconnectTimer: number | null = null
@@ -142,10 +155,17 @@ export class PteLiveIMWebClient {
   readonly commerce: PteIMCommerce
 
   constructor(credentials: PteChatCredentials) {
-    if (!credentials.apiUrl || !credentials.wsUrl || !credentials.sdkAppId || !credentials.identifier || !credentials.userSig) {
+    if (!credentials.sdkAppId || !credentials.identifier || !credentials.userSig) {
       throw new Error('PTE IM 凭证不完整')
     }
-    this.credentials = { ...credentials }
+    const domains = resolvePteIMDomains(credentials)
+    this.credentials = {
+      ...credentials,
+      apiUrl: domains.apiUrl,
+      wsUrl: domains.wsUrl,
+      cosDomain: domains.cosDomain,
+      commerceDomain: domains.commerceDomain,
+    }
     this.e2ee = new E2EE(
       this.scope(),
       Number(this.credentials.sdkAppId),

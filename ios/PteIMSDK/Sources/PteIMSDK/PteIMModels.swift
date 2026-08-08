@@ -39,18 +39,34 @@ public extension PteIMLanguage {
   }
 }
 
+/** Public defaults for [PteIMBaseConfig]. Hosts may override any field. */
+public enum PteIMDefaultDomains {
+  public static let api = "https://api-im.qxkejiwl.top"
+  public static let im = "wss://wss.qxkejiwl.top/ws"
+  public static let cos = "https://cos.qxkejiwl.top"
+  public static let commerce = "https://api-im-commerce.qxkejiwl.top"
+}
+
 public struct PteIMBaseConfig: Sendable {
   public let apiDomain: URL
   public let imDomain: URL
   public let cosDomain: URL
-  /** Optional HTTPS Commerce extension origin. It reuses this IM session's UserSig. */
+  /** Optional HTTPS Commerce origin. Defaults to the public host; pass `nil` to disable. */
   public let commerceDomain: URL?
   public let themeMode: PteIMThemeMode
   public let language: PteIMLanguage
   /** Explicit development-only opt-in for a local Docker stack. */
   public let allowInsecureLocalhost: Bool
 
-  public init(apiDomain: String, imDomain: String, cosDomain: String, commerceDomain: String? = nil, themeMode: PteIMThemeMode = .system, language: PteIMLanguage = .system, allowInsecureLocalhost: Bool = false) throws {
+  public init(
+    apiDomain: String = PteIMDefaultDomains.api,
+    imDomain: String = PteIMDefaultDomains.im,
+    cosDomain: String = PteIMDefaultDomains.cos,
+    commerceDomain: String? = PteIMDefaultDomains.commerce,
+    themeMode: PteIMThemeMode = .system,
+    language: PteIMLanguage = .system,
+    allowInsecureLocalhost: Bool = false
+  ) throws {
     func allowsInsecureLocalhost(_ url: URL, scheme: String) -> Bool {
       guard allowInsecureLocalhost, url.scheme == scheme, let host = url.host?.lowercased() else { return false }
       return host == "localhost" || host == "127.0.0.1" || host == "::1"

@@ -21,7 +21,8 @@
 import { PteIMWebSDK, type PteChatListener } from '@pte-live/pte-im-sdk'
 
 const client = new PteIMWebSDK({
-  apiUrl, wsUrl, commerceDomain, sdkAppId,
+  // apiUrl / wsUrl / cosDomain / commerceDomain 可省略，默认 qxkejiwl.top 公共域名
+  sdkAppId,
   identifier: userId, userId, userSig, expireAt,
 })
 client.addListener({ onMessage: (m) => { /* decrypted */ } })

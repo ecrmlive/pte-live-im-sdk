@@ -1,7 +1,7 @@
-import { PteIMBaseConfig, PteIMSDKBootstrap } from '../interface.uts'
+import { PteIMBaseConfigInput, PteIMSDKBootstrap } from '../interface.uts'
 import { createCrossPlatformPteIMSDK } from '../cross-platform.uts'
 
-export function createPteIMSDK(config: PteIMBaseConfig): PteIMSDKBootstrap {
+export function createPteIMSDK(config: PteIMBaseConfigInput = {} as PteIMBaseConfigInput): PteIMSDKBootstrap {
   if (config.cryptoRandomSource == null) config.cryptoRandomSource = {
     getBytes: (length, callback) => {
       try {

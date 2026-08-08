@@ -6,10 +6,12 @@ import {
   type LiveCatchUpSource,
   type LiveEventEnvelope,
 } from './tracker.ts'
+import { resolvePteIMDomains } from '../defaults.ts'
 import { assertSceneRoomId, groupNameForScene, type PteIMSceneKind } from './types.ts'
 
 export interface PteIMSceneCredentials {
-  wsUrl: string
+  /** Defaults to the public WSS `/ws` URL when omitted. */
+  wsUrl?: string
   sdkAppId: string
   userId: string
   userSig: string
@@ -46,7 +48,7 @@ export interface PteIMSceneListener {
  * Does not share a socket with chat; host supplies room-scoped UserSig and catch-up HTTP.
  */
 export class PteIMSceneClient {
-  private credentials: PteIMSceneCredentials
+  private credentials: PteIMSceneCredentials & { wsUrl: string }
   private socket: WebSocket | null = null
   private stopped = true
   private handshaken = false
@@ -68,10 +70,11 @@ export class PteIMSceneClient {
   private catchUpBusy = false
 
   constructor(credentials: PteIMSceneCredentials) {
-    if (!credentials.wsUrl || !credentials.sdkAppId || !credentials.userId || !credentials.userSig) {
+    if (!credentials.sdkAppId || !credentials.userId || !credentials.userSig) {
       throw new Error('PTE IM Scene 凭证不完整')
     }
-    this.credentials = { ...credentials }
+    const { wsUrl } = resolvePteIMDomains({ wsUrl: credentials.wsUrl })
+    this.credentials = { ...credentials, wsUrl }
   }
 
   addListener(listener: PteIMSceneListener) {

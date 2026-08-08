@@ -39,10 +39,6 @@ class ChatProbe extends PteIMListener {
 /** Minimal SDK-only test harness. It creates ordinary test-server identities
  * at runtime and never imports, navigates to, or reuses the Demo application. */
 class AcceptanceRunner {
-  private readonly apiDomain: string = 'https://api-im.qxkejiwl.top'
-  private readonly imDomain: string = 'wss://wss.qxkejiwl.top/ws'
-  private readonly cosDomain: string = 'https://cos.qxkejiwl.top'
-  private readonly commerceDomain: string = 'https://api-im-commerce.qxkejiwl.top'
 
   async run(context: Context): Promise<void> {
     let sender: PteIMSDK | null = null
@@ -101,13 +97,15 @@ class AcceptanceRunner {
   }
 
   private async login(context: Context, credential: Credential): Promise<PteIMSDK> {
-    const base = new PteIMBaseConfig(this.apiDomain, this.imDomain, this.cosDomain, PteIMThemeMode.SYSTEM, PteIMLanguage.EN_US, this.commerceDomain)
+    // Public api/wss/cos/commerce defaults; override constructor args when needed.
+    const base = new PteIMBaseConfig()
+    base.themeMode = PteIMThemeMode.SYSTEM
+    base.language = PteIMLanguage.EN_US
     return await PteIMSDK.configure(context, base).login(new PteIMLoginConfig(credential.sdkAppId, credential.userId, credential.userSig, credential.expireAt), false)
   }
 
   private async enterScene(sdk: PteIMSDK, credential: Credential, scene: string, roomId: string): Promise<PteIMSceneClient> {
     const credentials = new PteIMSceneCredentials()
-    credentials.wsUrl = this.imDomain
     credentials.sdkAppId = credential.sdkAppId.toString()
     credentials.userId = credential.userId
     credentials.userSig = credential.userSig

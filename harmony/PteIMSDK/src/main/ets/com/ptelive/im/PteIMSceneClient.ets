@@ -1,5 +1,6 @@
 import webSocket from '@ohos.net.webSocket'
 import util from '@ohos.util'
+import { PteIMDefaultDomains } from './IMModels'
 import {
   RoomSeqTracker,
   eventTypeFromFrame,
@@ -88,9 +89,11 @@ export class PteIMSceneClient {
   private catchUpBusy: boolean = false
 
   constructor(credentials: PteIMSceneCredentials) {
-    if (credentials.wsUrl.length === 0 || credentials.sdkAppId.length === 0 ||
-      credentials.userId.length === 0 || credentials.userSig.length === 0) {
+    if (credentials.sdkAppId.length === 0 || credentials.userId.length === 0 || credentials.userSig.length === 0) {
       throw new Error('PTE IM Scene 凭证不完整')
+    }
+    if (credentials.wsUrl.length === 0) {
+      credentials.wsUrl = PteIMDefaultDomains.IM
     }
     this.credentials = credentials
   }

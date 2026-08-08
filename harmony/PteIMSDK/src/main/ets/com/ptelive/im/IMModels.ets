@@ -96,17 +96,31 @@ export class PteIMMessageReaction {
   }
 }
 
+/** Public defaults for PteIMBaseConfig. Hosts may override any constructor argument. */
+export class PteIMDefaultDomains {
+  static readonly API: string = 'https://api-im.qxkejiwl.top'
+  static readonly IM: string = 'wss://wss.qxkejiwl.top/ws'
+  static readonly COS: string = 'https://cos.qxkejiwl.top'
+  static readonly COMMERCE: string = 'https://api-im-commerce.qxkejiwl.top'
+}
+
 export class PteIMBaseConfig {
   apiDomain: string
   imDomain: string
   cosDomain: string
-  /** Optional HTTPS Commerce extension origin. It shares the current UserSig. */
+  /** Optional HTTPS Commerce extension origin. Empty string disables Commerce. */
   commerceDomain: string
   themeMode: PteIMThemeMode
   language: PteIMLanguage
 
-  constructor(apiDomain: string, imDomain: string, cosDomain: string,
-    themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM, language: PteIMLanguage = PteIMLanguage.SYSTEM, commerceDomain: string = '') {
+  constructor(
+    apiDomain: string = PteIMDefaultDomains.API,
+    imDomain: string = PteIMDefaultDomains.IM,
+    cosDomain: string = PteIMDefaultDomains.COS,
+    themeMode: PteIMThemeMode = PteIMThemeMode.SYSTEM,
+    language: PteIMLanguage = PteIMLanguage.SYSTEM,
+    commerceDomain: string = PteIMDefaultDomains.COMMERCE,
+  ) {
     this.apiDomain = apiDomain
     this.imDomain = imDomain
     this.cosDomain = cosDomain

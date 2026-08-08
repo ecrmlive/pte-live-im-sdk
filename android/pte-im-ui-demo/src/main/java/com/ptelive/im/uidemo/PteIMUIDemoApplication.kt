@@ -17,17 +17,25 @@ class PteIMUIDemoApplication : Application() {
   companion object {
     /**
      * Debug uses the local Docker IM stack through localhost. Release keeps
-     * the public production domains and never enables
+     * SDK public defaults (api/wss/cos/commerce) and never enables
      * the automatic test-account path.
      */
-    val baseConfig = PteIMBaseConfig(
-      apiDomain = if (BuildConfig.DEBUG) "http://127.0.0.1:11504" else "https://api-im.pte-live.invalid",
-      imDomain = if (BuildConfig.DEBUG) "ws://127.0.0.1:11510/ws" else "wss://wss.pte-live.invalid/ws",
-      cosDomain = if (BuildConfig.DEBUG) "http://127.0.0.1:9000" else "https://cos.pte-live.invalid",
-      themeMode = PteIMThemeMode.SYSTEM,
-      language = PteIMLanguage.SYSTEM,
-      allowInsecureLocalhost = BuildConfig.DEBUG,
-    )
+    val baseConfig = if (BuildConfig.DEBUG) {
+      PteIMBaseConfig(
+        apiDomain = "http://127.0.0.1:11504",
+        imDomain = "ws://127.0.0.1:11510/ws",
+        cosDomain = "http://127.0.0.1:9000",
+        commerceDomain = null,
+        themeMode = PteIMThemeMode.SYSTEM,
+        language = PteIMLanguage.SYSTEM,
+        allowInsecureLocalhost = true,
+      )
+    } else {
+      PteIMBaseConfig(
+        themeMode = PteIMThemeMode.SYSTEM,
+        language = PteIMLanguage.SYSTEM,
+      )
+    }
     lateinit var bootstrap: com.ptelive.im.PteIMSDKBootstrap
       private set
   }

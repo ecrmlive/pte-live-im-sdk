@@ -16,9 +16,11 @@ Configure connectivity once using `PteIMBaseConfig`, then authenticate with `Pte
 import { createPteIMSDK } from '@/uni_modules/pte-im-sdk'
 
 const bootstrap = createPteIMSDK({
-  apiDomain: 'https://api.example.com',
-  imDomain: 'wss://im.example.com/ws',
-  cosDomain: 'https://cos.example.com',
+  // domains optional — defaults to api-im / wss / cos / commerce on qxkejiwl.top
+  // apiDomain: 'https://api-im.qxkejiwl.top',
+  // imDomain: 'wss://wss.qxkejiwl.top/ws',
+  // cosDomain: 'https://cos.qxkejiwl.top',
+  // commerceDomain: 'https://api-im-commerce.qxkejiwl.top',
   themeMode: 'system',
   language: 'system',
 })

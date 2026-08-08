@@ -1,6 +1,17 @@
+import { PTE_IM_DEFAULT_IM_DOMAIN } from './interface.uts'
+
 export type PteIMSceneKind = 'show' | 'voice' | 'shop' | 'sports'
 
 export type PteIMSceneCredentials = {
+  /** Defaults to PTE_IM_DEFAULT_IM_DOMAIN when omitted or empty. */
+  wsUrl?: string
+  sdkAppId: string
+  userId: string
+  userSig: string
+  expireAt?: number
+}
+
+type ResolvedSceneCredentials = {
   wsUrl: string
   sdkAppId: string
   userId: string
@@ -140,7 +151,7 @@ class RoomSeqTracker {
 
 /** Independent scene WSS client (show / voice / shop / sports). */
 export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
-  private credentials: PteIMSceneCredentials
+  private credentials: ResolvedSceneCredentials
   private socket: any | null = null
   private stopped: boolean = true
   private handshaken: boolean = false
@@ -160,11 +171,17 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
   private catchUpBusy: boolean = false
 
   constructor(credentials: PteIMSceneCredentials) {
-    if (credentials.wsUrl.length == 0 || credentials.sdkAppId.length == 0 ||
-      credentials.userId.length == 0 || credentials.userSig.length == 0) {
+    if (credentials.sdkAppId.length == 0 || credentials.userId.length == 0 || credentials.userSig.length == 0) {
       throw new Error('PTE IM Scene 凭证不完整')
     }
-    this.credentials = credentials
+    const wsUrl = credentials.wsUrl != null && credentials.wsUrl.length > 0 ? credentials.wsUrl : PTE_IM_DEFAULT_IM_DOMAIN
+    this.credentials = {
+      wsUrl: wsUrl,
+      sdkAppId: credentials.sdkAppId,
+      userId: credentials.userId,
+      userSig: credentials.userSig,
+      expireAt: credentials.expireAt,
+    }
   }
 
   addListener(listener: PteIMSceneListener): void {

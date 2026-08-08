@@ -1,4 +1,4 @@
-import { PteIMAppearance, PteIMBaseConfig, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChange, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig, PteIMUserSigRefreshResult, PteIMSceneModule } from './interface.uts'
+import { PteIMAppearance, PteIMBaseConfig, PteIMBaseConfigInput, PteIMLoginConfig, PteIMMedia, PteIMVoice, PteIMLocation, PteIMBusinessContent, PteIMIncomingMessage, PteIMMessageStateChange, PteIMConversation, PteIMRemoteConversation, PteIMConversationPage, PteIMMessagePage, PteIMSDKBootstrap, PteIMSDKClient, PteIMGender, PteIMUserProfile, PteIMUserProfileUpdate, PteIMContactPage, PteIMMemberPage, PteIMGroupPage, PteIMStateChange, PteIMStateChangePage, PteIMDefaultSetting, PteIMPushDevice, PteIMPushPlatform, PteIMListener, PteIMCommerce, PteIMMapConfig, PteIMUserSigRefreshResult, PteIMSceneModule, resolvePteIMBaseConfig } from './interface.uts'
 import { PteIME2EE } from './e2ee.uts'
 import { CrossPlatformPteIMCommerce } from './commerce.uts'
 import { createSceneModule } from './scene.uts'
@@ -822,8 +822,8 @@ class CrossPlatformPteIMSDKBootstrap implements PteIMSDKBootstrap {
   }
 }
 
-export function createCrossPlatformPteIMSDK(config: PteIMBaseConfig): PteIMSDKBootstrap {
-  return new CrossPlatformPteIMSDKBootstrap(config)
+export function createCrossPlatformPteIMSDK(config: PteIMBaseConfigInput): PteIMSDKBootstrap {
+  return new CrossPlatformPteIMSDKBootstrap(resolvePteIMBaseConfig(config))
 }
 
 function requestId(): string { return Date.now().toString() + '-' + Math.random().toString().substring(2) }

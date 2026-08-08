@@ -59,9 +59,16 @@ Android、iOS、HarmonyOS 都是独立原生 SDK；iOS UI 仅使用 UIKit。UTS 
 应用启动阶段只配置域名和显示偏好；登录阶段才传入用户身份。不要把 UserSig、COS 临时凭据或服务器密钥提交到仓库。
 
 ```text
-PteIMBaseConfig(apiDomain, imDomain, cosDomain, commerceDomain?, themeMode, language)
+PteIMBaseConfig(apiDomain?, imDomain?, cosDomain?, commerceDomain?, themeMode, language)
 PteIMLoginConfig(sdkAppId, userId, userSig, userSigExpireAt?, userSigProvider?)
 ```
+
+未传入时使用公开默认域名（可被宿主覆盖）：
+
+- `apiDomain` → `https://api-im.qxkejiwl.top`
+- `imDomain` → `wss://wss.qxkejiwl.top/ws`
+- `cosDomain` → `https://cos.qxkejiwl.top`
+- `commerceDomain` → `https://api-im-commerce.qxkejiwl.top`（传空/`null` 可关闭）
 
 `apiDomain` 是业务/API 域名，`imDomain` 是 IM WebSocket 地址，`cosDomain` 是保存 key 后访问文件的根域名。业务服务应在认证成功后返回短期 `userSig`；客户端不得自行生成。`userSigProvider` 是 SDK Core 的宿主适配点：它只负责用宿主保存的 refresh session 向业务服务换取 `{ userSig, expireAt }`。Core 会在到期前 5 分钟、HTTP 401 和 WSS 过期事件时自动调用它、更新 WSS 凭证并同步数据；业务账号密码、refresh token 存储和风控不进入 SDK。消息生命周期、逐端支持状态和 REST/WSS 契约见[消息生命周期](docs/message-lifecycle.md)。
 
@@ -70,7 +77,7 @@ PteIMLoginConfig(sdkAppId, userId, userSig, userSigExpireAt?, userSigProvider?)
 ```kotlin
 val im = PteIMSDK.configure(
   applicationContext,
-  PteIMBaseConfig(apiDomain, imDomain, cosDomain)
+  PteIMBaseConfig() // or override apiDomain / imDomain / cosDomain / commerceDomain
 ).login(
   PteIMLoginConfig(
     sdkAppId = session.sdkAppId,
