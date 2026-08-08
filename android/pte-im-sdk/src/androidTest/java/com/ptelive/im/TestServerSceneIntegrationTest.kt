@@ -18,9 +18,8 @@ class TestServerSceneIntegrationTest {
   private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
   @Test fun normalUserEntersShowRoomOverWss() {
-    val chatCredential = issueUserSig("91000001", "android-chat-show")
-    val sceneCredential = issueUserSig("91000001", "android-scene-show", scene = "show", roomId = "sdk-e2e-show")
-    val sdk = normalSdk(chatCredential)
+    val loginCredential = issueUserSig("91000001", "android-chat-show")
+    val sdk = normalSdk(loginCredential)
     val scene = sdk.createSceneClient()
     val connected = CountDownLatch(1)
     val entered = CountDownLatch(1)
@@ -29,7 +28,7 @@ class TestServerSceneIntegrationTest {
       override fun onError(message: String) { failure.compareAndSet(null, IllegalStateException(message)) }
     })
 
-    scene.connect(sceneCredential.userId, sceneCredential.userSig, sceneCredential.expireAt) { result ->
+    scene.connect(loginCredential.userId, loginCredential.userSig, loginCredential.expireAt) { result ->
       result.onSuccess { connected.countDown() }.onFailure { failure.set(it); connected.countDown() }
     }
     assertTrue("scene connect failed: ${failure.get()}", connected.await(20, TimeUnit.SECONDS) && failure.get() == null)
@@ -91,10 +90,9 @@ class TestServerSceneIntegrationTest {
     }
   }
 
-  @Test fun normalSportsUserEntersBoundSportsRoomOverWss() {
-    val chatCredential = issueUserSig("91000001", "android-chat-sports", appId = 20001)
-    val sceneCredential = issueUserSig("91000001", "android-scene-sports", appId = 20001, scene = "sports", roomId = "sports-live-910001")
-    val sdk = normalSdk(chatCredential)
+  @Test fun normalSportsUserEntersSportsRoomWithLoginUserSig() {
+    val loginCredential = issueUserSig("91000001", "android-chat-sports", appId = 20001)
+    val sdk = normalSdk(loginCredential)
     val scene = sdk.createSceneClient()
     val connected = CountDownLatch(1)
     val entered = CountDownLatch(1)
@@ -103,7 +101,7 @@ class TestServerSceneIntegrationTest {
       override fun onError(message: String) { failure.compareAndSet(null, IllegalStateException(message)) }
     })
     try {
-      scene.connect(sceneCredential.userId, sceneCredential.userSig, sceneCredential.expireAt) { result ->
+      scene.connect(loginCredential.userId, loginCredential.userSig, loginCredential.expireAt) { result ->
         result.onSuccess { connected.countDown() }.onFailure { failure.set(it); connected.countDown() }
       }
       assertTrue("sports scene connect failed: ${failure.get()}", connected.await(20, TimeUnit.SECONDS) && failure.get() == null)
@@ -141,19 +139,22 @@ class TestServerSceneIntegrationTest {
     return condition()
   }
 
-  private fun issueUserSig(userId: String, deviceId: String, appId: Int = 10001, scene: String? = null, roomId: String? = null): Credential {
+  private fun issueUserSig(userId: String, deviceId: String, appId: Int = 10001): Credential {
+    val sdkAppId = System.getenv("PTE_IM_TEST_SDK_APP_ID")?.trim().orEmpty().ifEmpty { (1400000000 + appId).toString() }
+    val appSecret = System.getenv("PTE_IM_TEST_APP_SECRET")?.trim().orEmpty()
+    check(appSecret.isNotEmpty()) { "PTE_IM_TEST_APP_SECRET is required for login UserSig issuance" }
     val key = PteIMResponseCipher.createRequestKey()
     val connection = (URL("https://api-im.qxkejiwl.top/api/v1/im/usersig").openConnection() as HttpURLConnection).apply {
       requestMethod = "POST"
       doOutput = true
       setRequestProperty("Content-Type", "application/json")
+      setRequestProperty("app_id", sdkAppId)
+      setRequestProperty("app_secret", appSecret)
       setRequestProperty("X-Pte-Response-Public-Key", PteIMResponseCipher.requestPublicKey(key))
     }
     return try {
-      val request = JSONObject().put("app_id", appId.toString()).put("user_id", userId).put("identifier", userId)
+      val request = JSONObject().put("user_id", userId).put("identifier", userId)
         .put("user_type", "user").put("device_id", deviceId).put("platform", "android").put("expire", 3600)
-      if (scene != null) request.put("scene", scene)
-      if (roomId != null) request.put("room_id", roomId)
       connection.outputStream.use { it.write(request.toString().toByteArray()) }
       check(connection.responseCode == HttpURLConnection.HTTP_OK) { "UserSig HTTP ${connection.responseCode}" }
       val encrypted = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })

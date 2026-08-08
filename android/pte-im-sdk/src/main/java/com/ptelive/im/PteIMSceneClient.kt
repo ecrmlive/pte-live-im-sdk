@@ -251,7 +251,7 @@ class PteIMSceneClient internal constructor(
     val separator = if (wsUrl.contains('?')) '&' else '?'
     fun encoded(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
     return wsUrl + separator + "sdkAppID=${encoded(sdkAppId.toString())}" +
-      "&identifier=${encoded(userId)}&userSig=${encoded(userSig)}"
+      "&identifier=${encoded(userId)}&userSig=${encoded(userSig)}&purpose=scene"
   }
 
   private fun handleFrame(raw: String, onHandshake: (() -> Unit)? = null) {

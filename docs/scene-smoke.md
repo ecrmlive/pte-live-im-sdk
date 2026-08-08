@@ -20,7 +20,7 @@ const stop = await runSceneSmoke({
 ```kotlin
 val scene = im.createSceneClient()
 scene.addListener(object : PteIMSceneListener { /* log onEntered / onEvent */ })
-scene.connect(userId, roomUserSig) { result ->
+scene.connect(userId, loginUserSig) { result ->
   result.onSuccess {
     scene.enter(PteIMSceneKind.SHOW, roomId, catchUp = hostCatchUp) { /* ... */ }
   }
@@ -31,7 +31,7 @@ scene.connect(userId, roomUserSig) { result ->
 
 ```swift
 let scene = im.createSceneClient()
-try await scene.connect(userId: userId, userSig: roomUserSig)
+try await scene.connect(userId: userId, userSig: loginUserSig)
 try await scene.enter(scene: .show, roomId: roomId, catchUp: hostCatchUp)
 ```
 

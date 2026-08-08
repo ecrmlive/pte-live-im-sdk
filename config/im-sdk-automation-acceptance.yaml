@@ -18,9 +18,10 @@ environment:
   api_domain_env: PTE_IM_TEST_API_DOMAIN
   ws_domain_env: PTE_IM_TEST_WS_DOMAIN
   commerce_domain_env: PTE_IM_TEST_COMMERCE_DOMAIN
-  # UserSig is obtained from the existing business-auth path and injected only
-  # through this ignored local/CI credential file. No SDK-specific account API
-  # or gateway route is part of acceptance.
+  # Business-server headers for POST /api/v1/im/usersig (login mint only).
+  # Never ship secrets in the SDK repository or client apps.
+  sdk_app_id_env: PTE_IM_TEST_SDK_APP_ID
+  app_secret_env: PTE_IM_TEST_APP_SECRET
   credential_file_env: PTE_IM_TEST_CREDENTIALS_FILE
 
 normal_test_users:
@@ -31,7 +32,7 @@ normal_test_users:
   user_ids:
     sender: 91000001
     receiver: 91000002
-  credentials: short_lived_usersig_from_existing_business_auth
+  credentials: short_lived_login_usersig_via_app_secret
   prohibited_storage:
     - repository
     - source_code
@@ -80,10 +81,8 @@ cases:
     - enter_show_and_receive_scene_event
     - enter_voice_and_receive_scene_event
   sports:
-    - issue_room_bound_usersig
-    - enter_sports_room
+    - enter_sports_room_with_login_usersig
     - receive_sports_chat_event
-    - reject_mismatched_sports_room
 
 platforms:
   web:

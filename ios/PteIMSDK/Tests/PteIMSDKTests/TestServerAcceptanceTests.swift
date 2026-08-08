@@ -68,7 +68,7 @@ final class TestServerAcceptanceTests: XCTestCase {
   func testNormalUserEntersSocialRoomsOverWss() async throws {
     for (scene, roomID) in [(PteIMSceneKind.show, "sdk-e2e-show"), (PteIMSceneKind.voice, "sdk-e2e-voice"), (PteIMSceneKind.shop, "sdk-e2e-shop")] {
       let chat = try await normalSDK(userId: "91000001", deviceID: "ios-sdk-scene-\(scene.rawValue)")
-      let credential = try await issueUserSig(userId: "91000001", deviceID: "ios-sdk-scene-\(scene.rawValue)", scene: scene.rawValue, roomID: roomID)
+      let credential = try await issueUserSig(userId: "91000001", deviceID: "ios-sdk-scene-\(scene.rawValue)")
       let client = chat.createSceneClient()
       defer { client.disconnect(); chat.stop() }
       try await client.connect(userId: credential.userID, userSig: credential.userSig, expireAt: credential.expireAt)
@@ -78,9 +78,9 @@ final class TestServerAcceptanceTests: XCTestCase {
     }
   }
 
-  func testNormalSportsUserEntersBoundSportsRoomOverWss() async throws {
+  func testNormalSportsUserEntersSportsRoomWithLoginUserSig() async throws {
     let chat = try await normalSDK(userId: "91000001", deviceID: "ios-sdk-sports", appID: 20_001)
-    let credential = try await issueUserSig(userId: "91000001", deviceID: "ios-sdk-sports", appID: 20_001, scene: "sports", roomID: "sports-live-910001")
+    let credential = try await issueUserSig(userId: "91000001", deviceID: "ios-sdk-sports", appID: 20_001)
     let client = chat.createSceneClient()
     defer { client.disconnect(); chat.stop() }
     try await client.connect(userId: credential.userID, userSig: credential.userSig, expireAt: credential.expireAt)
@@ -98,18 +98,23 @@ final class TestServerAcceptanceTests: XCTestCase {
     return sdk
   }
 
-  private func issueUserSig(userId: String, deviceID: String, appID: Int64 = 10_001, scene: String? = nil, roomID: String? = nil) async throws -> Credential {
+  private func issueUserSig(userId: String, deviceID: String, appID: Int64 = 10_001) async throws -> Credential {
+    guard let appSecret = ProcessInfo.processInfo.environment["PTE_IM_TEST_APP_SECRET"]?.trimmingCharacters(in: .whitespacesAndNewlines), !appSecret.isEmpty else {
+      throw AcceptanceError.userSigRequestFailed
+    }
+    let sdkAppID = ProcessInfo.processInfo.environment["PTE_IM_TEST_SDK_APP_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+      ?? String(1_400_000_000 + appID)
     let key = PteIMResponseCipher.requestKey()
-    var body: [String: Any] = [
-      "app_id": String(appID), "user_id": userId, "identifier": userId,
+    let body: [String: Any] = [
+      "user_id": userId, "identifier": userId,
       "user_type": "user", "device_id": deviceID, "platform": "ios", "expire": 3600,
     ]
-    if let scene { body["scene"] = scene }
-    if let roomID { body["room_id"] = roomID }
     var request = URLRequest(url: URL(string: "\(apiDomain)/api/v1/im/usersig")!)
     request.httpMethod = "POST"
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(sdkAppID, forHTTPHeaderField: "app_id")
+    request.setValue(appSecret, forHTTPHeaderField: "app_secret")
     request.setValue(PteIMResponseCipher.requestPublicKey(key), forHTTPHeaderField: "X-Pte-Response-Public-Key")
     let (encrypted, response) = try await URLSession.shared.data(for: request)
     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AcceptanceError.userSigRequestFailed }

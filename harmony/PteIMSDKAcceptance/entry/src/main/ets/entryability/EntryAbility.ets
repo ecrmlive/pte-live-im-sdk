@@ -39,6 +39,10 @@ class ChatProbe extends PteIMListener {
 /** Minimal SDK-only test harness. It creates ordinary test-server identities
  * at runtime and never imports, navigates to, or reuses the Demo application. */
 class AcceptanceRunner {
+  private apiDomain: string = 'https://api-im.qxkejiwl.top'
+  // Set by CI / local harness before launch; never commit a real secret.
+  private sdkAppId: string = ''
+  private appSecret: string = ''
 
   async run(context: Context): Promise<void> {
     let sender: PteIMSDK | null = null
@@ -79,12 +83,11 @@ class AcceptanceRunner {
 
       for (const scene of ['show', 'voice', 'shop']) {
         this.phase(`scene-${scene}`)
-        const credential = await this.issueUserSig('98000003', `harmony-sdk-${scene}`, 10001, scene, `sdk-e2e-${scene}`)
-        const client = await this.enterScene(sender, credential, scene, `sdk-e2e-${scene}`)
+        const client = await this.enterScene(sender, senderCredential, scene, `sdk-e2e-${scene}`)
         client.disconnect()
       }
       this.phase('scene-sports')
-      const sportsCredential = await this.issueUserSig('98000003', 'harmony-sdk-sports', 20001, 'sports', 'sports-live-910001')
+      const sportsCredential = await this.issueUserSig('98000003', 'harmony-sdk-sports', 20001)
       const sports = await this.enterScene(sender, sportsCredential, 'sports', 'sports-live-910001')
       sports.disconnect()
       console.info('PTE_IM_SDK_ACCEPTANCE:PASS')
@@ -119,14 +122,19 @@ class AcceptanceRunner {
     return client
   }
 
-  private async issueUserSig(userId: string, deviceId: string, appId: number = 10001, scene: string = '', roomId: string = ''): Promise<Credential> {
+  private async issueUserSig(userId: string, deviceId: string, appId: number = 10001): Promise<Credential> {
+    const sdkAppId = this.sdkAppId.trim().length > 0 ? this.sdkAppId.trim() : (1400000000 + appId).toString()
+    this.assert(this.appSecret.trim().length > 0, 'AcceptanceRunner.appSecret (PTE_IM_TEST_APP_SECRET) is required for login UserSig issuance')
     const request = http.createHttp()
     try {
       const responseKey = await PteIMResponseCrypto.createRequestKey()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Pte-Response-Public-Key': responseKey.publicKey }
-      const body: WireObject = { 'app_id': appId.toString(), 'user_id': userId, 'identifier': userId, 'user_type': 'user', 'device_id': deviceId, 'platform': 'harmony', 'expire': 3600 }
-      if (scene.length > 0) body['scene'] = scene
-      if (roomId.length > 0) body['room_id'] = roomId
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'app_id': sdkAppId,
+        'app_secret': this.appSecret.trim(),
+        'X-Pte-Response-Public-Key': responseKey.publicKey,
+      }
+      const body: WireObject = { 'user_id': userId, 'identifier': userId, 'user_type': 'user', 'device_id': deviceId, 'platform': 'harmony', 'expire': 3600 }
       const response = await request.request(`${this.apiDomain}/api/v1/im/usersig`, { method: http.RequestMethod.POST, header: headers, extraData: JSON.stringify(body), connectTimeout: 10000, readTimeout: 10000 })
       this.assert(response.responseCode === 200, `UserSig HTTP ${response.responseCode}`)
       const root = await PteIMResponseCrypto.decryptResponse(JSON.parse(response.result.toString()) as WireObject, responseKey)

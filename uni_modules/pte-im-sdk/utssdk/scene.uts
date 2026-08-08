@@ -500,7 +500,8 @@ export class CrossPlatformPteIMSceneClient implements PteIMSceneClient {
     return this.credentials.wsUrl + separator +
       'sdkAppID=' + encodeURIComponent(this.credentials.sdkAppId) +
       '&identifier=' + encodeURIComponent(this.credentials.userId) +
-      '&userSig=' + encodeURIComponent(this.credentials.userSig)
+      '&userSig=' + encodeURIComponent(this.credentials.userSig) +
+      '&purpose=scene'
   }
 }
 

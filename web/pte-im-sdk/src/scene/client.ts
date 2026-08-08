@@ -166,6 +166,7 @@ export class PteIMSceneClient {
       url.searchParams.set('sdkAppID', this.credentials.sdkAppId)
       url.searchParams.set('identifier', this.credentials.userId)
       url.searchParams.set('userSig', this.credentials.userSig)
+      url.searchParams.set('purpose', 'scene')
       const socket = new WebSocket(url.toString())
       this.socket = socket
       const timer = window.setTimeout(() => {

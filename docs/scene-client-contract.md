@@ -7,11 +7,11 @@
 
 | SDK 负责 | 宿主负责 |
 | --- | --- |
-| 独立 WSS 连接、握手、`scene.enter` / `scene.ack`、`scene.leave` | 签发房间绑定 UserSig |
+| 独立 WSS 连接（`purpose=scene`）、握手、`scene.enter` / `scene.ack`、`scene.leave` | 业务登录后向 IM 换取**登录 UserSig**（服务端用头 `app_id`+`app_secret` 调签发口；客户端不得直调） |
 | `roomSeq` 水位、`eventId` 去重、缺口补漏编排 | 实现补漏 HTTP（详情 `currentRoomSeq` + `events?after_seq=`） |
 | 按 `eventType` 分发（未知类型仍透传） | 推流/拉流、RTC、业务写操作与房间 UI |
 
-**Chat 与 Scene 使用独立 WSS 连接**（同一 `/ws` 端点，不同 UserSig 生命周期）。进房用 scene 签；聊一聊用 chat 签。
+**Chat 与 Scene 使用独立 WSS 连接**（同一 `/ws` 端点），但**共用同一登录 UserSig**。房间准入只由 `scene.enter` / `scene.leave` 决定，不签发房间绑定签。
 
 ## 场景枚举
 
@@ -22,12 +22,12 @@
 | 电商 | `shop` | `123` | `live:123` |
 | 体育 | `sports` | `sports-live-123` | `sports:sports-live-123` |
 
-体育：UserSig 内 `room_id` 必须与 `scene.enter.room_id` 同为 `sports-live-{数字id}`。SDK 在 enter 前做本地格式校验。
+体育：`scene.enter.room_id` 须为 `sports-live-{数字id}`。SDK 在 enter 前做本地格式校验。
 
 ## API 语义（五端一致）
 
 ```text
-scene.connect({ wsUrl, sdkAppId, userId, userSig })
+scene.connect({ wsUrl, sdkAppId, userId, userSig })  // 登录 UserSig；WSS 自动带 purpose=scene
 scene.enter({ scene, roomId, extend?, catchUp? })
 scene.leave()
 scene.disconnect()
@@ -57,7 +57,7 @@ fetchEventsAfter(afterSeq, limit?): Promise<{ currentRoomSeq, events[] }>
 ## 进房顺序
 
 ```text
-1) connect → 等握手 code=0
+1) connect（登录 UserSig + purpose=scene）→ 等握手 code=0
 2) 可选 catchUp（水位种子 + after_seq）
 3) scene.enter（带 request_id）
 4) scene.ack ok=true → onEntered

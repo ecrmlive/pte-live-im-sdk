@@ -195,7 +195,7 @@ const chat = new PteIMWebSDK({
 await chat.start()
 
 // 房间：独立 WSS；show=社交直播 voice=语聊 shop=电商 sports=体育
-const scene = new PteIMSceneClient({ wsUrl, sdkAppId, userId, userSig: roomUserSig })
+const scene = new PteIMSceneClient({ wsUrl, sdkAppId, userId, userSig: loginUserSig })
 await scene.enter({ scene: 'show', roomId, catchUp })
 ```
 

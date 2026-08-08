@@ -224,6 +224,7 @@ public final class PteIMSceneClient: NSObject, @unchecked Sendable, URLSessionWe
     items.append(URLQueryItem(name: "sdkAppID", value: String(sdkAppId)))
     items.append(URLQueryItem(name: "identifier", value: userId))
     items.append(URLQueryItem(name: "userSig", value: userSig))
+    items.append(URLQueryItem(name: "purpose", value: "scene"))
     components.queryItems = items
     return components.url!
   }

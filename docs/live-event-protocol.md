@@ -41,7 +41,7 @@ await scene.enter({ scene: 'show', roomId, catchUp })
 ## 原生 / UTS
 
 ```text
-Android / iOS: im.createSceneClient() → connect(roomUserSig) → enter(...)
+Android / iOS: im.createSceneClient() → connect(loginUserSig) → enter(...)
 HarmonyOS:     im.createSceneClient(credentials) → connect → enter
 UTS:           client.scene.create(credentials) → connect → enter
 ```
